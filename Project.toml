@@ -1,0 +1,4 @@
+name = "CDFViewer"
+uuid = "50096eed-4867-42b1-b390-9381532214de"
+authors = ["Silvano <silvano98@hotmail.de>"]
+version = "0.1.0"
