@@ -2,6 +2,7 @@ module UI
 
 using GLMakie
 using CDFViewer.Data: CDFDataset
+using CDFViewer.Plotting
 
 # ============================================
 #  Plot Menu
@@ -24,8 +25,7 @@ function construct_textbox(fig::Figure, placeholder::String)
 end
 
 function init_plot_menu(fig::Figure)
-    plot_types = ["heatmap", "contour", "contourf", "surface", "wireframe", "line", "scatter", "volume", "contour3d"]
-    plot_type_menu = Menu(fig, options = plot_types)
+    plot_type_menu = Menu(fig, options = Plotting.PLOT_OPTIONS_3D)
     axes_kw_box = construct_textbox(fig, "e.g., xscale=log10; yscale=log10")
     plot_kw_box = construct_textbox(fig, "e.g., colormap=:viridis; colorrange=(-1,1)")
     PlotMenu(plot_type_menu, axes_kw_box, plot_kw_box)
