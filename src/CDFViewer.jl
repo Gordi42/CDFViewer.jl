@@ -3,6 +3,7 @@ module CDFViewer
 using NCDatasets
 
 include("Data.jl")
+include("UI.jl")
 
 export open_viewer
 
