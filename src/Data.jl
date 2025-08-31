@@ -1,6 +1,7 @@
 module Data
 
 using NCDatasets
+using GLMakie
 
 struct CDFDataset
     ds::NCDataset
@@ -15,17 +16,61 @@ function open_dataset(file_path::String)
     return CDFDataset(ds, dimensions, variables)
 end
 
-"Get dimension values as Float64 vector."
 function get_dim_values(dataset::CDFDataset, dim::String)
+    dim === "Not Selected" && return Float64[]
     try
         return convert(Vector{Float64}, dataset.ds[dim][:])
     catch
-        return Float64.(1:length(dataset.ds[dim]))
+        dim_len = dataset.ds.dim[dim]
+        return Float64.(1:dim_len)
     end
 end
 
-"Get a human-readable label with long_name and units."
+function get_dim_array(dataset::CDFDataset, dim::Observable{String})
+    @lift(get_dim_values(dataset, $dim))
+end
+
+function get_data_slice(
+    var_dims::Vector{String},
+    plot_dimensions::Vector{String},
+    dimension_selections::Dict{String, Int},
+)
+    [dim in plot_dimensions ? Colon() : dimension_selections[dim] for dim in var_dims]
+    # # create a vector for slicing
+    # slices = Union{Colon, Int}[]
+
+    # for dim in var_dims
+    #     if dim in plot_dimensions
+    #         push!(slices, Colon())
+    #     else
+    #         push!(slices, dimension_selections[dim])
+    #     end
+    # end
+    # slices
+end
+
+function get_data(
+    dataset::CDFDataset,
+    variable::String,
+    plot_dimensions::Vector{String},
+    dimension_selections::Dict{String, Int},
+)
+    # get the dimensions of the variable
+    var_dims = collect(dimnames(dataset.ds[variable]))
+
+    # get the slices
+    slices = get_data_slice(var_dims, plot_dimensions, dimension_selections)
+
+    # permute the data to match the order of plot_dimensions
+    perm = sortperm([findfirst(==(dim), var_dims) for dim in plot_dimensions])
+    permutedims(dataset.ds[variable][slices...], perm)
+end
+
 function get_label(dataset::CDFDataset, var::String)
+    if !(var in keys(dataset.ds))
+        # some dimensions may not be stored as variables in the dataset
+        return var
+    end
     atts = dataset.ds[var].attrib
     label = haskey(atts, "long_name") ? atts["long_name"] : var
     if haskey(atts, "units")

@@ -14,7 +14,7 @@ function create_dummy_data(number_of_dims)
     elseif number_of_dims == 3
         rand(length(x), length(y), length(z))
     else
-        error("Unsupported number of dimensions")
+        nothing
     end
     (x, y, z, d)
 end
@@ -31,8 +31,8 @@ end
     for (name, plot) in Plotting.PLOT_TYPES
         @test plot isa Plotting.Plot
         @test plot.type == name
-        @test plot.ndims in (1, 2, 3)
-        @test plot.ax_ndims in (2, 3)
+        @test plot.ndims in (0, 1, 2, 3)
+        @test plot.ax_ndims in (0, 2, 3)
         @test plot.func isa Function
     end
 
@@ -43,6 +43,7 @@ end
         (x, y, z, d) = create_dummy_data(plot.ndims)
         ax = plot.ax_ndims == 3 ? Axis3(fig[1, 1]) : Axis(fig[1, 1])
         plot.func(ax, x, y, z, d)
+        plot.type === "Info" && continue  # Skip the Info plot as it does nothing
         @test !isempty(fig.content)  # Ensure something was plotted
     end
 

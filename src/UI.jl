@@ -1,8 +1,8 @@
 module UI
 
 using GLMakie
-using CDFViewer.Data: CDFDataset
-using CDFViewer.Plotting
+
+import ..Data: CDFDataset
 
 # ============================================
 #  Plot Menu
@@ -25,7 +25,7 @@ function construct_textbox(fig::Figure, placeholder::String)
 end
 
 function init_plot_menu(fig::Figure)
-    plot_type_menu = Menu(fig, options = Plotting.PLOT_OPTIONS_3D)
+    plot_type_menu = Menu(fig, options=["Info"])
     axes_kw_box = construct_textbox(fig, "e.g., xscale=log10; yscale=log10")
     plot_kw_box = construct_textbox(fig, "e.g., colormap=:viridis; colorrange=(-1,1)")
     PlotMenu(plot_type_menu, axes_kw_box, plot_kw_box)
@@ -82,7 +82,7 @@ function init_main_menu(fig::Figure, dataset::CDFDataset)
     variable_menu = Menu(fig, options = dataset.variables)
     plot_menu = init_plot_menu(fig)
     coord_sliders = SliderGrid(fig,[
-            (label=dim, range=1:length(dataset.ds[dim]), startvalue=1, update_while_dragging=false)
+            (label=dim, range=1:dataset.ds.dim[dim], startvalue=1, update_while_dragging=false)
             for dim in dataset.dimensions]...)
     playback_menu = init_playback_menu(fig, dataset.dimensions)
     MainMenu(variable_menu, plot_menu, coord_sliders, playback_menu)
@@ -125,23 +125,49 @@ function coordinate_menu_layout(coord_menu::CoordinateMenu)
 end
 
 # ============================================
+#  All Variables Controlled By the UI
+# ============================================
+
+struct State
+    variable::Observable{String}
+    plot_type_name::Observable{String}
+    x_name::Observable{String}
+    y_name::Observable{String}
+    z_name::Observable{String}
+end
+
+function init_state(main_menu::MainMenu, coord_menu::CoordinateMenu)
+    State(
+        main_menu.variable_menu.selection,
+        main_menu.plot_menu.plot_type.selection,
+        coord_menu.menus[1].selection,
+        coord_menu.menus[2].selection,
+        coord_menu.menus[3].selection,
+    )
+end
+
+
+# ============================================
 #  All UI Elements
 # ============================================
 
 struct UIElements
     main_menu::MainMenu
     coord_menu::CoordinateMenu
+    state::State
 end
 
 function init_ui_elements!(fig::Figure, dataset::CDFDataset)
     # Initialize the menus
     main_menu = init_main_menu(fig, dataset)
     coord_menu = init_coordinate_menu(fig, dataset.dimensions)
+    # Initialize the UI state
+    state = init_state(main_menu, coord_menu)
     # Put the menus in the figure
     fig[1:2, 1] = main_menu_layout(fig, main_menu)
     fig[2, 2] = coordinate_menu_layout(coord_menu)
     # Return the UI elements
-    UIElements(main_menu, coord_menu)
+    UIElements(main_menu, coord_menu, state)
 end
 
 end # module

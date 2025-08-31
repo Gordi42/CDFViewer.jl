@@ -3,8 +3,8 @@ module CDFViewer
 using NCDatasets
 
 include("Data.jl")
-include("Plotting.jl")
 include("UI.jl")
+include("Plotting.jl")
 
 export open_viewer
 

@@ -16,9 +16,7 @@ using GLMakie
     @test plot_menu.plot_kw isa Textbox
 
     # test values
-    for opt in ["heatmap", "contour", "contourf", "surface", "wireframe", "line", "scatter", "volume", "contour3d"]
-        @test opt in plot_menu.plot_type.options[]
-    end
+    @test plot_menu.plot_type.options[] == ["Info"]
     @test plot_menu.axes_kw.placeholder[] == "e.g., xscale=log10; yscale=log10"
     @test plot_menu.plot_kw.placeholder[] == "e.g., colormap=:viridis; colorrange=(-1,1)"
 
