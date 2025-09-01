@@ -35,6 +35,22 @@ end
         @test plot.func isa Function
     end
 
+    # Test the get_plot_options function
+    @test "volume" ∈ Plotting.get_plot_options(4)
+    @test "volume" ∈ Plotting.get_plot_options(3)
+    @test "heatmap" ∈ Plotting.get_plot_options(2)
+    @test "volume" ∉ Plotting.get_plot_options(2)
+    @test "line" ∈ Plotting.get_plot_options(1)
+    @test "heatmap" ∉ Plotting.get_plot_options(1)
+    @test "Info" ∈ Plotting.get_plot_options(0)
+
+    # Test the fallback function
+    @test Plotting.get_fallback_plot(4) == "heatmap"
+    @test Plotting.get_fallback_plot(3) == "heatmap"
+    @test Plotting.get_fallback_plot(2) == "heatmap"
+    @test Plotting.get_fallback_plot(1) == "line"
+    @test Plotting.get_fallback_plot(0) == "Info"
+
     # Test the plotting functions with dummy data
     fig = Figure()
     for (name, plot) in Plotting.PLOT_TYPES
@@ -138,6 +154,19 @@ end
     @test plot_data.plot_type[] == Plotting.PLOT_TYPES["volume"]
     @test plot_data.sel_dims[] == ["lon", "lat", "only_long"]
     @test plot_data.d[3][].size == (5, 7, 4)
+
+    # Test the update switch
+    plot_data.update_data_switch[] = false
+    x_ori = plot_data.x[]
+    d_ori = plot_data.d[1][]
+    ui.state.x_name[] = "lat"
+    @test plot_data.x[] == x_ori
+    ui.state.variable[] = "2d_float"
+    @test plot_data.d[1][] == d_ori
+    ui.state.plot_type_name[] = "line"
+    plot_data.update_data_switch[] = true
+    @test length(plot_data.x[]) == 7
+    @test plot_data.d[1][].size == (7,)
 
 end
 

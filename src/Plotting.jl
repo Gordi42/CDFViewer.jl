@@ -50,6 +50,28 @@ const PLOT_OPTIONS_3D = collect(keys(PLOT_TYPES))
 const PLOT_OPTIONS_2D = filter(k -> PLOT_TYPES[k].ndims <= 2, PLOT_OPTIONS_3D)
 const PLOT_OPTIONS_1D = filter(k -> PLOT_TYPES[k].ndims == 1, PLOT_OPTIONS_3D)
 
+function get_plot_options(ndims::Int)
+    if ndims >= 3
+        PLOT_OPTIONS_3D
+    elseif ndims == 2
+        PLOT_OPTIONS_2D
+    elseif ndims == 1
+        PLOT_OPTIONS_1D
+    else
+        ["Info"]
+    end
+end
+
+function get_fallback_plot(ndims::Int)
+    if ndims >= 2
+        "heatmap"
+    elseif ndims == 1
+        "line"
+    else
+        "Info"
+    end
+end
+
 # ============================================================
 #  Figure labels
 # ============================================================
@@ -80,6 +102,7 @@ struct PlotData
     y::Observable{Union{Array, Nothing}}
     z::Observable{Union{Array, Nothing}}
     d::Vector{Observable{Union{Array, Nothing}}}
+    update_data_switch::Observable{Bool}
     labels::FigureLabels
 end
 
@@ -94,16 +117,18 @@ function init_data_arrays(
     ui_state::UI.State,
     sel_dims::Observable{Vector{String}},
     dataset::Data.CDFDataset,
+    update_switch::Observable{Bool},
 )
     data = [Observable{Union{Array, Nothing}}(nothing) for _ in 1:3] # max 3D data
     function updata_data!()
+        !(update_switch[]) && return
         ndims = length(sel_dims[])
         ndims == 0 && return
         data[ndims][] = Data.get_data(
             dataset, ui_state.variable[], sel_dims[], ui_state.dim_obs[])
     end
 
-    for trigger in (ui_state.variable, sel_dims, ui_state.dim_obs)
+    for trigger in (ui_state.variable, sel_dims, ui_state.dim_obs, update_switch)
         on(trigger) do _
             updata_data!()
         end
@@ -114,12 +139,13 @@ end
 function init_plot_data(ui_state::UI.State, dataset::Data.CDFDataset)
     plot_type = @lift(PLOT_TYPES[$(ui_state.plot_type_name)])
     sel_dims = construct_selected_dimensions(ui_state, plot_type)
-    x = Data.get_dim_array(dataset, ui_state.x_name)
-    y = Data.get_dim_array(dataset, ui_state.y_name)
-    z = Data.get_dim_array(dataset, ui_state.z_name)
-    d = init_data_arrays(ui_state, sel_dims, dataset)
+    update_switch = Observable(true)
+    x = Data.get_dim_array(dataset, ui_state.x_name, update_switch)
+    y = Data.get_dim_array(dataset, ui_state.y_name, update_switch)
+    z = Data.get_dim_array(dataset, ui_state.z_name, update_switch)
+    d = init_data_arrays(ui_state, sel_dims, dataset, update_switch)
     labels = init_figure_labels(ui_state, dataset)
-    PlotData(plot_type, sel_dims, x, y, z, d, labels)
+    PlotData(plot_type, sel_dims, x, y, z, d, update_switch, labels)
 end
 
 

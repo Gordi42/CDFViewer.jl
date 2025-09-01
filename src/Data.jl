@@ -16,6 +16,10 @@ function open_dataset(file_path::String)
     return CDFDataset(ds, dimensions, variables)
 end
 
+function get_var_dims(dataset::CDFDataset, var::String)
+    return collect(dimnames(dataset.ds[var]))
+end
+
 function get_dim_values(dataset::CDFDataset, dim::String)
     dim === "Not Selected" && return Float64[]
     try
@@ -26,8 +30,15 @@ function get_dim_values(dataset::CDFDataset, dim::String)
     end
 end
 
-function get_dim_array(dataset::CDFDataset, dim::Observable{String})
-    @lift(get_dim_values(dataset, $dim))
+function get_dim_array(dataset::CDFDataset, dim::Observable{String}, update_switch::Observable{Bool})
+    result = Observable(Data.get_dim_values(dataset, dim[]))
+    for trigger in (dim, update_switch)
+        on(trigger) do _
+            !(update_switch[]) && return
+            result[] = Data.get_dim_values(dataset, dim[])
+        end
+    end
+    result
 end
 
 function get_data_slice(

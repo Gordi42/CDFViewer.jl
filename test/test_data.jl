@@ -24,9 +24,16 @@ using GLMakie
     @test Data.get_label(dataset, "untaken") == "untaken"
     @test Data.get_label(dataset, "both_atts_var") == "Both [m/s]"
 
+    # check variable dimensions
+    @test Data.get_var_dims(dataset, "1d_float") == ["lon"]
+    @test Data.get_var_dims(dataset, "2d_float") == ["lon", "lat"]
+    @test Data.get_var_dims(dataset, "2d_gap") == ["lon", "float_dim"]
+    @test Data.get_var_dims(dataset, "2d_gap_inv") == ["float_dim", "lon"]
+
     # check data dimension observables
     test_dim = Observable("lon")
-    dim_array = Data.get_dim_array(dataset, test_dim)
+    update_switch = Observable(true)
+    dim_array = Data.get_dim_array(dataset, test_dim, update_switch)
     @test dim_array isa Observable{Vector{Float64}}
     for dim in dataset.dimensions
         test_dim[] = dim
@@ -36,6 +43,13 @@ using GLMakie
     # check the Not-Selected option
     test_dim[] = "Not Selected"
     @test dim_array[] == Float64[]
+
+    # check the update switch
+    update_switch[] = false
+    test_dim[] = "lon"
+    @test dim_array[] == Float64[]
+    update_switch[] = true
+    @test length(dim_array[]) == dataset.ds.dim["lon"]
 
     # check slice function
     dimension_selections = Dict(
