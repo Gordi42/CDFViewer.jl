@@ -37,43 +37,18 @@ const PLOT_TYPES = OrderedDict(plot.type => plot for plot in [
     Plot("scatter", 1, 2, false,
         (ax, x, y, z, d) -> scatter!(ax, x, d, color = :royalblue3)),
     Plot("volume", 3, 3, true,
-        (ax, x, y, z, d) -> volume!(ax, (x[1], x[end]), (y[1], y[end]), (z[1], z[end]), d, colormap = :balance)),
+        (ax, x, y, z, d) -> volume!(
+            ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
+            d, colormap = :balance)),
     Plot("contour3d", 3, 3, false,
-        (ax, x, y, z, d) -> contour!(ax, (x[1], x[end]), (y[1], y[end]), (z[1], z[end]), d, colormap = :balance)),
+        (ax, x, y, z, d) -> contour!(
+            ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
+            d, colormap = :balance)),
 ])
 
 const PLOT_OPTIONS_3D = collect(keys(PLOT_TYPES))
 const PLOT_OPTIONS_2D = filter(k -> PLOT_TYPES[k].ndims <= 2, PLOT_OPTIONS_3D)
 const PLOT_OPTIONS_1D = filter(k -> PLOT_TYPES[k].ndims == 1, PLOT_OPTIONS_3D)
-
-# ============================================================
-#  Plot types and their properties
-# ============================================================
-struct PlotData
-    plot_type::Observable{Plot}
-    x::Observable{Union{Array, Nothing}}
-    y::Observable{Union{Array, Nothing}}
-    z::Observable{Union{Array, Nothing}}
-    d::Vector{Observable{Union{Array, Nothing}}}
-end
-
-function init_data_arrays()
-    # TODO
-    [Observable(nothing) for _ in 1:3] # max 3D data
-end
-
-function init_plot_data(
-    plot_menu::UI.PlotMenu,
-    ui_state::UI.State,
-    dataset::Data.CDFDataset,
-)
-    plot_type = @lift(PLOT_TYPES[$(plot_menu.plot_type.selection)])
-    x = Data.get_dim_array(dataset, ui_state.x_name)
-    y = Data.get_dim_array(dataset, ui_state.y_name)
-    z = Data.get_dim_array(dataset, ui_state.z_name)
-    d = init_data_arrays()
-    PlotData(plot_type, x, y, z, d)
-end
 
 # ============================================================
 #  Figure labels
@@ -87,12 +62,66 @@ struct FigureLabels
 end
 
 function init_figure_labels(ui_state::UI.State, dataset::Data.CDFDataset)
-    title = @lift(get_label($(ui_state.variable)))
-    xlabel = @lift(get_label($(ui_state.x_name)))
-    ylabel = @lift(get_label($(ui_state.y_name)))
-    zlabel = @lift(get_label($(ui_state.z_name)))
+    title = @lift(Data.get_label(dataset, $(ui_state.variable)))
+    xlabel = @lift(Data.get_label(dataset, $(ui_state.x_name)))
+    ylabel = @lift(Data.get_label(dataset, $(ui_state.y_name)))
+    zlabel = @lift(Data.get_label(dataset, $(ui_state.z_name)))
     FigureLabels(title, xlabel, ylabel, zlabel)
 end
+
+# ============================================================
+#  Plot data
+# ============================================================
+
+struct PlotData
+    plot_type::Observable{Plot}
+    sel_dims::Observable{Vector{String}}
+    x::Observable{Union{Array, Nothing}}
+    y::Observable{Union{Array, Nothing}}
+    z::Observable{Union{Array, Nothing}}
+    d::Vector{Observable{Union{Array, Nothing}}}
+    labels::FigureLabels
+end
+
+function construct_selected_dimensions(ui_state::UI.State, plot_type::Observable{Plot})
+    @lift([
+        $(ui_state.x_name),
+        $(ui_state.y_name),
+        $(ui_state.z_name),][1:$plot_type.ndims])
+end
+
+function init_data_arrays(
+    ui_state::UI.State,
+    sel_dims::Observable{Vector{String}},
+    dataset::Data.CDFDataset,
+)
+    data = [Observable{Union{Array, Nothing}}(nothing) for _ in 1:3] # max 3D data
+    function updata_data!()
+        ndims = length(sel_dims[])
+        ndims == 0 && return
+        data[ndims][] = Data.get_data(
+            dataset, ui_state.variable[], sel_dims[], ui_state.dim_obs[])
+    end
+
+    for trigger in (ui_state.variable, sel_dims, ui_state.dim_obs)
+        on(trigger) do _
+            updata_data!()
+        end
+    end
+    data
+end
+
+function init_plot_data(ui_state::UI.State, dataset::Data.CDFDataset)
+    plot_type = @lift(PLOT_TYPES[$(ui_state.plot_type_name)])
+    sel_dims = construct_selected_dimensions(ui_state, plot_type)
+    x = Data.get_dim_array(dataset, ui_state.x_name)
+    y = Data.get_dim_array(dataset, ui_state.y_name)
+    z = Data.get_dim_array(dataset, ui_state.z_name)
+    d = init_data_arrays(ui_state, sel_dims, dataset)
+    labels = init_figure_labels(ui_state, dataset)
+    PlotData(plot_type, sel_dims, x, y, z, d, labels)
+end
+
 
 # ============================================================
 #  Figure data structure
@@ -100,10 +129,10 @@ end
 
 struct FigureData
     fig::Figure
+    plot_data::PlotData
     ax::Observable{Union{Makie.AbstractAxis, Nothing}}
-    plotobj::Observable{Union{Makie.AbstractPlot, Nothing}}
+    plot_obj::Observable{Union{Makie.AbstractPlot, Nothing}}
     cbar::Observable{Union{Colorbar, Nothing}}
-    labels::FigureLabels
 end
 
 function create_figure()
@@ -114,103 +143,105 @@ function create_figure()
     fig
 end
 
-function create_2d_axis(
-    labels::FigureLabels,
-    plot_type::Plot,
-    ax_layout::GridLayout,
-)
+function create_2d_axis(ax_layout::GridPosition, plot_data::PlotData)
     Axis(
         ax_layout,
-        xlabel = labels.xlabel,
-        ylabel = plot_type.ndims > 1 ? labels.ylabel : "",
+        xlabel = plot_data.labels.xlabel,
+        ylabel = plot_data.plot_type[].ndims > 1 ? plot_data.labels.ylabel : "",
         xlabelsize = 20,    
         ylabelsize = 20,    
-        title = labels.title,
+        title = plot_data.labels.title,
         titlesize = 24,
     )
 end
 
-function create_3d_axis(
-    labels::FigureLabels,
-    plot_type::Plot,
-    ax_layout::GridLayout,
-)
+function create_3d_axis(ax_layout::GridPosition, plot_data::PlotData)
     Axis3(
         ax_layout,
-        xlabel = labels.xlabel,
-        ylabel = labels.ylabel,
-        zlabel = plot_type.ndims > 2 ? labels.zlabel : "",
+        xlabel = plot_data.labels.xlabel,
+        ylabel = plot_data.labels.ylabel,
+        zlabel = plot_data.plot_type[].ndims > 2 ? plot_data.labels.zlabel : "",
         xlabelsize = 20,    
         ylabelsize = 20,
         zlabelsize = 20,
-        title = labels.title,
+        title = plot_data.labels.title,
         titlesize = 24,
     )
 end
 
-function create_axis(
-    labels::FigureLabels,
-    plot_type::Observable{Plot},
-    ax_layout::GridLayout,
-)
-    ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
-
-    on(plot_type) do pt
-        ax[] !== nothing && delete!(ax[])
-        if pt.ax_ndims == 2
-            ax[] = create_2d_axis(labels, pt, ax_layout)
-        elseif pt.ax_ndims == 3
-            ax[] = create_3d_axis(labels, pt, ax_layout)
-        else
-            ax[] = nothing
+function apply_kwargs!(obj::Union{Makie.AbstractAxis, Makie.AbstractPlot}, kw_str::Union{String, Nothing})
+    kw_str === nothing && return
+    kw = try
+        kw_expr = Meta.parse("Dict(" * kw_str * ")")
+        Dict(Symbol(pair.args[1]) => eval(pair.args[2]) for pair in kw_expr.args[2:end])
+    catch e
+        @warn "Failed to parse keyword arguments: $e"
+    end
+    for (key, value) in kw
+        try
+            setproperty!(obj, key, value)
+        catch e
+            @warn "Failed to set property $key to $value: $e"
         end
     end
-    ax
 end
 
+
 function create_plot_object(
-    cbar_layout::GridLayout,
-    plot_type::Observable{Plot},
+    cbar_layout::GridPosition,
     ax::Observable{Union{Makie.AbstractAxis, Nothing}},
     plot_data::PlotData,
+    ui_state::UI.State,
 )
     plot_obj = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
     cbar = Observable{Union{Colorbar, Nothing}}(nothing)
 
     on(ax) do a
         # first we clear the previous plot
-        plot_obj[] !== nothing && delete!(plot_obj[])
         cbar[] !== nothing && delete!(cbar[])
-        plot_type[].type == "Info" && return  # TODO
+        cbar[] = nothing
+        plot_data.plot_type[].type == "Info" && return  # TODO
 
         # then we create the new plot
-        plot_obj[] = plot_type[].func(
-            a, plot_data.x, plot_data.y, plot_data.z, plot_data.d[1])
+        plot_obj[] = plot_data.plot_type[].func(
+            a, plot_data.x, plot_data.y, plot_data.z,
+            plot_data.d[plot_data.plot_type[].ndims])
         # and add a colorbar if needed
-        if plot_type[].colorbar
+        if plot_data.plot_type[].colorbar
             cbar[] = Colorbar(cbar_layout, plot_obj[],
                 width = 30, tellwidth = false, tellheight = false)
         end
-
-        # TODO
-        # notify(plot_settings.stored_string)
-        # notify(axes_settings.stored_string)
-        # update_coord_sliders!()
+        apply_kwargs!(plot_obj[], ui_state.plot_kw[])
     end
 
     (plot_obj, cbar)
 end
 
-function init_figure_data(
-    ui_state::UI.State,
-    dataset::Data.CDFDataset,
-    plot_type::Observable{Plot},
-)
-    fig = create_figure()
-    labels = init_figure_labels(ui_state, dataset)
-    ax = create_axis(labels, plot_type, fig[1, 2])
-    plotobj, cbar = create_plot_object(fig[1, 3], plot_type, ax, plot_data)
-    FigureData(fig, ax, plotobj, cbar, labels)
+function init_figure_data(fig::Figure, plot_data::PlotData, ui_state::UI.State)
+    ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
+    plot_obj, cbar = create_plot_object(fig[1, 3], ax, plot_data, ui_state)
+
+    on(ui_state.axes_kw) do kw_str
+        ax[] !== nothing && apply_kwargs!(ax[], kw_str)
+    end
+
+    on(ui_state.plot_kw) do kw_str
+        plot_obj[] !== nothing && apply_kwargs!(plot_obj[], kw_str)
+    end
+    
+    FigureData(fig, plot_data, ax, plot_obj, cbar)
+end
+
+function create_axis!(fig_data::FigureData, ui_state::UI.State)
+    fig_data.ax[] !== nothing && delete!(fig_data.ax[])
+    if fig_data.plot_data.plot_type[].ax_ndims == 2
+        fig_data.ax[] = create_2d_axis(fig_data.fig[1, 2], fig_data.plot_data)
+    elseif fig_data.plot_data.plot_type[].ax_ndims == 3
+        fig_data.ax[] = create_3d_axis(fig_data.fig[1, 2], fig_data.plot_data)
+    else
+        fig_data.ax[] = nothing
+    end
+    apply_kwargs!(fig_data.ax[], ui_state.axes_kw[])
 end
 
 end # module Plotting

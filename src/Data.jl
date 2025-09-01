@@ -36,17 +36,6 @@ function get_data_slice(
     dimension_selections::Dict{String, Int},
 )
     [dim in plot_dimensions ? Colon() : dimension_selections[dim] for dim in var_dims]
-    # # create a vector for slicing
-    # slices = Union{Colon, Int}[]
-
-    # for dim in var_dims
-    #     if dim in plot_dimensions
-    #         push!(slices, Colon())
-    #     else
-    #         push!(slices, dimension_selections[dim])
-    #     end
-    # end
-    # slices
 end
 
 function get_data(
@@ -60,10 +49,14 @@ function get_data(
 
     # get the slices
     slices = get_data_slice(var_dims, plot_dimensions, dimension_selections)
+    data = dataset.ds[variable][slices...]
 
     # permute the data to match the order of plot_dimensions
-    perm = sortperm([findfirst(==(dim), var_dims) for dim in plot_dimensions])
-    permutedims(dataset.ds[variable][slices...], perm)
+    if length(plot_dimensions) > 1
+        perm = sortperm([findfirst(==(dim), var_dims) for dim in plot_dimensions])
+        data = permutedims(dataset.ds[variable][slices...], perm)
+    end
+    data
 end
 
 function get_label(dataset::CDFDataset, var::String)

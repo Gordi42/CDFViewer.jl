@@ -42,6 +42,26 @@ function plot_menu_layout(fig::Figure, plot_menu::PlotMenu)
 end
 
 # ============================================
+#  Coordinate Sliders
+# ============================================
+struct CoordinateSliders
+    sliders::Dict{String, Slider}
+    labels::Dict{String, Label}
+    slider_grid::SliderGrid
+end
+
+function init_coordinate_sliders(fig::Figure, dataset::CDFDataset)
+    coord_sliders = SliderGrid(fig,[
+        (label=dim, range=1:dataset.ds.dim[dim], startvalue=1, update_while_dragging=false)
+        for dim in dataset.dimensions]...)
+    labels = Dict(
+        dim => coord_sliders.labels[i] for (i, dim) in enumerate(dataset.dimensions))
+    sliders = Dict(
+        dim => coord_sliders.sliders[i] for (i, dim) in enumerate(dataset.dimensions))
+    CoordinateSliders(sliders, labels, coord_sliders)
+end
+
+# ============================================
 #  Playback Menu
 # ============================================
 
@@ -74,16 +94,14 @@ end
 struct MainMenu
     variable_menu::Menu
     plot_menu::PlotMenu
-    coord_sliders::SliderGrid
+    coord_sliders::CoordinateSliders
     playback_menu::PlaybackMenu
 end
 
 function init_main_menu(fig::Figure, dataset::CDFDataset)
     variable_menu = Menu(fig, options = dataset.variables)
     plot_menu = init_plot_menu(fig)
-    coord_sliders = SliderGrid(fig,[
-            (label=dim, range=1:dataset.ds.dim[dim], startvalue=1, update_while_dragging=false)
-            for dim in dataset.dimensions]...)
+    coord_sliders = init_coordinate_sliders(fig, dataset)
     playback_menu = init_playback_menu(fig, dataset.dimensions)
     MainMenu(variable_menu, plot_menu, coord_sliders, playback_menu)
 end
@@ -94,7 +112,7 @@ function main_menu_layout(fig::Figure, main_menu::MainMenu)
         hgrid!(Label(fig, L"\textbf{Variable}", width = nothing), main_menu.variable_menu),
         plot_menu_layout(fig, main_menu.plot_menu),
         Label(fig, L"\textbf{Coordinates}", width = nothing),
-        main_menu.coord_sliders,
+        main_menu.coord_sliders.slider_grid,
         playback_menu_layout(fig, main_menu.playback_menu)
     )
 end
@@ -108,14 +126,14 @@ struct CoordinateMenu
     menus::Vector{Menu}
 end
 
-function init_coordinate_menu(fig::Figure, dimensions)
+function init_coordinate_menu(fig::Figure)
     dimension_selections = [
-        Menu(fig, options = dimensions, tellwidth = false)
+        Menu(fig, options = ["Not Selected"], tellwidth = false)
         for i in 1:3
     ]
     dimension_labels = [
         Label(fig, label)
-        for label in ("X Variable", "Y Variable", "Z Variable")
+        for label in ("X", "Y", "Z")
     ]
     CoordinateMenu(dimension_labels, dimension_selections)
 end
@@ -134,15 +152,35 @@ struct State
     x_name::Observable{String}
     y_name::Observable{String}
     z_name::Observable{String}
+    dim_obs::Observable{Dict{String, Int}}
+    axes_kw::Observable{Union{String, Nothing}}
+    plot_kw::Observable{Union{String, Nothing}}
+end
+
+function create_dimension_selection(coord_sliders::CoordinateSliders)
+    slider_values = Dict(dim => slider.value for (dim, slider) in coord_sliders.sliders)
+    dim_obs = Observable(Dict(dim => value[] for (dim, value) in slider_values))
+
+    for (dim, value_obs) in slider_values
+        on(value_obs) do v
+            dim_obs[][dim] = v
+            notify(dim_obs)
+        end
+    end
+
+    dim_obs
 end
 
 function init_state(main_menu::MainMenu, coord_menu::CoordinateMenu)
     State(
-        main_menu.variable_menu.selection,
+        Observable(main_menu.variable_menu.selection[]),
         main_menu.plot_menu.plot_type.selection,
         coord_menu.menus[1].selection,
         coord_menu.menus[2].selection,
         coord_menu.menus[3].selection,
+        create_dimension_selection(main_menu.coord_sliders),
+        main_menu.plot_menu.axes_kw.stored_string,
+        main_menu.plot_menu.plot_kw.stored_string,
     )
 end
 
@@ -160,7 +198,7 @@ end
 function init_ui_elements!(fig::Figure, dataset::CDFDataset)
     # Initialize the menus
     main_menu = init_main_menu(fig, dataset)
-    coord_menu = init_coordinate_menu(fig, dataset.dimensions)
+    coord_menu = init_coordinate_menu(fig)
     # Initialize the UI state
     state = init_state(main_menu, coord_menu)
     # Put the menus in the figure

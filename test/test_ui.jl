@@ -59,8 +59,7 @@ end
 @testset "UI Coordinate Menu" begin
     fig = Figure()
 
-    dimensions = ["time", "depth", "level"]
-    coord_menu = UI.init_coordinate_menu(fig, dimensions)
+    coord_menu = UI.init_coordinate_menu(fig)
 
     # test types
     @test coord_menu isa UI.CoordinateMenu
@@ -81,9 +80,25 @@ end
     end
 end
 
+@testset "UI Coordinate Sliders" begin
+    dataset = make_temp_dataset()
+
+    fig = Figure()
+    coord_sliders = UI.init_coordinate_sliders(fig, dataset)
+
+    # test types
+    @test coord_sliders isa UI.CoordinateSliders
+    @test coord_sliders.labels isa Dict{String, Label}
+    @test coord_sliders.sliders isa Dict{String, Slider}
+    @test coord_sliders.slider_grid isa SliderGrid
+
+    # test values
+    @test length(coord_sliders.labels) == length(dataset.dimensions)
+    @test length(coord_sliders.sliders) == length(dataset.dimensions)
+end
+
 @testset "UI Main Menu" begin
-    file = make_temp_dataset()
-    dataset = Data.open_dataset(file)
+    dataset = make_temp_dataset()
 
     fig = Figure()
 
@@ -93,14 +108,8 @@ end
     @test main_menu isa UI.MainMenu
     @test main_menu.variable_menu isa Menu
     @test main_menu.plot_menu isa UI.PlotMenu
-    @test main_menu.coord_sliders isa SliderGrid
+    @test main_menu.coord_sliders isa UI.CoordinateSliders
     @test main_menu.playback_menu isa UI.PlaybackMenu
-
-    # test values
-    @test length(main_menu.variable_menu.options[]) == length(dataset.variables)
-    for dim in dataset.dimensions
-        @test dim in [l.text[] for l in main_menu.coord_sliders.labels]
-    end
 
     # test layout
     layout = UI.main_menu_layout(fig, main_menu)
@@ -108,9 +117,61 @@ end
     @test layout.size == (6, 1)
 end
 
+@testset "UI State" begin
+    dataset = make_temp_dataset()
+    fig = Figure()
+
+    main_menu = UI.init_main_menu(fig, dataset)
+    coord_menu = UI.init_coordinate_menu(fig)
+    ui_state = UI.init_state(main_menu, coord_menu)
+
+    # test types
+    @test ui_state isa UI.State
+    @test ui_state.variable isa Observable{String}
+    @test ui_state.plot_type_name isa Observable{String}
+    @test ui_state.x_name isa Observable{String}
+    @test ui_state.y_name isa Observable{String}
+    @test ui_state.z_name isa Observable{String}
+    @test ui_state.dim_obs isa Observable{Dict{String, Int}}
+
+    # test values
+    @test ui_state.variable[] == "1d_float"
+    @test ui_state.plot_type_name[] == "Info"
+    @test ui_state.x_name[] == "Not Selected"
+    @test ui_state.y_name[] == "Not Selected"
+    @test ui_state.z_name[] == "Not Selected"
+    for (dim, idx) in ui_state.dim_obs[]
+        @test dim in dataset.dimensions
+        @test idx == 1
+    end
+
+    # create a counter to check that dim_obs is updated
+    counter = Observable(0)
+    on(ui_state.dim_obs) do _
+        counter[] += 1
+    end
+
+    # change some values and check that dim_obs is updated
+    main_menu.coord_sliders.sliders["lon"].value[] = 3
+    @test ui_state.dim_obs[]["lon"] == 3
+    @test counter[] == 1
+
+    # change the selection of the variable menu and
+    main_menu.variable_menu.i_selected[] = 3
+    @test main_menu.variable_menu.selection[] == "3d_float"
+    # the variable observable should not be updated here
+    @test ui_state.variable[] == "1d_float"
+
+    # change the selection of the the selected coordinate
+    for (i, name) in enumerate([ui_state.x_name, ui_state.y_name, ui_state.z_name])
+        coord_menu.menus[i].options[] = ["Not Selected"; dataset.dimensions]
+        coord_menu.menus[i].i_selected[] = i + 1
+        @test name[] == dataset.dimensions[i]
+    end
+end
+
 @testset "UI Elements" begin
-    file = make_temp_dataset()
-    dataset = Data.open_dataset(file)
+    dataset = make_temp_dataset()
 
     fig = Figure()
 
