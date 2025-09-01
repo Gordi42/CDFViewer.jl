@@ -51,6 +51,13 @@ end
     @test Plotting.get_fallback_plot(1) == "line"
     @test Plotting.get_fallback_plot(0) == "Info"
 
+    # Test the dimension plot function
+    @test Plotting.get_dimension_plot(4) == "volume"
+    @test Plotting.get_dimension_plot(3) == "volume"
+    @test Plotting.get_dimension_plot(2) == "heatmap"
+    @test Plotting.get_dimension_plot(1) == "line"
+    @test Plotting.get_dimension_plot(0) == "Info"
+
     # Test the plotting functions with dummy data
     fig = Figure()
     for (name, plot) in Plotting.PLOT_TYPES

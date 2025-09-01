@@ -72,6 +72,18 @@ function get_fallback_plot(ndims::Int)
     end
 end
 
+function get_dimension_plot(ndims::Int)
+    if ndims >= 3
+        "volume"
+    elseif ndims == 2
+        "heatmap"
+    elseif ndims == 1
+        "line"
+    else
+        "Info"
+    end
+end
+
 # ============================================================
 #  Figure labels
 # ============================================================
