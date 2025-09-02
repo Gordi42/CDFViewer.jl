@@ -38,3 +38,5 @@
 - [ ] Add possibility to add command line arguments
 - [ ] Add possibility for default configs in a .config folder
 - [ ] Unregular grids ?
+- [ ] Dataset distributed over multiple files ?
+- [ ] Add a temporary script to open netcdf files
