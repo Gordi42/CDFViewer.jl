@@ -1,5 +1,7 @@
 module Data
 
+using Dates
+using Printf
 using NCDatasets
 using GLMakie
 
@@ -20,8 +22,44 @@ function get_var_dims(dataset::CDFDataset, var::String)
     return collect(dimnames(dataset.ds[var]))
 end
 
+function get_label(dataset::CDFDataset, var::String)
+    # some dimensions may not be stored as variables in the dataset
+    var ∉ keys(dataset.ds) && return var
+    # Get the attributes of the variable
+    atts = dataset.ds[var].attrib
+    # Get the long name and units
+    label = haskey(atts, "long_name") ? atts["long_name"] : var
+    if haskey(atts, "units")
+        label *= " [" * atts["units"] * "]"
+    end
+    return label
+end
+
+function get_dim_value_label(dataset::CDFDataset, dim::String, idx::Int)
+    base = "  → "
+    # Check if the dimension is selected
+    dim === "Not Selected" && return base * "No dimension selected"
+    # some dimensions may not be stored as variables in the dataset
+    dim ∉ keys(dataset.ds) && return base * "$(dim): $(idx)"
+
+    if dim ∉ keys(dataset.ds)
+        label.text[] = base * "$(dim): $(idx)"
+        return
+    end
+    atts = dataset.ds[dim].attrib
+    var_name = haskey(atts, "long_name") ? atts["long_name"] : dim
+    unit = haskey(atts, "units") ? " " * atts["units"] : ""
+    base = base * var_name * ": "
+    idx > length(dataset.ds[dim]) && return base * "Index $(idx) out of bounds"
+    value = dataset.ds[dim][idx]
+    value isa Dates.DateTime && return base * Dates.format(value, "yyyy-mm-dd HH:MM:SS")
+    value isa AbstractString && return base * value * unit
+    value isa Number && return base * @sprintf("%g", value) * unit
+    return base * string(idx)
+end
+
 function get_dim_values(dataset::CDFDataset, dim::String)
-    dim === "Not Selected" && return Float64[]
+    dim === "Not Selected" && return collect(Float64, 1:1)
     try
         return convert(Vector{Float64}, dataset.ds[dim][:])
     catch
@@ -70,17 +108,5 @@ function get_data(
     data
 end
 
-function get_label(dataset::CDFDataset, var::String)
-    if !(var in keys(dataset.ds))
-        # some dimensions may not be stored as variables in the dataset
-        return var
-    end
-    atts = dataset.ds[var].attrib
-    label = haskey(atts, "long_name") ? atts["long_name"] : var
-    if haskey(atts, "units")
-        label *= " [" * atts["units"] * "]"
-    end
-    return label
-end
 
 end # module
