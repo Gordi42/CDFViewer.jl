@@ -14,6 +14,7 @@ end
 DIM_DICT = OrderedDict(dim.name => dim for dim in [
     Dim("lon", collect(1:5), OrderedDict()),
     Dim("lat", collect(1:7), OrderedDict()),
+    Dim("time", collect(1:4), OrderedDict("units" => "days since 1951-1-1 00:00:00")),
     Dim("string_dim", ["a", "ab", "abc"], OrderedDict()),
     Dim("float_dim", collect(1.0:0.2:2.0), OrderedDict()),
     Dim("only_unit", collect(1:3), OrderedDict("units" => "n/a")),
@@ -35,7 +36,8 @@ end
 VAR_DICT = OrderedDict(var.name => var for var in [
     Var("1d_float", ["lon"], OrderedDict(), Float64),
     Var("2d_float", ["lon", "lat"], OrderedDict(), Float64),
-    Var("3d_float", ["lon", "lat", "float_dim"], OrderedDict(), Float64),
+    Var("3d_float", ["lon", "lat", "time"], OrderedDict(), Float64),
+    Var("4d_float", ["lon", "lat", "time", "float_dim"], OrderedDict(), Float64),
     Var("5d_float", ["lon", "lat", "float_dim", "only_unit", "only_long"], OrderedDict(), Float64),
     Var("2d_gap", ["lon", "float_dim"], OrderedDict(), Float64),
     Var("2d_gap_inv", ["float_dim", "lon"], OrderedDict(), Float64),
@@ -49,6 +51,14 @@ VAR_DICT = OrderedDict(var.name => var for var in [
     ), Float64),
     Var("extra_attr_var", ["lon"], OrderedDict("extra" => "attr"), Float64),
 ])
+
+function get_dims(var::String)
+    if haskey(VAR_DICT, var)
+        return VAR_DICT[var].dims
+    else
+        return String[]
+    end
+end
 
 
 function make_temp_dataset()
