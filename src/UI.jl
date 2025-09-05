@@ -2,7 +2,8 @@ module UI
 
 using GLMakie
 
-import ..Data: CDFDataset
+import ..Constants
+import ..Data
 
 # ============================================
 #  Plot Menu
@@ -26,8 +27,8 @@ end
 
 function init_plot_menu(fig::Figure)
     plot_type_menu = Menu(fig, options=["Info"])
-    axes_kw_box = construct_textbox(fig, "e.g., xscale=log10; yscale=log10")
-    plot_kw_box = construct_textbox(fig, "e.g., colormap=:viridis; colorrange=(-1,1)")
+    axes_kw_box = construct_textbox(fig, Constants.AXES_KW_HINTS)
+    plot_kw_box = construct_textbox(fig, Constants.PLOT_KW_HINTS)
     PlotMenu(plot_type_menu, axes_kw_box, plot_kw_box)
 end
 
@@ -47,10 +48,11 @@ end
 struct CoordinateSliders
     sliders::Dict{String, Slider}
     labels::Dict{String, Label}
+    valuelabels::Dict{String, Label}
     slider_grid::SliderGrid
 end
 
-function init_coordinate_sliders(fig::Figure, dataset::CDFDataset)
+function init_coordinate_sliders(fig::Figure, dataset::Data.CDFDataset)
     coord_sliders = SliderGrid(fig,[
         (label=dim, range=1:dataset.ds.dim[dim], startvalue=1, update_while_dragging=false)
         for dim in dataset.dimensions]...)
@@ -58,7 +60,9 @@ function init_coordinate_sliders(fig::Figure, dataset::CDFDataset)
         dim => coord_sliders.labels[i] for (i, dim) in enumerate(dataset.dimensions))
     sliders = Dict(
         dim => coord_sliders.sliders[i] for (i, dim) in enumerate(dataset.dimensions))
-    CoordinateSliders(sliders, labels, coord_sliders)
+    valuelabels = Dict(
+        dim => coord_sliders.valuelabels[i] for (i, dim) in enumerate(dataset.dimensions))
+    CoordinateSliders(sliders, labels, valuelabels, coord_sliders)
 end
 
 # ============================================
@@ -69,21 +73,52 @@ struct PlaybackMenu
     toggle::Toggle
     speed::Slider
     var::Menu
+    label::Label
 end
 
-function init_playback_menu(fig::Figure, dimensions)
+function create_playback_label(
+    fig::Figure,
+    dataset::Data.CDFDataset,
+    vmenu::Menu,
+    coord_sliders::Dict{String, Slider},
+    )
+    label = Label(fig, Constants.NO_DIM_SELECTED_LABEL, halign = :left, tellwidth = false)
+    slider_values = [slider.value for slider in values(coord_sliders)]
+
+    for trigger in (vmenu.selection, slider_values...)
+        on(trigger) do _
+            dim = vmenu.selection[]
+            if dim == Constants.NOT_SELECTED_LABEL
+                label.text[] = Constants.NO_DIM_SELECTED_LABEL
+            else
+                idx = coord_sliders[dim].value[]
+                label.text[] = Data.get_dim_value_label(dataset, dim, idx)
+            end
+        end
+    end
+    notify(vmenu.selection)
+    label
+end
+
+function init_playback_menu(fig::Figure, dataset::Data.CDFDataset, coord_sliders::Dict{String, Slider})
     toggle = Toggle(fig, active = false)
     speed_slider = Slider(fig, range = 0.1:0.1:10.0, startvalue = 1.0)
-    var_menu = Menu(fig, options = dimensions, tellwidth = false)
-    PlaybackMenu(toggle, speed_slider, var_menu)
+    var_menu = Menu(fig,
+                    options = [Constants.NOT_SELECTED_LABEL; dataset.dimensions],
+                    tellwidth = false)
+    label = create_playback_label(fig, dataset, var_menu, coord_sliders)
+    PlaybackMenu(toggle, speed_slider, var_menu, label)
 end
 
 function playback_menu_layout(fig::Figure, playback_menu::PlaybackMenu)
-    hgrid!(
-        Label(fig, L"\textbf{Play}", width = 30), 
-        playback_menu.toggle,
-        playback_menu.speed,
-        playback_menu.var,
+    vgrid!(
+        hgrid!(
+            Label(fig, L"\textbf{Play}", width = 30), 
+            playback_menu.toggle,
+            playback_menu.speed,
+            playback_menu.var,
+        ),
+        playback_menu.label,
     )
 end
 
@@ -94,16 +129,16 @@ end
 struct MainMenu
     variable_menu::Menu
     plot_menu::PlotMenu
-    coord_sliders::CoordinateSliders
     playback_menu::PlaybackMenu
+    coord_sliders::CoordinateSliders
 end
 
-function init_main_menu(fig::Figure, dataset::CDFDataset)
+function init_main_menu(fig::Figure, dataset::Data.CDFDataset)
     variable_menu = Menu(fig, options = dataset.variables)
     plot_menu = init_plot_menu(fig)
     coord_sliders = init_coordinate_sliders(fig, dataset)
-    playback_menu = init_playback_menu(fig, dataset.dimensions)
-    MainMenu(variable_menu, plot_menu, coord_sliders, playback_menu)
+    playback_menu = init_playback_menu(fig, dataset, coord_sliders.sliders)
+    MainMenu(variable_menu, plot_menu, playback_menu, coord_sliders)
 end
 
 function main_menu_layout(fig::Figure, main_menu::MainMenu)
@@ -111,9 +146,9 @@ function main_menu_layout(fig::Figure, main_menu::MainMenu)
         Label(fig, L"\textbf{CDF Viewer}", halign = :center, fontsize=30, tellwidth=false),
         hgrid!(Label(fig, L"\textbf{Variable}", width = nothing), main_menu.variable_menu),
         plot_menu_layout(fig, main_menu.plot_menu),
+        playback_menu_layout(fig, main_menu.playback_menu),
         Label(fig, L"\textbf{Coordinates}", width = nothing),
         main_menu.coord_sliders.slider_grid,
-        playback_menu_layout(fig, main_menu.playback_menu)
     )
 end
 
@@ -128,13 +163,10 @@ end
 
 function init_coordinate_menu(fig::Figure)
     dimension_selections = [
-        Menu(fig, options = ["Not Selected"], tellwidth = false)
+        Menu(fig, options = [Constants.NOT_SELECTED_LABEL], tellwidth = false)
         for i in 1:3
     ]
-    dimension_labels = [
-        Label(fig, label)
-        for label in ("X", "Y", "Z")
-    ]
+    dimension_labels = [Label(fig, label) for label in Constants.DIMENSION_LABELS]
     CoordinateMenu(dimension_labels, dimension_selections)
 end
 
@@ -174,16 +206,21 @@ end
 function init_state(main_menu::MainMenu, coord_menu::CoordinateMenu)
     State(
         Observable(main_menu.variable_menu.selection[]),
-        main_menu.plot_menu.plot_type.selection,
-        coord_menu.menus[1].selection,
-        coord_menu.menus[2].selection,
-        coord_menu.menus[3].selection,
+        Observable(main_menu.plot_menu.plot_type.selection[]),
+        Observable(coord_menu.menus[1].selection[]),
+        Observable(coord_menu.menus[2].selection[]),
+        Observable(coord_menu.menus[3].selection[]),
         create_dimension_selection(main_menu.coord_sliders),
         main_menu.plot_menu.axes_kw.stored_string,
         main_menu.plot_menu.plot_kw.stored_string,
     )
 end
 
+function sync_dim_selections!(state::State, coord_menu::CoordinateMenu)
+    state.x_name[] = coord_menu.menus[1].selection[]
+    state.y_name[] = coord_menu.menus[2].selection[]
+    state.z_name[] = coord_menu.menus[3].selection[]
+end
 
 # ============================================
 #  All UI Elements
@@ -195,7 +232,7 @@ struct UIElements
     state::State
 end
 
-function init_ui_elements!(fig::Figure, dataset::CDFDataset)
+function init_ui_elements!(fig::Figure, dataset::Data.CDFDataset)
     # Initialize the menus
     main_menu = init_main_menu(fig, dataset)
     coord_menu = init_coordinate_menu(fig)

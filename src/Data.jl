@@ -5,6 +5,8 @@ using Printf
 using NCDatasets
 using GLMakie
 
+import ..Constants
+
 struct CDFDataset
     ds::NCDataset
     dimensions::Vector{String}
@@ -38,28 +40,25 @@ end
 function get_dim_value_label(dataset::CDFDataset, dim::String, idx::Int)
     base = "  → "
     # Check if the dimension is selected
-    dim === "Not Selected" && return base * "No dimension selected"
+    dim === Constants.NOT_SELECTED_LABEL && return Constants.NO_DIM_SELECTED_LABEL
     # some dimensions may not be stored as variables in the dataset
     dim ∉ keys(dataset.ds) && return base * "$(dim): $(idx)"
-
-    if dim ∉ keys(dataset.ds)
-        label.text[] = base * "$(dim): $(idx)"
-        return
-    end
+    # get name and unit attributes
     atts = dataset.ds[dim].attrib
     var_name = haskey(atts, "long_name") ? atts["long_name"] : dim
     unit = haskey(atts, "units") ? " " * atts["units"] : ""
+
     base = base * var_name * ": "
     idx > length(dataset.ds[dim]) && return base * "Index $(idx) out of bounds"
     value = dataset.ds[dim][idx]
-    value isa Dates.DateTime && return base * Dates.format(value, "yyyy-mm-dd HH:MM:SS")
+    value isa Dates.DateTime && return base * Dates.format(value, Constants.DATETIME_FORMAT)
     value isa AbstractString && return base * value * unit
     value isa Number && return base * @sprintf("%g", value) * unit
     return base * string(idx)
 end
 
 function get_dim_values(dataset::CDFDataset, dim::String)
-    dim === "Not Selected" && return collect(Float64, 1:1)
+    dim === Constants.NOT_SELECTED_LABEL && return collect(Float64, 1:1)
     try
         return convert(Vector{Float64}, dataset.ds[dim][:])
     catch
