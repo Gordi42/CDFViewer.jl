@@ -4,6 +4,7 @@ using DataStructures: OrderedDict
 using Makie
 using GLMakie
 
+import ..Constants
 import ..Data
 import ..UI
 
@@ -47,8 +48,8 @@ const PLOT_TYPES = OrderedDict(plot.type => plot for plot in [
 ])
 
 const PLOT_OPTIONS_3D = collect(keys(PLOT_TYPES))
-const PLOT_OPTIONS_2D = filter(k -> PLOT_TYPES[k].ndims <= 2, PLOT_OPTIONS_3D)
-const PLOT_OPTIONS_1D = filter(k -> PLOT_TYPES[k].ndims == 1, PLOT_OPTIONS_3D)
+const PLOT_OPTIONS_2D = filter(k -> PLOT_TYPES[k].ndims ≤ 2, PLOT_OPTIONS_3D)
+const PLOT_OPTIONS_1D = filter(k -> PLOT_TYPES[k].ndims ≤ 1, PLOT_OPTIONS_3D)
 
 function get_plot_options(ndims::Int)
     if ndims >= 3
@@ -235,6 +236,7 @@ function create_plot_object(
     cbar = Observable{Union{Colorbar, Nothing}}(nothing)
 
     on(ax) do a
+        a === nothing && return
         # first we clear the previous plot
         cbar[] !== nothing && delete!(cbar[])
         cbar[] = nothing
@@ -279,7 +281,19 @@ function create_axis!(fig_data::FigureData, ui_state::UI.State)
     else
         fig_data.ax[] = nothing
     end
-    apply_kwargs!(fig_data.ax[], ui_state.axes_kw[])
+    fig_data.ax[] !== nothing && apply_kwargs!(fig_data.ax[], ui_state.axes_kw[])
+end
+
+function clear_axis!(fig_data::FigureData)
+    if fig_data.cbar[] !== nothing
+        delete!(fig_data.cbar[])
+        fig_data.cbar[] = nothing
+    end
+    if fig_data.ax[] !== nothing
+        delete!(fig_data.ax[])
+        fig_data.ax[] = nothing
+    end
+    fig_data.plot_obj[] = nothing
 end
 
 end # module Plotting

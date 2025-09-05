@@ -114,9 +114,9 @@ end
     # Test initial values
     @test plot_data.plot_type[] == Plotting.PLOT_TYPES["Info"]
     @test plot_data.sel_dims[] == String[]
-    @test plot_data.x[] == Vector{Float64}[]
-    @test plot_data.y[] == Vector{Float64}[]
-    @test plot_data.z[] == Vector{Float64}[]
+    @test plot_data.x[] == collect(Float64, 1:1)
+    @test plot_data.y[] == collect(Float64, 1:1)
+    @test plot_data.z[] == collect(Float64, 1:1)
     for i in 1:3
         @test plot_data.d[i] isa Observable
         @test plot_data.d[i][] === nothing
@@ -133,7 +133,7 @@ end
     @test length(plot_data.x[]) == 5
     @test length(plot_data.y[]) == 7
     ui.state.y_name[] = "Not Selected"
-    @test plot_data.y[] == Vector{Float64}[]
+    @test plot_data.y[] == collect(Float64, 1:1)
     plot_data.sel_dims
 
     # Test with 1d data
