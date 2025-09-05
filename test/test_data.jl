@@ -5,16 +5,20 @@ using GLMakie
 @testset "Data.jl" begin
 
     @testset "Structure" begin
+        # Arange
         dataset = make_temp_dataset()
 
+        # Assert
         @test dataset isa Data.CDFDataset
         @test setdiff(dataset.dimensions, keys(DIM_DICT))[1] == "untaken"
         @test setdiff(dataset.variables, keys(VAR_DICT))[1] == "untaken_dim"
     end
 
     @testset "Variable Dimensions" begin
+        # Arange
         dataset = make_temp_dataset()
 
+        # Assert
         @test Data.get_var_dims(dataset, "1d_float") == ["lon"]
         @test Data.get_var_dims(dataset, "2d_float") == ["lon", "lat"]
         @test Data.get_var_dims(dataset, "2d_gap") == ["lon", "float_dim"]
@@ -22,8 +26,10 @@ using GLMakie
     end
 
     @testset "Labels" begin
+        # Arange
         dataset = make_temp_dataset()
 
+        # Assert
         @test Data.get_label(dataset, "lon") == "lon"
         @test Data.get_label(dataset, "only_unit") == "only_unit [n/a]"
         @test Data.get_label(dataset, "only_long") == "Long"
@@ -33,8 +39,10 @@ using GLMakie
     end
 
     @testset "Dimension Value Labels" begin
+        # Arange
         dataset = make_temp_dataset()
 
+        # Assert
         @test Data.get_dim_value_label(dataset, "lon", 2) == "  → lon: 2"
         @test Data.get_dim_value_label(dataset, "only_unit", 1) == "  → only_unit: 1 n/a"
         @test Data.get_dim_value_label(dataset, "only_long", 2) == "  → Long: 2"
@@ -48,36 +56,46 @@ using GLMakie
     end
 
     @testset "Dimension Observables" begin
+        # Arange
         dataset = make_temp_dataset()
-
         # create the dimension observable
         test_dim = Observable("lon")
         update_switch = Observable(true)
-        # create the dimension array observable
+        
+        # Act
         dim_array = Data.get_dim_array(dataset, test_dim, update_switch)
 
-        # check the dimension array observable
+        # Assert
         @test dim_array isa Observable{Vector{Float64}}
         for dim in dataset.dimensions
             test_dim[] = dim
             @test dim_array isa Observable{Vector{Float64}}
             @test length(dim_array[]) == dataset.ds.dim[dim]
         end
-        # check the Not-Selected option
+
+        # Act: (Select "Not Selected")
         test_dim[] = "Not Selected"
+
+        # Assert
         @test dim_array[] == Float64[1]
 
-        # check the update switch
+        # Act: (turn off updates)
         update_switch[] = false
         test_dim[] = "lon"
+
+        # Assert: (should not update)
         @test dim_array[] == Float64[1]
+
+        # Act: (turn on updates)
         update_switch[] = true
+
+        # Assert: (should update)
         @test length(dim_array[]) == dataset.ds.dim["lon"]
     end
 
     @testset "Data Slicing" begin
+        # Arange
         dataset = make_temp_dataset()
-
         dimension_selections = Dict(
             "lon" => 2,
             "lat" => 3,
@@ -90,10 +108,11 @@ using GLMakie
             "untaken" => 2,
         )
 
-        # get the dimensions of the variable
+        # Act: (get the dimensions of the variable)
         sl = (var, plot_dims) -> Data.get_data_slice(
             collect(dimnames(dataset.ds[var])), plot_dims, dimension_selections)
 
+        # Assert
         @test sl("1d_float", ["lon"]) == [Colon()]
         @test sl("2d_float", ["lon"]) == [Colon(), 3]
         @test sl("2d_float", ["lon", "lat"]) == [Colon(), Colon()]
@@ -105,10 +124,9 @@ using GLMakie
         @test sl("untaken_dim", ["untaken"]) == [Colon()]
     end
 
-    # Check data extraction
     @testset "Data Extraction" begin
+        # Arange
         dataset = make_temp_dataset()
-
         dimension_selections = Dict(
             "lon" => 2,
             "lat" => 3,
@@ -120,8 +138,11 @@ using GLMakie
             "extra_attr" => 1,
             "untaken" => 2,
         )
+
+        # Act: (get the data shape)
         gdata_shape = (var, plot_dims) -> Data.get_data(dataset, var, plot_dims, dimension_selections).size
 
+        # Assert
         @test gdata_shape("1d_float", ["lon"]) == (5,)
         @test gdata_shape("2d_float", ["lon"]) == (5,)
         @test gdata_shape("2d_float", ["lon", "lat"]) == (5, 7)
