@@ -242,6 +242,7 @@ end
 # ============================================================
 #  Fill up plot functions
 # ============================================================
+
 function create_2d_axis(ax_layout::GridPosition, plot_data::PlotData)
     Axis(
         ax_layout,
@@ -309,7 +310,6 @@ for plot in [
 ]
     PLOT_TYPES[plot.type] = plot
 end
-
 
 
 end # module Plotting

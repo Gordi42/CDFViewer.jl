@@ -1,217 +1,412 @@
 using Test
 using GLMakie
+using CDFViewer.Constants
 using CDFViewer.Data
 using CDFViewer.UI
 using CDFViewer.Plotting
 using CDFViewer.Controller
 
-include("test_setup.jl")
+@testset "Controller.jl" begin
 
-dataset = make_temp_dataset()
-
-controller = Controller.init_controller(dataset)
-display(controller.fd.fig)
-Controller.setup_controller!(controller)
-
-
-var_menu = controller.ui.main_menu.variable_menu
-pt_menu = controller.ui.main_menu.plot_menu.plot_type
-dim_menus = controller.ui.coord_menu.menus
-x_menu = dim_menus[1]
-y_menu = dim_menus[2]
-z_menu = dim_menus[3]
-state = controller.ui.state
-fd = controller.fd
-
-@test pt_menu.options[] == Plotting.PLOT_OPTIONS_1D
-@test state.plot_type_name[] == "line"
-@test state.x_name[] == "lon"
-@test state.y_name[] == "Not Selected"
-@test state.z_name[] == "Not Selected"
-@test fd.plot_obj[] isa Lines
-@test fd.ax[] isa Axis
-@test fd.cbar[] isa Nothing
-
-# Setup some test helpers
-var_name = Observable("")
-on(var_name) do v
-    var_menu.i_selected[] = findfirst(==(v), var_menu.options[])
-    @test state.variable[] == v
-    for menu in controller.ui.coord_menu.menus
-        @test menu.options[] == ["Not Selected"; get_dims(v)]
+    function init_default_controller()
+        dataset = make_temp_dataset()
+        controller = Controller.init_controller(dataset)
+        # display(controller.fd.fig)
+        Controller.setup_controller!(controller)
+        controller
     end
-end
-plot_type = Observable("")
-on(plot_type) do pt
-    pt_menu.i_selected[] = findfirst(==(pt), pt_menu.options[])
-    @test state.plot_type_name[] == pt
-    if Plotting.PLOT_TYPES[pt].ax_ndims == 2
-        @test fd.ax[] isa Axis
-    elseif Plotting.PLOT_TYPES[pt].ax_ndims == 3
-        @test fd.ax[] isa Axis3
+
+    function setup_controller(;var::String = "1d_float", plot::String = "line")
+        # Initialize the controller
+        controller = init_default_controller()
+
+        # Get references to the relevant UI components
+        var_menu = controller.ui.main_menu.variable_menu
+        pt_menu = controller.ui.main_menu.plot_menu.plot_type
+        dim_menus = controller.ui.coord_menu.menus
+
+        # Create observables to control the selections
+        var_name = Observable(var_menu.selection[])
+        plot_type = Observable(pt_menu.selection[])
+        dim_names = [Observable(menu.selection[]) for menu in dim_menus]
+
+        # Set up listeners to update the UI components when the observables change
+        on(var_name) do v
+            var_menu.i_selected[] = findfirst(==(v), var_menu.options[])
+        end
+
+        on(plot_type) do pt
+            pt_menu.i_selected[] = findfirst(==(pt), pt_menu.options[])
+        end
+
+        for (menu, dim_name) in zip(dim_menus, dim_names)
+            on(dim_name) do sel
+                menu.i_selected[] = findfirst(==(sel), menu.options[])
+            end
+        end
+
+        # Set the initial variable and plot type
+        var_name[] = var
+        plot_type[] = plot
+
+        (controller, var_name, plot_type, dim_names)
     end
-    if Plotting.PLOT_TYPES[pt].colorbar
-        @test fd.cbar[] isa Colorbar
-    else
-        @test fd.cbar[] === nothing
+
+    function assert_controller_state(controller, variable, plot_class, expected_dims)
+        # Test variable selection
+        @test controller.ui.state.variable[] == variable
+        # Test the plot object type
+        @test controller.fd.plot_obj[] isa plot_class
+        # Test the dimension options
+        coord_menus = controller.ui.coord_menu.menus
+        for menu in coord_menus
+            @test menu.options[] == [Constants.NOT_SELECTED_LABEL; get_dims(variable)]
+        end
+        # Test the selected dimensions
+        state = controller.ui.state
+        @test state.x_name[] == (length(expected_dims) ≥ 1 ? expected_dims[1] : Constants.NOT_SELECTED_LABEL)
+        @test state.y_name[] == (length(expected_dims) ≥ 2 ? expected_dims[2] : Constants.NOT_SELECTED_LABEL)
+        @test state.z_name[] == (length(expected_dims) == 3 ? expected_dims[3] : Constants.NOT_SELECTED_LABEL)
     end
+
+    @testset "Unit Tests" begin
+    end
+
+    @testset "Plot Selection" begin
+        @testset "1D → 1D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="line")
+
+            # Act
+            plot_type[] = "scatter"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Scatter, ["lon"])
+        end
+
+        @testset "1D → 2D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="line")
+
+            # Act
+            plot_type[] = "heatmap"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Heatmap, ["lon", "lat"])
+        end
+
+        @testset "1D → 3D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="line")
+
+            # Act
+            plot_type[] = "volume"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Volume, ["lon", "lat", "float_dim"])
+        end
+
+        @testset "2D → 1D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="heatmap")
+
+            # Act
+            plot_type[] = "line"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Lines, ["lon"])
+        end
+
+        @testset "2D → 2D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="heatmap")
+
+            # Act
+            plot_type[] = "contourf"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Contourf, ["lon", "lat"])
+        end
+
+        @testset "2D → 3D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="heatmap")
+
+            # Act
+            plot_type[] = "volume"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Volume, ["lon", "lat", "float_dim"])
+        end
+
+        @testset "3D → 1D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="volume")
+
+            # Act
+            plot_type[] = "line"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Lines, ["lon"])
+        end
+
+        @testset "3D → 2D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="volume")
+
+            # Act
+            plot_type[] = "heatmap"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Heatmap, ["lon", "lat"])
+        end
+
+        @testset "3D → 3D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="volume")
+
+            # Act
+            plot_type[] = "contour3d"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Contour, ["lon", "lat", "float_dim"])
+        end
+
+        @testset "2D → Info" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="heatmap")
+
+            # Act
+            plot_type[] = "Info"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Nothing, String[])
+            @test controller.fd.ax[] === nothing
+            @test controller.fd.cbar[] === nothing
+        end
+
+    end
+
+    @testset "Variable Selection" begin
+
+        @testset "1D → 1D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="1d_float", plot="line")
+
+            # Act
+            var_name[] = "only_long_var"
+
+            # Assert
+            assert_controller_state(controller, "only_long_var", Lines, ["lat"])
+        end
+
+        @testset "1D → 2D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="1d_float", plot="line")
+
+            # Act
+            var_name[] = "2d_float"
+            plot_type[] = "heatmap"
+
+            # Assert
+            assert_controller_state(controller, "2d_float", Heatmap, ["lon", "lat"])
+        end
+
+        @testset "2D → 5D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="2d_gap", plot="heatmap")
+
+            # Act
+            var_name[] = "5d_float"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Heatmap, ["lon", "float_dim"])
+        end
+
+        @testset "5D → 1D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="heatmap")
+
+            # Act
+            var_name[] = "only_long_var"
+
+            # Assert
+            assert_controller_state(controller, "only_long_var", Lines, ["lat"])
+        end
+
+        @testset "String Variable" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="1d_float", plot="line")
+
+            # Act
+            var_name[] = "string_var"
+
+            # Assert
+            assert_controller_state(controller, "string_var", Nothing, String[])
+            @test controller.fd.plot_obj[] === nothing
+            @test controller.ui.state.plot_type_name[] == "Info"
+        end
+
+        @testset "2D → 2D [Different Dims]" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="heatmap")
+
+            # Act
+            var_name[] = "2d_gap"
+            
+            # Assert
+            assert_controller_state(controller, "2d_gap", Heatmap, ["lon", "float_dim"])
+        end
+
+    end
+
+    @testset "Dimension Selection" begin
+
+        @testset "Same Dimension" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="heatmap")
+
+            # Act
+            dim_names[1][] = "float_dim"
+            dim_names[2][] = "only_unit"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Heatmap, ["float_dim", "only_unit"])
+        end
+
+        @testset "Switch Dimensions" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="heatmap")
+
+            # Act
+            dim_names[1][] = "lat"
+            dim_names[2][] = "lon"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Heatmap, ["lat", "lon"])
+        end
+
+        @testset "Remove x from 1D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="line")
+
+            # Act
+            dim_names[1][] = Constants.NOT_SELECTED_LABEL
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Nothing, String[])
+        end
+
+        @testset "Remove x from 2D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="heatmap")
+
+            # Act
+            dim_names[1][] = Constants.NOT_SELECTED_LABEL
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Lines, ["lat"])
+        end
+
+        @testset "Remove y from 2D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="heatmap")
+
+            # Act
+            dim_names[2][] = Constants.NOT_SELECTED_LABEL
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Lines, ["lon"])
+        end
+
+        @testset "Remove x from 3D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="volume")
+
+            # Act
+            dim_names[1][] = Constants.NOT_SELECTED_LABEL
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Heatmap, ["lat", "float_dim"])
+        end
+
+        @testset "Remove y from 3D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="volume")
+
+            # Act
+            dim_names[2][] = Constants.NOT_SELECTED_LABEL
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Heatmap, ["lon", "float_dim"])
+        end
+
+        @testset "Remove z from 3D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="volume")
+
+            # Act
+            dim_names[3][] = Constants.NOT_SELECTED_LABEL
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Heatmap, ["lon", "lat"])
+        end
+
+        @testset "Select dimension doubled" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="heatmap")
+
+            # Act
+            dim_names[2][] = "lon"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Lines, ["lon"])
+        end
+
+        @testset "Add x to 0D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="1d_float", plot="Info")
+
+            # Act
+            dim_names[1][] = "lon"
+
+            # Assert
+            assert_controller_state(controller, "1d_float", Lines, ["lon"])
+        end
+
+        @testset "Add y to 0D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="1d_float", plot="Info")
+
+            # Act
+            dim_names[2][] = "lon"
+
+            # Assert
+            assert_controller_state(controller, "1d_float", Lines, ["lon"])
+        end
+
+        @testset "Add y to 1D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="line")
+
+            # Act
+            dim_names[2][] = "lat"
+
+            # Assert
+            assert_controller_state(controller, "2d_float", Heatmap, ["lon", "lat"])
+        end
+
+        @testset "Add z to 2D" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="heatmap")
+
+            # Act
+            dim_names[3][] = "float_dim"
+
+            # Assert
+            assert_controller_state(controller, "5d_float", Volume, ["lon", "lat", "float_dim"])
+        end
+
+    end
+
 end
-x_sel = Observable("")
-on(x_sel) do sel
-    x_menu.i_selected[] = findfirst(==(sel), x_menu.options[])
-end
-y_sel = Observable("")
-on(y_sel) do sel
-    y_menu.i_selected[] = findfirst(==(sel), y_menu.options[])
-end
-z_sel = Observable("")
-on(z_sel) do sel
-    z_menu.i_selected[] = findfirst(==(sel), z_menu.options[])
-end
-
-function check_dim_selection(expected::Vector{String})
-    @test state.x_name[] == (length(expected) ≥ 1 ? expected[1] : "Not Selected")
-    @test state.y_name[] == (length(expected) ≥ 2 ? expected[2] : "Not Selected")
-    @test state.z_name[] == (length(expected) == 3 ? expected[3] : "Not Selected")
-end
-
-var_name[] = "2d_float"
-@test pt_menu.options[] == Plotting.PLOT_OPTIONS_2D
-plot_type[] = "heatmap"
-@test fd.plot_obj[] isa Heatmap
-check_dim_selection(["lon", "lat"])
-
-var_name[] = "2d_gap"
-@test pt_menu.options[] == Plotting.PLOT_OPTIONS_2D
-@test fd.plot_obj[] isa Heatmap
-check_dim_selection(["lon", "float_dim"])
-
-# Set the variable to a higher dimensional variable
-var_name[] = "5d_float"
-@test pt_menu.options[] == Plotting.PLOT_OPTIONS_3D
-@test fd.plot_obj[] isa Heatmap
-check_dim_selection(["lon", "float_dim"])
-
-# Change the plot type to a 3D plot
-plot_type[] = "volume"
-@test fd.plot_obj[] isa Volume
-check_dim_selection(["lon", "float_dim", "lat"])
-
-# Change back to a 2D plot
-plot_type[] = "surface"
-@test fd.plot_obj[] isa Surface
-check_dim_selection(["lon", "float_dim"])
-
-# Change to a 1D plot
-plot_type[] = "scatter"
-@test fd.plot_obj[] isa Scatter
-check_dim_selection(["lon"])
-
-# Change between 3D and 1D
-plot_type[] = "volume"
-plot_type[] = "line"
-
-# Change to a lower dimensional variable
-plot_type[] = "volume"
-var_name[] = "2d_float"
-@test pt_menu.options[] == Plotting.PLOT_OPTIONS_2D
-@test fd.plot_obj[] isa Heatmap
-
-# Change to Info plot
-plot_type[] = "Info"
-@test fd.ax[] === nothing
-@test fd.cbar[] === nothing
-@test fd.plot_obj[] === nothing
-check_dim_selection(Vector{String}([]))
-plot_type[] = "heatmap"
-
-# Change to a string variable
-var_name[] = "string_var"
-@test pt_menu.options[] == ["Info"]
-@test state.plot_type_name[] == "Info"
-
-
-# Test the dimension selection
-var_name[] = "5d_float"
-plot_type[] = "line"
-
-
-x_sel[] = "float_dim"
-check_dim_selection(["float_dim"])
-
-y_sel[] = "lon"
-check_dim_selection(["float_dim", "lon"])
-@test fd.plot_obj[] isa Heatmap
-
-z_sel[] = "lat"
-check_dim_selection(["float_dim", "lon", "lat"])
-@test fd.plot_obj[] isa Volume
-
-x_sel[] = "Not Selected"
-check_dim_selection(["lon", "lat"])
-@test fd.plot_obj[] isa Heatmap
-
-y_sel[] = "lon"
-check_dim_selection(["lon"])
-@test fd.plot_obj[] isa Lines
-
-z_sel[] = "only_long"
-check_dim_selection(["lon", "only_long"])
-@test fd.plot_obj[] isa Heatmap
-
-# %%
-using Colors
-inactive_text_color = parse(Colorant, :lightgray)
-active_text_color = parse(Colorant, :black)
-
-inactive_slider_bar_color = RGBf(0.94, 0.94, 0.94)
-
-function set_slider_inactive!(coord_slider::UI.CoordinateSliders, dim::String)
-    coord_slider.labels[dim].color[] = inactive_text_color
-    coord_slider.valuelabels[dim].color[] = inactive_text_color
-    coord_slider.sliders[dim].color_active[] = inactive_text_color
-    coord_slider.sliders[dim].color_active_dimmed[] = inactive_slider_bar_color
-    coord_slider.sliders[dim].color_inactive[] = inactive_slider_bar_color
-end
-
-function set_slider_active!(coord_slider::UI.CoordinateSliders, dim::String)
-    coord_slider.labels[dim].color[] = active_text_color
-    coord_slider.valuelabels[dim].color[] = active_text_color
-    coord_slider.sliders[dim].color_active[] = Makie.COLOR_ACCENT[]
-    coord_slider.sliders[dim].color_active_dimmed[] = Makie.COLOR_ACCENT_DIMMED[]
-    coord_slider.sliders[dim].color_inactive[] = inactive_slider_bar_color
-end
-
-function set_slider_semi_active!(coord_slider::UI.CoordinateSliders, dim::String)
-    coord_slider.labels[dim].color[] = semi_active_text_color
-    coord_slider.valuelabels[dim].color[] = semi_active_text_color
-    coord_slider.sliders[dim].color_active[] = semi_active_text_color
-    coord_slider.sliders[dim].color_active_dimmed[] = inactive_slider_bar_color
-    coord_slider.sliders[dim].color_inactive[] = inactive_slider_bar_color
-end
-
-set_slider_semi_active!(controller.ui.main_menu.coord_sliders, "lat")
-    
-controller.ui.main_menu.coord_sliders.labels["lon"].color[] = inactive_text_color
-controller.ui.main_menu.coord_sliders.valuelabels["lon"].color[] = inactive_text_color
-controller.ui.main_menu.coord_sliders.sliders["lon"].color_active[] = inactive_text_color
-controller.ui.main_menu.coord_sliders.sliders["lon"].color_active_dimmed[] = inactive_slider_bar_color
-controller.ui.main_menu.coord_sliders.sliders["lon"].color_inactive[] = inactive_slider_bar_color
-
-controller.ui.main_menu.coord_sliders.slider_grid
-
-RGBAf(:red)
-
-using Makie
-
-rgba = Makie.to_rgba(:red)  # ergibt ColorTypes.RGBA{Float32}
-
-using Makie
-
-col = Makie.color(:red)             # ergibt z.B. RGB{N0f8}
-rgba = RGBAf0(Makie.color(:red))    # explizit RGBA{Float32}
-
-using Colors
-parse(Colorant, :red)
-
-Makie.COLOR_ACCENT
