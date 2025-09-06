@@ -53,7 +53,7 @@ end
 #  Event handlers
 # ------------------------------------------------
 
-function on_variable_change(controller::ViewerController)
+function on_variable_change(controller::ViewerController)::Nothing
     # make sure that the data is not updated while we change things
     controller.fd.plot_data.update_data_switch[] = false
     # Get the new variable and its dimensions
@@ -88,9 +88,10 @@ function on_variable_change(controller::ViewerController)
 
     # Set the update switch back
     controller.fd.plot_data.update_data_switch[] = true
+    nothing
 end
 
-function on_plot_type_change(controller::ViewerController)
+function on_plot_type_change(controller::ViewerController)::Nothing
     !(controller.watch_plot[]) && return
     # make sure that the data is not updated while we change things
     controller.fd.plot_data.update_data_switch[] = false
@@ -113,9 +114,10 @@ function on_plot_type_change(controller::ViewerController)
 
     # Create the axis
     Plotting.create_axis!(controller.fd, controller.ui.state)
+    nothing
 end
 
-function on_dim_sel_change(controller::ViewerController)
+function on_dim_sel_change(controller::ViewerController)::Nothing
     !(controller.watch_dim[]) && return
     # make sure that the data is not updated while we change things
     controller.fd.plot_data.update_data_switch[] = false
@@ -139,16 +141,17 @@ function on_dim_sel_change(controller::ViewerController)
 
     # Set the update switch back
     controller.fd.plot_data.update_data_switch[] = true
+    nothing
 end
 
-function on_tick_event(controller::ViewerController, tick::Makie.Tick)
+function on_tick_event(controller::ViewerController, tick::Makie.Tick)::Nothing
 end
 
 # ------------------------------------------------
 #  Helper functions
 # ------------------------------------------------
 
-function update_dim_selection_with_length!(controller::ViewerController, len::Int)
+function update_dim_selection_with_length!(controller::ViewerController, len::Int)::Nothing
     coord_menus = controller.ui.coord_menu.menus
     dims = Data.get_var_dims(controller.dataset, controller.ui.state.variable[])
     selected_dims = String[m.selection[] for m in coord_menus if m.selection[] != "Not Selected"]
@@ -157,9 +160,10 @@ function update_dim_selection_with_length!(controller::ViewerController, len::In
     unused = setdiff(dims, selected_dims)
     selected_dims = [selected_dims; unused][1:len]
     set_menu_options!(controller, selected_dims)
+    nothing
 end
 
-function make_subset!(dims::Vector{String}, selection::Vector{String})
+function make_subset!(dims::Vector{String}, selection::Vector{String})::Nothing
     filter!(!=("Not Selected"), unique!(selection))
     unused = setdiff(dims, selection)
     for (i, item) in enumerate(selection)
@@ -167,9 +171,10 @@ function make_subset!(dims::Vector{String}, selection::Vector{String})
             selection[i] = popfirst!(unused)
         end
     end
+    nothing
 end
 
-function set_slider_inactive!(coord_slider::UI.CoordinateSliders, dim::String)
+function set_slider_inactive!(coord_slider::UI.CoordinateSliders, dim::String)::Nothing
     inactive_text_color = parse(Colorant, :lightgray)
     inactive_slider_bar_color = RGBf(0.94, 0.94, 0.94)
 
@@ -178,9 +183,10 @@ function set_slider_inactive!(coord_slider::UI.CoordinateSliders, dim::String)
     coord_slider.sliders[dim].color_active[] = inactive_text_color
     coord_slider.sliders[dim].color_active_dimmed[] = inactive_slider_bar_color
     coord_slider.sliders[dim].color_inactive[] = inactive_slider_bar_color
+    nothing
 end
 
-function set_slider_active!(coord_slider::UI.CoordinateSliders, dim::String)
+function set_slider_active!(coord_slider::UI.CoordinateSliders, dim::String)::Nothing
     active_text_color = parse(Colorant, :black)
     inactive_slider_bar_color = RGBf(0.94, 0.94, 0.94)
 
@@ -189,9 +195,10 @@ function set_slider_active!(coord_slider::UI.CoordinateSliders, dim::String)
     coord_slider.sliders[dim].color_active[] = Makie.COLOR_ACCENT[]
     coord_slider.sliders[dim].color_active_dimmed[] = Makie.COLOR_ACCENT_DIMMED[]
     coord_slider.sliders[dim].color_inactive[] = inactive_slider_bar_color
+    nothing
 end
 
-function set_slider_colors!(controller::ViewerController, selected_dims::Vector{String})
+function set_slider_colors!(controller::ViewerController, selected_dims::Vector{String})::Nothing
     coord_slider = controller.ui.main_menu.coord_sliders
     var_dims = Data.get_var_dims(controller.dataset, controller.ui.state.variable[])
     unused_dims = setdiff(var_dims, selected_dims)
@@ -202,9 +209,10 @@ function set_slider_colors!(controller::ViewerController, selected_dims::Vector{
             set_slider_inactive!(coord_slider, dim)
         end
     end
+    nothing
 end
 
-function set_menu_options!(controller::ViewerController, selected_dims::Vector{String})
+function set_menu_options!(controller::ViewerController, selected_dims::Vector{String})::Nothing
     dims = Data.get_var_dims(controller.dataset, controller.ui.state.variable[])
 
     controller.watch_dim[] = false
@@ -222,6 +230,7 @@ function set_menu_options!(controller::ViewerController, selected_dims::Vector{S
     UI.sync_dim_selections!(controller.ui.state, controller.ui.coord_menu)
     # Update the slider colors
     set_slider_colors!(controller, selected_dims)
+    nothing
 end
 
 

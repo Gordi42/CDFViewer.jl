@@ -21,7 +21,7 @@ end
 #  Constructors
 # ---------------------------------------------------
 
-function CDFDataset(file_path::String)
+function CDFDataset(file_path::String)::CDFDataset
     ds = NCDataset(file_path, "r")
     dimensions = collect(keys(ds.dim))
     variables = setdiff(collect(keys(ds)), dimensions)
@@ -33,11 +33,11 @@ end
 #  Methods
 # ---------------------------------------------------
 
-function get_var_dims(dataset::CDFDataset, var::String)
+function get_var_dims(dataset::CDFDataset, var::String)::Vector{String}
     return collect(dimnames(dataset.ds[var]))
 end
 
-function get_label(dataset::CDFDataset, var::String)
+function get_label(dataset::CDFDataset, var::String)::String
     # some dimensions may not be stored as variables in the dataset
     var ∉ keys(dataset.ds) && return var
     # Get the attributes of the variable
@@ -50,7 +50,7 @@ function get_label(dataset::CDFDataset, var::String)
     return label
 end
 
-function get_dim_value_label(dataset::CDFDataset, dim::String, idx::Int)
+function get_dim_value_label(dataset::CDFDataset, dim::String, idx::Int)::String
     base = "  → "
     # Check if the dimension is selected
     dim === Constants.NOT_SELECTED_LABEL && return Constants.NO_DIM_SELECTED_LABEL
@@ -70,7 +70,7 @@ function get_dim_value_label(dataset::CDFDataset, dim::String, idx::Int)
     return base * string(idx)
 end
 
-function get_dim_values(dataset::CDFDataset, dim::String)
+function get_dim_values(dataset::CDFDataset, dim::String)::Vector{Float64}
     dim === Constants.NOT_SELECTED_LABEL && return collect(Float64, 1:1)
     try
         return convert(Vector{Float64}, dataset.ds[dim][:])
@@ -80,7 +80,7 @@ function get_dim_values(dataset::CDFDataset, dim::String)
     end
 end
 
-function get_dim_array(dataset::CDFDataset, dim::Observable{String}, update_switch::Observable{Bool})
+function get_dim_array(dataset::CDFDataset, dim::Observable{String}, update_switch::Observable{Bool})::Observable{Vector{Float64}}
     result = Observable(Data.get_dim_values(dataset, dim[]))
     for trigger in (dim, update_switch)
         on(trigger) do _
@@ -95,7 +95,7 @@ function get_data_slice(
     var_dims::Vector{String},
     plot_dimensions::Vector{String},
     dimension_selections::Dict{String, Int},
-)
+)::Vector{Union{Colon, Int}}
     [dim in plot_dimensions ? Colon() : dimension_selections[dim] for dim in var_dims]
 end
 
@@ -104,7 +104,7 @@ function get_data(
     variable::String,
     plot_dimensions::Vector{String},
     dimension_selections::Dict{String, Int},
-)
+)::Array
     # get the dimensions of the variable
     var_dims = collect(dimnames(dataset.ds[variable]))
 

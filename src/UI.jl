@@ -16,7 +16,7 @@ struct PlotMenu
     fig::Figure
 end
 
-function PlotMenu(fig::Figure)
+function PlotMenu(fig::Figure)::PlotMenu
     function construct_textbox(placeholder::String)
         Textbox(
             fig,
@@ -35,7 +35,7 @@ function PlotMenu(fig::Figure)
     )
 end
 
-function layout(plot_menu::PlotMenu)
+function layout(plot_menu::PlotMenu)::GridLayout
     vgrid!(
         hgrid!(
             Label(plot_menu.fig, L"\textbf{Plot Settings}", width = nothing),
@@ -56,7 +56,7 @@ struct CoordinateSliders
     fig::Figure
 end
 
-function CoordinateSliders(fig::Figure, dataset::Data.CDFDataset)
+function CoordinateSliders(fig::Figure, dataset::Data.CDFDataset)::CoordinateSliders
     coord_sliders = SliderGrid(fig,[
         (label=dim, range=1:dataset.ds.dim[dim], startvalue=1, update_while_dragging=false)
         for dim in dataset.dimensions]...)
@@ -81,7 +81,7 @@ struct PlaybackMenu
     fig::Figure
 end
 
-function PlaybackMenu(fig::Figure, dataset::Data.CDFDataset, coord_sliders::Dict{String, Slider})
+function PlaybackMenu(fig::Figure, dataset::Data.CDFDataset, coord_sliders::Dict{String, Slider})::PlaybackMenu
     toggle = Toggle(fig, active = false)
     speed_slider = Slider(fig, range = 0.1:0.1:10.0, startvalue = 1.0)
     var_menu = Menu(fig,
@@ -106,7 +106,7 @@ function PlaybackMenu(fig::Figure, dataset::Data.CDFDataset, coord_sliders::Dict
     PlaybackMenu(toggle, speed_slider, var_menu, label, fig)
 end
 
-function layout(playback_menu::PlaybackMenu)
+function layout(playback_menu::PlaybackMenu)::GridLayout
     vgrid!(
         hgrid!(
             Label(playback_menu.fig, L"\textbf{Play}", width = 30), 
@@ -130,7 +130,7 @@ struct MainMenu
     fig::Figure
 end
 
-function MainMenu(fig::Figure, dataset::Data.CDFDataset)
+function MainMenu(fig::Figure, dataset::Data.CDFDataset)::MainMenu
     variable_menu = Menu(fig, options = dataset.variables)
     plot_menu = PlotMenu(fig)
     coord_sliders = CoordinateSliders(fig, dataset)
@@ -138,7 +138,7 @@ function MainMenu(fig::Figure, dataset::Data.CDFDataset)
     MainMenu(variable_menu, plot_menu, playback_menu, coord_sliders, fig)
 end
 
-function layout(main_menu::MainMenu)
+function layout(main_menu::MainMenu)::GridLayout
     vgrid!(
         Label(main_menu.fig, L"\textbf{CDF Viewer}", halign = :center, fontsize=30, tellwidth=false),
         hgrid!(Label(main_menu.fig, L"\textbf{Variable}", width = nothing), main_menu.variable_menu),
@@ -159,7 +159,7 @@ struct CoordinateMenu
     fig::Figure
 end
 
-function CoordinateMenu(fig::Figure)
+function CoordinateMenu(fig::Figure)::CoordinateMenu
     dimension_selections = [
         Menu(fig, options = [Constants.NOT_SELECTED_LABEL], tellwidth = false)
         for i in 1:3
@@ -168,7 +168,7 @@ function CoordinateMenu(fig::Figure)
     CoordinateMenu(dimension_labels, dimension_selections, fig)
 end
 
-function layout(coord_menu::CoordinateMenu)
+function layout(coord_menu::CoordinateMenu)::GridLayout
     hgrid!([hgrid!(coord_menu.labels[i], coord_menu.menus[i]) for i in 1:3]...)
 end
 
@@ -187,7 +187,7 @@ struct State
     plot_kw::Observable{Union{String, Nothing}}
 end
 
-function State(main_menu::MainMenu, coord_menu::CoordinateMenu)
+function State(main_menu::MainMenu, coord_menu::CoordinateMenu)::State
     # Create an observable dictionary that tracks the values of all sliders
     slider_values = Dict(dim => slider.value for (dim, slider) in main_menu.coord_sliders.sliders)
     dim_obs = Observable(Dict(dim => value[] for (dim, value) in slider_values))
@@ -212,10 +212,11 @@ function State(main_menu::MainMenu, coord_menu::CoordinateMenu)
     )
 end
 
-function sync_dim_selections!(state::State, coord_menu::CoordinateMenu)
+function sync_dim_selections!(state::State, coord_menu::CoordinateMenu)::Nothing
     state.x_name[] = coord_menu.menus[1].selection[]
     state.y_name[] = coord_menu.menus[2].selection[]
     state.z_name[] = coord_menu.menus[3].selection[]
+    nothing
 end
 
 # ============================================
@@ -229,7 +230,7 @@ struct UIElements
     fig::Figure
 end
 
-function UIElements(fig::Figure, dataset::Data.CDFDataset)
+function UIElements(fig::Figure, dataset::Data.CDFDataset)::UIElements
     # Initialize the menus
     main_menu = MainMenu(fig, dataset)
     coord_menu = CoordinateMenu(fig)

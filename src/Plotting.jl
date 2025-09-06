@@ -26,7 +26,7 @@ const PLOT_TYPES = OrderedDict(plot.type => plot for plot in [
         (layout, plot_data) -> nothing),
 ])
 
-function get_plot_options(ndims::Int)
+function get_plot_options(ndims::Int)::Vector{String}
     if ndims >= 3
         collect(keys(PLOT_TYPES))
     elseif ndims == 2
@@ -38,7 +38,7 @@ function get_plot_options(ndims::Int)
     end
 end
 
-function get_fallback_plot(ndims::Int)
+function get_fallback_plot(ndims::Int)::String
     if ndims >= 2
         Constants.PLOT_DEFAULT_2D
     elseif ndims == 1
@@ -48,7 +48,7 @@ function get_fallback_plot(ndims::Int)
     end
 end
 
-function get_dimension_plot(ndims::Int)
+function get_dimension_plot(ndims::Int)::String
     if ndims >= 3
         Constants.PLOT_DEFAULT_3D
     elseif ndims == 2
@@ -71,7 +71,7 @@ struct FigureLabels
     zlabel::Observable{String}
 end
 
-function FigureLabels(ui_state::UI.State, dataset::Data.CDFDataset)
+function FigureLabels(ui_state::UI.State, dataset::Data.CDFDataset)::FigureLabels
     title = @lift(Data.get_label(dataset, $(ui_state.variable)))
     xlabel = @lift(Data.get_label(dataset, $(ui_state.x_name)))
     ylabel = @lift(Data.get_label(dataset, $(ui_state.y_name)))
@@ -94,7 +94,7 @@ struct PlotData
     labels::FigureLabels
 end
 
-function PlotData(ui_state::UI.State, dataset::Data.CDFDataset)
+function PlotData(ui_state::UI.State, dataset::Data.CDFDataset)::PlotData
     # Observable for the plot_type
     plot_type = @lift(PLOT_TYPES[$(ui_state.plot_type_name)])
 
@@ -142,7 +142,7 @@ struct FigureData
     cbar::Observable{Union{Colorbar, Nothing}}
 end
 
-function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)
+function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)::FigureData
     # Create axis, plot object, and colorbar observables
     ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
     plot_obj = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
@@ -181,7 +181,7 @@ function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)
     FigureData(fig, plot_data, ax, plot_obj, cbar)
 end
 
-function create_figure()
+function create_figure()::Figure
     GLMakie.activate!()
     fig = Figure(size = (1200, 800))
     theme = merge(theme_minimal(), theme_latexfonts())
@@ -189,13 +189,14 @@ function create_figure()
     fig
 end
 
-function create_axis!(fig_data::FigureData, ui_state::UI.State)
+function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
     fig_data.ax[] !== nothing && delete!(fig_data.ax[])
     fig_data.ax[] = fig_data.plot_data.plot_type[].make_axis(fig_data.fig[1, 2], fig_data.plot_data)
     fig_data.ax[] !== nothing && apply_kwargs!(fig_data.ax[], ui_state.axes_kw[])
+    nothing
 end
 
-function clear_axis!(fig_data::FigureData)
+function clear_axis!(fig_data::FigureData)::Nothing
     if fig_data.cbar[] !== nothing
         delete!(fig_data.cbar[])
         fig_data.cbar[] = nothing
@@ -205,9 +206,10 @@ function clear_axis!(fig_data::FigureData)
         fig_data.ax[] = nothing
     end
     fig_data.plot_obj[] = nothing
+    nothing
 end
 
-function apply_kwargs!(obj::Union{Makie.AbstractAxis, Makie.AbstractPlot}, kw_str::Union{String, Nothing})
+function apply_kwargs!(obj::Union{Makie.AbstractAxis, Makie.AbstractPlot}, kw_str::Union{String, Nothing})::Nothing
     kw_str === nothing && return
     kw = try
         kw_expr = Meta.parse("Dict(" * kw_str * ")")
@@ -222,13 +224,14 @@ function apply_kwargs!(obj::Union{Makie.AbstractAxis, Makie.AbstractPlot}, kw_st
             @warn "Failed to set property $key to $value: $e"
         end
     end
+    nothing
 end
 
 # ============================================================
 #  Fill up plot functions
 # ============================================================
 
-function create_2d_axis(ax_layout::GridPosition, plot_data::PlotData)
+function create_2d_axis(ax_layout::GridPosition, plot_data::PlotData)::Axis
     Axis(
         ax_layout,
         xlabel = plot_data.labels.xlabel,
@@ -240,7 +243,7 @@ function create_2d_axis(ax_layout::GridPosition, plot_data::PlotData)
     )
 end
 
-function create_3d_axis(ax_layout::GridPosition, plot_data::PlotData)
+function create_3d_axis(ax_layout::GridPosition, plot_data::PlotData)::Axis3
     Axis3(
         ax_layout,
         xlabel = plot_data.labels.xlabel,
