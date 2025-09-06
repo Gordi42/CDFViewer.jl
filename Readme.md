@@ -4,7 +4,6 @@
 ## Playback Dimension
 
 - [ ] Add functionality to the play toggle (make the slider logarithmic)
-- [ ] The play dimension option should match with the variable dimension
 
 ## Recording and Saving
 

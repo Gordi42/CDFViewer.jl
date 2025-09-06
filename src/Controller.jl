@@ -215,6 +215,35 @@ function set_slider_colors!(controller::ViewerController, selected_dims::Vector{
     nothing
 end
 
+function select_default_playback_dim!(controller::ViewerController)::Nothing
+    menu = controller.ui.main_menu.playback_menu.var
+    options = menu.options[]
+    if "time" ∈ options
+        menu.i_selected[] = findfirst(==("time"), options)
+    else
+        # default to the last option
+        menu.i_selected[] = length(options)
+    end
+    nothing
+end
+
+function set_playback_options!(controller::ViewerController, selected_dims::Vector{String})::Nothing
+    menu = controller.ui.main_menu.playback_menu.var
+    toggle = controller.ui.main_menu.playback_menu.toggle
+    var_dims = Data.get_var_dims(controller.dataset, controller.ui.state.variable[])
+    unused_dims = setdiff(var_dims, selected_dims)
+    if menu.i_selected[] > length(unused_dims) + 1
+        toggle.active[] = false
+        menu.i_selected[] = 1
+    end
+    menu.options[] = [Constants.NOT_SELECTED_LABEL; unused_dims...]
+    if menu.i_selected[] ∈ [0, 1]
+        toggle.active[] = false
+        select_default_playback_dim!(controller)
+    end
+    nothing
+end
+
 function set_menu_options!(controller::ViewerController, selected_dims::Vector{String})::Nothing
     dims = Data.get_var_dims(controller.dataset, controller.ui.state.variable[])
 
@@ -233,6 +262,8 @@ function set_menu_options!(controller::ViewerController, selected_dims::Vector{S
     UI.sync_dim_selections!(controller.ui.state, controller.ui.coord_menu)
     # Update the slider colors
     set_slider_colors!(controller, selected_dims)
+    # Update the playback options
+    set_playback_options!(controller, selected_dims)
     nothing
 end
 

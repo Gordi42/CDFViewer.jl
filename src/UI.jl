@@ -88,7 +88,9 @@ function PlaybackMenu(fig::Figure, dataset::Data.CDFDataset, coord_sliders::Dict
     for trigger in (var_menu.selection, slider_values...)
         on(trigger) do _
             dim = var_menu.selection[]
-            if dim == Constants.NOT_SELECTED_LABEL
+            if isnothing(dim)
+                label.text[] = Constants.NO_DIM_SELECTED_LABEL
+            elseif dim == Constants.NOT_SELECTED_LABEL
                 label.text[] = Constants.NO_DIM_SELECTED_LABEL
             else
                 idx = coord_sliders[dim].value[]
