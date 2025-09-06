@@ -1,0 +1,124 @@
+module Parsing
+
+function parse_kwargs(kw_str::String)::Dict{Symbol, Any}
+    kw_dict = Dict{Symbol, Any}()
+    isempty(kw_str) && return kw_dict
+    
+    # Split by commas, but be careful not to split inside parentheses, brackets, or quotes
+    pairs = String[]
+    current_pair = ""
+    paren_count = 0
+    bracket_count = 0
+    in_quotes = false
+    quote_char = ' '
+    
+    for char in kw_str
+        if !in_quotes && (char == '"' || char == '\'')
+            in_quotes = true
+            quote_char = char
+        elseif in_quotes && char == quote_char
+            in_quotes = false
+        elseif !in_quotes && char == '('
+            paren_count += 1
+        elseif !in_quotes && char == ')'
+            paren_count -= 1
+        elseif !in_quotes && char == '['
+            bracket_count += 1
+        elseif !in_quotes && char == ']'
+            bracket_count -= 1
+        elseif !in_quotes && char == ',' && paren_count == 0 && bracket_count == 0
+            push!(pairs, current_pair)
+            current_pair = ""
+            continue
+        end
+        current_pair *= char
+    end
+    push!(pairs, current_pair)
+    
+    for pair in pairs
+        parts = split(pair, '=', limit=2)
+        length(parts) == 2 || continue
+        key = Symbol(strip(parts[1]))
+        val_str = strip(parts[2])
+        
+        # Parse the value
+        if (startswith(val_str, '"') && endswith(val_str, '"')) || 
+           (startswith(val_str, '\'') && endswith(val_str, '\''))
+            # String: remove quotes
+            val = val_str[2:end-1]
+        elseif occursin(r"^\[.*\]$", val_str)
+            # Array: e.g. [1, 2, 3] or [1.0, 2.0, 3.0]
+            inner = val_str[2:end-1]
+            if isempty(strip(inner))
+                val = []
+            else
+                vals = [strip(v) for v in split(inner, ',')]
+                val = [parse_array_element(v) for v in vals]
+            end
+        elseif occursin(r"^\(.*\)$", val_str)
+            # Tuple: e.g. (0.2, -1, 3.19)
+            inner = val_str[2:end-1]
+            if isempty(strip(inner))
+                val = ()
+            else
+                vals = [strip(v) for v in split(inner, ',')]
+                # Handle single-element tuple with trailing comma
+                if length(vals) == 1 && endswith(vals[1], ',')
+                    vals[1] = rstrip(vals[1], ',')
+                    val = tuple(parse_tuple_element(vals[1]))
+                else
+                    val = tuple((parse_tuple_element(v) for v in vals)...)
+                end
+            end
+        elseif occursin(r"^\d+\.?\d*[eE][+-]?\d+$", val_str) || occursin(r"^\d*\.\d+[eE][+-]?\d+$", val_str)
+            # Scientific notation: e.g. 1.5e-3, 2E+5, .5e3
+            val = parse(Float64, val_str)
+        elseif tryparse(Float64, val_str) !== nothing
+            val = parse(Float64, val_str)
+        elseif startswith(val_str, ":")
+            val = Symbol(val_str[2:end])
+        elseif val_str == "true" || val_str == "false"
+            val = val_str == "true"
+        else
+            val = val_str
+        end
+        kw_dict[key] = val
+    end
+    kw_dict
+end
+
+# Helper function to parse array elements
+function parse_array_element(v::Union{String, SubString{String}})
+    v = strip(v)
+    if tryparse(Float64, v) !== nothing
+        return parse(Float64, v)
+    elseif startswith(v, ":")
+        return Symbol(v[2:end])
+    elseif v == "true" || v == "false"
+        return v == "true"
+    elseif (startswith(v, '"') && endswith(v, '"')) || 
+           (startswith(v, '\'') && endswith(v, '\''))
+        return v[2:end-1]  # Remove quotes
+    else
+        return v
+    end
+end
+
+# Helper function to parse tuple elements
+function parse_tuple_element(v::Union{String, SubString})
+    v = strip(v)
+    if tryparse(Float64, v) !== nothing
+        return parse(Float64, v)
+    elseif startswith(v, ":")
+        return Symbol(v[2:end])
+    elseif v == "true" || v == "false"
+        return v == "true"
+    elseif (startswith(v, '"') && endswith(v, '"')) || 
+           (startswith(v, '\'') && endswith(v, '\''))
+        return v[2:end-1]  # Remove quotes
+    else
+        return v
+    end
+end
+
+end

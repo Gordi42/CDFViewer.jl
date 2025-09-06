@@ -3,6 +3,7 @@ module CDFViewer
 using NCDatasets
 
 include("Constants.jl")
+include("Parsing.jl")
 include("Data.jl")
 include("UI.jl")
 include("Plotting.jl")
