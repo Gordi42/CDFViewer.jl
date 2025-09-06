@@ -156,18 +156,19 @@ end
 struct CoordinateMenu
     labels::Vector{Label}
     menus::Vector{Menu}
+    fig::Figure
 end
 
-function init_coordinate_menu(fig::Figure)
+function CoordinateMenu(fig::Figure)
     dimension_selections = [
         Menu(fig, options = [Constants.NOT_SELECTED_LABEL], tellwidth = false)
         for i in 1:3
     ]
     dimension_labels = [Label(fig, label) for label in Constants.DIMENSION_LABELS]
-    CoordinateMenu(dimension_labels, dimension_selections)
+    CoordinateMenu(dimension_labels, dimension_selections, fig)
 end
 
-function coordinate_menu_layout(coord_menu::CoordinateMenu)
+function layout(coord_menu::CoordinateMenu)
     hgrid!([hgrid!(coord_menu.labels[i], coord_menu.menus[i]) for i in 1:3]...)
 end
 
@@ -232,12 +233,12 @@ end
 function init_ui_elements!(fig::Figure, dataset::Data.CDFDataset)
     # Initialize the menus
     main_menu = MainMenu(fig, dataset)
-    coord_menu = init_coordinate_menu(fig)
+    coord_menu = CoordinateMenu(fig)
     # Initialize the UI state
     state = init_state(main_menu, coord_menu)
     # Put the menus in the figure
     fig[1:2, 1] = layout(main_menu)
-    fig[2, 2] = coordinate_menu_layout(coord_menu)
+    fig[2, 2] = layout(coord_menu)
     # Return the UI elements
     UIElements(main_menu, coord_menu, state)
 end

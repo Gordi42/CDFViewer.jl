@@ -189,7 +189,7 @@ using GLMakie
     @testset "UI Coordinate Menu" begin
         @testset "Types" begin
             # Arange
-            coord_menu = UI.init_coordinate_menu(Figure())
+            coord_menu = UI.CoordinateMenu(Figure())
 
             # Assert
             @test coord_menu isa UI.CoordinateMenu
@@ -199,7 +199,7 @@ using GLMakie
 
         @testset "Values" begin
             # Arange
-            coord_menu = UI.init_coordinate_menu(Figure())
+            coord_menu = UI.CoordinateMenu(Figure())
 
             # Assert
             @test length(coord_menu.labels) == 3
@@ -212,8 +212,8 @@ using GLMakie
 
         @testset "Layout" begin
             # Arange
-            coord_menu = UI.init_coordinate_menu(Figure())
-            layout = UI.coordinate_menu_layout(coord_menu)
+            coord_menu = UI.CoordinateMenu(Figure())
+            layout = UI.layout(coord_menu)
 
             # Assert
             @test layout isa GridLayout
@@ -233,7 +233,7 @@ using GLMakie
         function init_state(fig::Figure=Figure(),
                             dataset::Data.CDFDataset=make_temp_dataset())
             main_menu = UI.MainMenu(fig, dataset)
-            coord_menu = UI.init_coordinate_menu(fig)
+            coord_menu = UI.CoordinateMenu(fig)
             UI.init_state(main_menu, coord_menu), main_menu, coord_menu
         end
 
