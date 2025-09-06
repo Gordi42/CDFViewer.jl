@@ -94,45 +94,38 @@ struct PlotData
     labels::FigureLabels
 end
 
-function construct_selected_dimensions(ui_state::UI.State, plot_type::Observable{Plot})
-    @lift([
-        $(ui_state.x_name),
-        $(ui_state.y_name),
-        $(ui_state.z_name),][1:$plot_type.ndims])
-end
-
-function init_data_arrays(
-    ui_state::UI.State,
-    sel_dims::Observable{Vector{String}},
-    dataset::Data.CDFDataset,
-    update_switch::Observable{Bool},
-)
-    data = [Observable{Union{Array, Nothing}}(nothing) for _ in 1:3] # max 3D data
-    function updata_data!()
-        !(update_switch[]) && return
-        ndims = length(sel_dims[])
-        ndims == 0 && return
-        data[ndims][] = Data.get_data(
-            dataset, ui_state.variable[], sel_dims[], ui_state.dim_obs[])
-    end
-
-    for trigger in (ui_state.variable, sel_dims, ui_state.dim_obs, update_switch)
-        on(trigger) do _
-            updata_data!()
-        end
-    end
-    data
-end
-
-function init_plot_data(ui_state::UI.State, dataset::Data.CDFDataset)
+function PlotData(ui_state::UI.State, dataset::Data.CDFDataset)
+    # Observable for the plot_type
     plot_type = @lift(PLOT_TYPES[$(ui_state.plot_type_name)])
-    sel_dims = construct_selected_dimensions(ui_state, plot_type)
+
+    # Observable for the selected dimensions
+    sel_dims = @lift([$(ui_state.x_name),
+                      $(ui_state.y_name),
+                      $(ui_state.z_name),][1:$plot_type.ndims])
+
+    # Observables for x, y, z dimension arrays
     update_switch = Observable(true)
     x = Data.get_dim_array(dataset, ui_state.x_name, update_switch)
     y = Data.get_dim_array(dataset, ui_state.y_name, update_switch)
     z = Data.get_dim_array(dataset, ui_state.z_name, update_switch)
-    d = init_data_arrays(ui_state, sel_dims, dataset, update_switch)
+    # Observable for the data array
+    d = [Observable{Union{Array, Nothing}}(nothing) for _ in 1:3] # max 3D data
+
+    # Set up listeners to update the data array when relevant observables change
+    for trigger in (ui_state.variable, sel_dims, ui_state.dim_obs, update_switch)
+        on(trigger) do _
+            !(update_switch[]) && return
+            ndims = length(sel_dims[])
+            ndims == 0 && return
+            d[ndims][] = Data.get_data(
+                dataset, ui_state.variable[], sel_dims[], ui_state.dim_obs[])
+        end
+    end
+
+    # Figure labels
     labels = FigureLabels(ui_state, dataset)
+
+    # Construct and return the PlotData
     PlotData(plot_type, sel_dims, x, y, z, d, update_switch, labels)
 end
 
@@ -149,41 +142,13 @@ struct FigureData
     cbar::Observable{Union{Colorbar, Nothing}}
 end
 
-function create_figure()
-    GLMakie.activate!()
-    fig = Figure(size = (1200, 800))
-    theme = merge(theme_minimal(), theme_latexfonts())
-    set_theme!(theme)
-    fig
-end
-
-function apply_kwargs!(obj::Union{Makie.AbstractAxis, Makie.AbstractPlot}, kw_str::Union{String, Nothing})
-    kw_str === nothing && return
-    kw = try
-        kw_expr = Meta.parse("Dict(" * kw_str * ")")
-        Dict(Symbol(pair.args[1]) => eval(pair.args[2]) for pair in kw_expr.args[2:end])
-    catch e
-        @warn "Failed to parse keyword arguments: $e"
-    end
-    for (key, value) in kw
-        try
-            setproperty!(obj, key, value)
-        catch e
-            @warn "Failed to set property $key to $value: $e"
-        end
-    end
-end
-
-
-function create_plot_object(
-    cbar_layout::GridPosition,
-    ax::Observable{Union{Makie.AbstractAxis, Nothing}},
-    plot_data::PlotData,
-    ui_state::UI.State,
-)
+function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)
+    # Create axis, plot object, and colorbar observables
+    ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
     plot_obj = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
     cbar = Observable{Union{Colorbar, Nothing}}(nothing)
 
+    # Setup a listener to create the plot if the axis changes
     on(ax) do a
         a === nothing && return
         # first we clear the previous plot
@@ -197,19 +162,13 @@ function create_plot_object(
             plot_data.d[plot_data.plot_type[].ndims])
         # and add a colorbar if needed
         if plot_data.plot_type[].colorbar
-            cbar[] = Colorbar(cbar_layout, plot_obj[],
+            cbar[] = Colorbar(fig[1, 3], plot_obj[],
                 width = 30, tellwidth = false, tellheight = false)
         end
         apply_kwargs!(plot_obj[], ui_state.plot_kw[])
     end
 
-    (plot_obj, cbar)
-end
-
-function init_figure_data(fig::Figure, plot_data::PlotData, ui_state::UI.State)
-    ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
-    plot_obj, cbar = create_plot_object(fig[1, 3], ax, plot_data, ui_state)
-
+    # Setup listeners to apply axis and plot keyword arguments
     on(ui_state.axes_kw) do kw_str
         ax[] !== nothing && apply_kwargs!(ax[], kw_str)
     end
@@ -218,7 +177,16 @@ function init_figure_data(fig::Figure, plot_data::PlotData, ui_state::UI.State)
         plot_obj[] !== nothing && apply_kwargs!(plot_obj[], kw_str)
     end
     
+    # Construct and return the FigureData
     FigureData(fig, plot_data, ax, plot_obj, cbar)
+end
+
+function create_figure()
+    GLMakie.activate!()
+    fig = Figure(size = (1200, 800))
+    theme = merge(theme_minimal(), theme_latexfonts())
+    set_theme!(theme)
+    fig
 end
 
 function create_axis!(fig_data::FigureData, ui_state::UI.State)
@@ -237,6 +205,23 @@ function clear_axis!(fig_data::FigureData)
         fig_data.ax[] = nothing
     end
     fig_data.plot_obj[] = nothing
+end
+
+function apply_kwargs!(obj::Union{Makie.AbstractAxis, Makie.AbstractPlot}, kw_str::Union{String, Nothing})
+    kw_str === nothing && return
+    kw = try
+        kw_expr = Meta.parse("Dict(" * kw_str * ")")
+        Dict(Symbol(pair.args[1]) => eval(pair.args[2]) for pair in kw_expr.args[2:end])
+    catch e
+        @warn "Failed to parse keyword arguments: $e"
+    end
+    for (key, value) in kw
+        try
+            setproperty!(obj, key, value)
+        catch e
+            @warn "Failed to set property $key to $value: $e"
+        end
+    end
 end
 
 # ============================================================
@@ -312,4 +297,4 @@ for plot in [
 end
 
 
-end # module Plotting
+end

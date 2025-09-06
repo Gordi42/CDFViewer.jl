@@ -71,7 +71,7 @@ using CDFViewer.Plotting
             fig = Figure()
             dataset = make_temp_dataset()
             ui = UI.UIElements(fig, dataset)
-            plot_data = Plotting.init_plot_data(ui.state, dataset)
+            plot_data = Plotting.PlotData(ui.state, dataset)
 
             for (name, plot) in Plotting.PLOT_TYPES
                 # Act
@@ -144,7 +144,7 @@ using CDFViewer.Plotting
             dataset = make_temp_dataset()
             _fig, ui = make_ui(dataset)
 
-            plot_data = Plotting.init_plot_data(ui.state, dataset)
+            plot_data = Plotting.PlotData(ui.state, dataset)
             (plot_data, ui.state)
         end
 
@@ -307,8 +307,8 @@ using CDFViewer.Plotting
             dataset = make_temp_dataset()
             fig, ui = make_ui(dataset)
 
-            plot_data = Plotting.init_plot_data(ui.state, dataset)
-            fig_data = Plotting.init_figure_data(fig, plot_data, ui.state)
+            plot_data = Plotting.PlotData(ui.state, dataset)
+            fig_data = Plotting.FigureData(fig, plot_data, ui.state)
             (fig_data, ui.state)
         end
 

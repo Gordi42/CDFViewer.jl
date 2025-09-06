@@ -181,11 +181,11 @@ end
 function on_tick_event(controller::ViewerController, tick::Makie.Tick)
 end
 
-function init_controller(dataset::Data.CDFDataset)
+function init_controller(dataset::Data.CDFDataset)::ViewerController
     fig = Plotting.create_figure()
     ui = UI.UIElements(fig, dataset)
-    plot_data = Plotting.init_plot_data(ui.state, dataset)
-    fig_data = Plotting.init_figure_data(fig, plot_data, ui.state)
+    plot_data = Plotting.PlotData(ui.state, dataset)
+    fig_data = Plotting.FigureData(fig, plot_data, ui.state)
     controller = ViewerController(ui, fig_data, dataset, Observable(true), Observable(true))
     controller
 end
