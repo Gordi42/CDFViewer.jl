@@ -39,7 +39,7 @@ using GLMakie
             plot_menu = UI.PlotMenu(fig)
 
             # Act
-            layout = UI.layout(fig, plot_menu)
+            layout = UI.layout(plot_menu)
 
             # Assert
             @test layout isa GridLayout
@@ -57,7 +57,7 @@ using GLMakie
     @testset "UI Coordinate Sliders" begin
         @testset "Types" begin
             # Arange
-            coord_sliders = UI.init_coordinate_sliders(Figure(), make_temp_dataset())
+            coord_sliders = UI.CoordinateSliders(Figure(), make_temp_dataset())
 
             # Assert
             @test coord_sliders isa UI.CoordinateSliders
@@ -69,7 +69,7 @@ using GLMakie
         @testset "Values" begin
             # Arange
             dataset = make_temp_dataset()
-            coord_sliders = UI.init_coordinate_sliders(Figure(), dataset)
+            coord_sliders = UI.CoordinateSliders(Figure(), dataset)
 
             # Assert
             @test length(coord_sliders.labels) == length(dataset.dimensions)
@@ -84,7 +84,7 @@ using GLMakie
     @testset "UI Playback Menu" begin
         function init_playback_menu(fig::Figure=Figure())
             dataset = make_temp_dataset()
-            coord_sliders = UI.init_coordinate_sliders(fig, dataset)
+            coord_sliders = UI.CoordinateSliders(fig, dataset)
 
             UI.init_playback_menu(fig, dataset, coord_sliders.sliders)
         end
@@ -134,7 +134,7 @@ using GLMakie
             # Arange
             fig = Figure()
             dataset = make_temp_dataset()
-            coord_sliders = UI.init_coordinate_sliders(fig, dataset)
+            coord_sliders = UI.CoordinateSliders(fig, dataset)
             playback_menu = UI.init_playback_menu(fig, dataset, coord_sliders.sliders)
 
             # Act
