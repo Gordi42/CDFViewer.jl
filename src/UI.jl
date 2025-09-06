@@ -15,24 +15,33 @@ struct PlotMenu
     plot_kw::Textbox
 end
 
-function construct_textbox(fig::Figure, placeholder::String)
-    Textbox(
-        fig,
-        placeholder = placeholder,
-        tellwidth = false,
-        defocus_on_submit = false,
-        halign = :left,
+# ------------------------------------
+#  Constructor
+# ------------------------------------
+
+function PlotMenu(fig::Figure)
+    function construct_textbox(placeholder::String)
+        Textbox(
+            fig,
+            placeholder = placeholder,
+            tellwidth = false,
+            defocus_on_submit = false,
+            halign = :left,
+        )
+    end
+
+    PlotMenu(
+        Menu(fig, options=["Info"]),
+        construct_textbox(Constants.AXES_KW_HINTS),
+        construct_textbox(Constants.PLOT_KW_HINTS),
     )
 end
 
-function init_plot_menu(fig::Figure)
-    plot_type_menu = Menu(fig, options=["Info"])
-    axes_kw_box = construct_textbox(fig, Constants.AXES_KW_HINTS)
-    plot_kw_box = construct_textbox(fig, Constants.PLOT_KW_HINTS)
-    PlotMenu(plot_type_menu, axes_kw_box, plot_kw_box)
-end
+# ------------------------------------
+#  Methods
+# -----------------------------------
 
-function plot_menu_layout(fig::Figure, plot_menu::PlotMenu)
+function layout(fig::Figure, plot_menu::PlotMenu)
     vgrid!(
         hgrid!(
             Label(fig, L"\textbf{Plot Settings}", width = nothing),
@@ -135,7 +144,7 @@ end
 
 function init_main_menu(fig::Figure, dataset::Data.CDFDataset)
     variable_menu = Menu(fig, options = dataset.variables)
-    plot_menu = init_plot_menu(fig)
+    plot_menu = PlotMenu(fig)
     coord_sliders = init_coordinate_sliders(fig, dataset)
     playback_menu = init_playback_menu(fig, dataset, coord_sliders.sliders)
     MainMenu(variable_menu, plot_menu, playback_menu, coord_sliders)
@@ -145,7 +154,7 @@ function main_menu_layout(fig::Figure, main_menu::MainMenu)
     vgrid!(
         Label(fig, L"\textbf{CDF Viewer}", halign = :center, fontsize=30, tellwidth=false),
         hgrid!(Label(fig, L"\textbf{Variable}", width = nothing), main_menu.variable_menu),
-        plot_menu_layout(fig, main_menu.plot_menu),
+        layout(fig, main_menu.plot_menu),
         playback_menu_layout(fig, main_menu.playback_menu),
         Label(fig, L"\textbf{Coordinates}", width = nothing),
         main_menu.coord_sliders.slider_grid,

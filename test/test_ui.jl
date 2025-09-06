@@ -14,7 +14,7 @@ using GLMakie
 
         @testset "Types" begin
             # Arange
-            plot_menu = UI.init_plot_menu(Figure())
+            plot_menu = UI.PlotMenu(Figure())
 
             # Assert
             @test plot_menu isa UI.PlotMenu
@@ -25,7 +25,7 @@ using GLMakie
 
         @testset "Values" begin
             # Arange
-            plot_menu = UI.init_plot_menu(Figure())
+            plot_menu = UI.PlotMenu(Figure())
 
             # Assert
             @test plot_menu.plot_type.options[] == ["Info"]
@@ -36,10 +36,10 @@ using GLMakie
         @testset "Layout" begin
             # Arange
             fig = Figure()
-            plot_menu = UI.init_plot_menu(fig)
+            plot_menu = UI.PlotMenu(fig)
 
             # Act
-            layout = UI.plot_menu_layout(fig, plot_menu)
+            layout = UI.layout(fig, plot_menu)
 
             # Assert
             @test layout isa GridLayout
