@@ -71,7 +71,7 @@ struct FigureLabels
     zlabel::Observable{String}
 end
 
-function init_figure_labels(ui_state::UI.State, dataset::Data.CDFDataset)
+function FigureLabels(ui_state::UI.State, dataset::Data.CDFDataset)
     title = @lift(Data.get_label(dataset, $(ui_state.variable)))
     xlabel = @lift(Data.get_label(dataset, $(ui_state.x_name)))
     ylabel = @lift(Data.get_label(dataset, $(ui_state.y_name)))
@@ -132,7 +132,7 @@ function init_plot_data(ui_state::UI.State, dataset::Data.CDFDataset)
     y = Data.get_dim_array(dataset, ui_state.y_name, update_switch)
     z = Data.get_dim_array(dataset, ui_state.z_name, update_switch)
     d = init_data_arrays(ui_state, sel_dims, dataset, update_switch)
-    labels = init_figure_labels(ui_state, dataset)
+    labels = FigureLabels(ui_state, dataset)
     PlotData(plot_type, sel_dims, x, y, z, d, update_switch, labels)
 end
 

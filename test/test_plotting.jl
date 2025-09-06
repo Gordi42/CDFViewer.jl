@@ -97,8 +97,8 @@ using CDFViewer.Plotting
         # Arrange - helper function
         function init_figure_labels()
             dataset = make_temp_dataset()
-            fig, ui = make_ui(dataset)
-            labels = Plotting.init_figure_labels(ui.state, dataset)
+            _fig, ui = make_ui(dataset)
+            labels = Plotting.FigureLabels(ui.state, dataset)
             (labels, ui.state)
         end
 
