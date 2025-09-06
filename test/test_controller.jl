@@ -9,10 +9,9 @@ using CDFViewer.Controller
 @testset "Controller.jl" begin
 
     function init_default_controller()
-        dataset = make_temp_dataset()
-        controller = Controller.init_controller(dataset)
+        controller = Controller.ViewerController(make_temp_dataset())
         # display(controller.fd.fig)
-        Controller.setup_controller!(controller)
+        Controller.setup!(controller)
         controller
     end
 

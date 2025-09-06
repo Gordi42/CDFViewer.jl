@@ -14,6 +14,45 @@ struct ViewerController
     watch_plot::Observable{Bool}
 end
 
+function ViewerController(dataset::Data.CDFDataset)::ViewerController
+    fig = Plotting.create_figure()
+    ui = UI.UIElements(fig, dataset)
+    plot_data = Plotting.PlotData(ui.state, dataset)
+    fig_data = Plotting.FigureData(fig, plot_data, ui.state)
+    ViewerController(ui, fig_data, dataset, Observable(true), Observable(true))
+end
+
+function setup!(controller::ViewerController)::ViewerController
+    # Helper to convert functions to event handlers
+    conv = func -> (_ -> func(controller))
+
+    # Connect UI changes to controller functions
+    on(conv(on_variable_change), controller.ui.main_menu.variable_menu.selection)
+    on(conv(on_plot_type_change), controller.ui.main_menu.plot_menu.plot_type.selection)
+    for menu in controller.ui.coord_menu.menus
+        on(conv(on_dim_sel_change), menu.selection)
+    end
+    on(tick -> on_tick_event(controller, tick), controller.fd.fig.scene.events.tick)
+
+    # This will set everything up for the initial variable
+    notify(controller.ui.main_menu.variable_menu.selection)
+
+    # Set the initial plot type
+    ndims = length(Data.get_var_dims(controller.dataset, controller.ui.state.variable[]))
+    fallback = Plotting.get_fallback_plot(ndims)
+    plot_type_menu = controller.ui.main_menu.plot_menu.plot_type
+    if fallback ∈ plot_type_menu.options[]
+        plot_type_menu.i_selected[] = findfirst(==(fallback), plot_type_menu.options[])
+    end
+
+    # return the controller
+    controller
+end
+
+# ------------------------------------------------
+#  Event handlers
+# ------------------------------------------------
+
 function on_variable_change(controller::ViewerController)
     # make sure that the data is not updated while we change things
     controller.fd.plot_data.update_data_switch[] = false
@@ -75,6 +114,39 @@ function on_plot_type_change(controller::ViewerController)
     # Create the axis
     Plotting.create_axis!(controller.fd, controller.ui.state)
 end
+
+function on_dim_sel_change(controller::ViewerController)
+    !(controller.watch_dim[]) && return
+    # make sure that the data is not updated while we change things
+    controller.fd.plot_data.update_data_switch[] = false
+
+    # Update the menus with the available dimensions
+    dims = Data.get_var_dims(controller.dataset, controller.ui.state.variable[])
+    coord_menus = controller.ui.coord_menu.menus
+    selected_dims = [m.selection[] for m in coord_menus]
+    make_subset!(dims, selected_dims)
+    # update the options in the menus
+    set_menu_options!(controller, selected_dims)
+
+    # If the number of selected dimensions does not match the plot type, change the plot type
+    plot_ndims = controller.fd.plot_data.plot_type[].ndims
+    if plot_ndims != length(selected_dims)
+        new_plot = Plotting.get_dimension_plot(length(selected_dims))
+        plot_type_menu = controller.ui.main_menu.plot_menu.plot_type
+        plot_type_menu.i_selected[] = findfirst(==(new_plot), plot_type_menu.options[])
+    end
+
+
+    # Set the update switch back
+    controller.fd.plot_data.update_data_switch[] = true
+end
+
+function on_tick_event(controller::ViewerController, tick::Makie.Tick)
+end
+
+# ------------------------------------------------
+#  Helper functions
+# ------------------------------------------------
 
 function update_dim_selection_with_length!(controller::ViewerController, len::Int)
     coord_menus = controller.ui.coord_menu.menus
@@ -152,71 +224,5 @@ function set_menu_options!(controller::ViewerController, selected_dims::Vector{S
     set_slider_colors!(controller, selected_dims)
 end
 
-function on_dim_sel_change(controller::ViewerController)
-    !(controller.watch_dim[]) && return
-    # make sure that the data is not updated while we change things
-    controller.fd.plot_data.update_data_switch[] = false
-
-    # Update the menus with the available dimensions
-    dims = Data.get_var_dims(controller.dataset, controller.ui.state.variable[])
-    coord_menus = controller.ui.coord_menu.menus
-    selected_dims = [m.selection[] for m in coord_menus]
-    make_subset!(dims, selected_dims)
-    # update the options in the menus
-    set_menu_options!(controller, selected_dims)
-
-    # If the number of selected dimensions does not match the plot type, change the plot type
-    plot_ndims = controller.fd.plot_data.plot_type[].ndims
-    if plot_ndims != length(selected_dims)
-        new_plot = Plotting.get_dimension_plot(length(selected_dims))
-        plot_type_menu = controller.ui.main_menu.plot_menu.plot_type
-        plot_type_menu.i_selected[] = findfirst(==(new_plot), plot_type_menu.options[])
-    end
-
-
-    # Set the update switch back
-    controller.fd.plot_data.update_data_switch[] = true
-end
-
-function on_tick_event(controller::ViewerController, tick::Makie.Tick)
-end
-
-function init_controller(dataset::Data.CDFDataset)::ViewerController
-    fig = Plotting.create_figure()
-    ui = UI.UIElements(fig, dataset)
-    plot_data = Plotting.PlotData(ui.state, dataset)
-    fig_data = Plotting.FigureData(fig, plot_data, ui.state)
-    controller = ViewerController(ui, fig_data, dataset, Observable(true), Observable(true))
-    controller
-end
-
-function setup_controller!(controller::ViewerController)
-    # Helper to convert functions to event handlers
-    conv = func -> (_ -> func(controller))
-
-    # Connect UI changes to controller functions
-    on(conv(on_variable_change), controller.ui.main_menu.variable_menu.selection)
-    on(conv(on_plot_type_change), controller.ui.main_menu.plot_menu.plot_type.selection)
-    for menu in controller.ui.coord_menu.menus
-        on(conv(on_dim_sel_change), menu.selection)
-    end
-    on(tick -> on_tick_event(controller, tick), controller.fd.fig.scene.events.tick)
-
-    notify(controller.ui.main_menu.variable_menu.selection)
-
-    # set the initial plot type
-    ndims = length(Data.get_var_dims(controller.dataset, controller.ui.state.variable[]))
-    fallback = Plotting.get_fallback_plot(ndims)
-    plot_type_menu = controller.ui.main_menu.plot_menu.plot_type
-    if fallback ∈ plot_type_menu.options[]
-        plot_type_menu.i_selected[] = findfirst(==(fallback), plot_type_menu.options[])
-    end
-end
-
-function create_controller(dataset::Data.CDFDataset)
-    controller = init_controller(dataset)
-    setup_controller!(controller)
-    controller
-end
 
 end # module
