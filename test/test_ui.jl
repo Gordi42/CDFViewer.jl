@@ -234,7 +234,7 @@ using GLMakie
                             dataset::Data.CDFDataset=make_temp_dataset())
             main_menu = UI.MainMenu(fig, dataset)
             coord_menu = UI.CoordinateMenu(fig)
-            UI.init_state(main_menu, coord_menu), main_menu, coord_menu
+            UI.State(main_menu, coord_menu), main_menu, coord_menu
         end
 
         @testset "Types" begin

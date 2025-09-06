@@ -187,10 +187,12 @@ struct State
     plot_kw::Observable{Union{String, Nothing}}
 end
 
-function create_dimension_selection(coord_sliders::CoordinateSliders)
+function State(main_menu::MainMenu, coord_menu::CoordinateMenu)
+    # Create an observable dictionary that tracks the values of all sliders
     slider_values = Dict(dim => slider.value for (dim, slider) in coord_sliders.sliders)
     dim_obs = Observable(Dict(dim => value[] for (dim, value) in slider_values))
 
+    # Set up listeners to update the dictionary when any slider changes
     for (dim, value_obs) in slider_values
         on(value_obs) do v
             dim_obs[][dim] = v
@@ -198,17 +200,13 @@ function create_dimension_selection(coord_sliders::CoordinateSliders)
         end
     end
 
-    dim_obs
-end
-
-function init_state(main_menu::MainMenu, coord_menu::CoordinateMenu)
     State(
         Observable(main_menu.variable_menu.selection[]),
         Observable(main_menu.plot_menu.plot_type.selection[]),
         Observable(coord_menu.menus[1].selection[]),
         Observable(coord_menu.menus[2].selection[]),
         Observable(coord_menu.menus[3].selection[]),
-        create_dimension_selection(main_menu.coord_sliders),
+        dim_obs,
         main_menu.plot_menu.axes_kw.stored_string,
         main_menu.plot_menu.plot_kw.stored_string,
     )
@@ -235,7 +233,7 @@ function init_ui_elements!(fig::Figure, dataset::Data.CDFDataset)
     main_menu = MainMenu(fig, dataset)
     coord_menu = CoordinateMenu(fig)
     # Initialize the UI state
-    state = init_state(main_menu, coord_menu)
+    state = State(main_menu, coord_menu)
     # Put the menus in the figure
     fig[1:2, 1] = layout(main_menu)
     fig[2, 2] = layout(coord_menu)
