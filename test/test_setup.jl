@@ -89,6 +89,6 @@ end
 
 function make_ui(dataset::Data.CDFDataset)
     fig = Plotting.create_figure()
-    ui = UI.init_ui_elements!(fig, dataset)
+    ui = UI.UIElements(fig, dataset)
     fig, ui
 end

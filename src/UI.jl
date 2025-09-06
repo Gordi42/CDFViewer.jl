@@ -226,9 +226,10 @@ struct UIElements
     main_menu::MainMenu
     coord_menu::CoordinateMenu
     state::State
+    fig::Figure
 end
 
-function init_ui_elements!(fig::Figure, dataset::Data.CDFDataset)
+function UIElements(fig::Figure, dataset::Data.CDFDataset)
     # Initialize the menus
     main_menu = MainMenu(fig, dataset)
     coord_menu = CoordinateMenu(fig)
@@ -238,7 +239,7 @@ function init_ui_elements!(fig::Figure, dataset::Data.CDFDataset)
     fig[1:2, 1] = layout(main_menu)
     fig[2, 2] = layout(coord_menu)
     # Return the UI elements
-    UIElements(main_menu, coord_menu, state)
+    UIElements(main_menu, coord_menu, state, fig)
 end
 
 end # module

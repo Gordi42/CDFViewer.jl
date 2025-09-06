@@ -70,7 +70,7 @@ using CDFViewer.Plotting
             # Arrange - create a temporary figure and dataset
             fig = Figure()
             dataset = make_temp_dataset()
-            ui = UI.init_ui_elements!(fig, dataset)
+            ui = UI.UIElements(fig, dataset)
             plot_data = Plotting.init_plot_data(ui.state, dataset)
 
             for (name, plot) in Plotting.PLOT_TYPES

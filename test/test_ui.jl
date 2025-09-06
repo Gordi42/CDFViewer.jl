@@ -326,7 +326,7 @@ using GLMakie
         # Arange
         dataset = make_temp_dataset()
         fig = Figure()
-        ui_elements = UI.init_ui_elements!(fig, dataset)
+        ui_elements = UI.UIElements(fig, dataset)
 
         # Assert types
         @test ui_elements isa UI.UIElements

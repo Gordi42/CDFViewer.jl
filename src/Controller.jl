@@ -183,7 +183,7 @@ end
 
 function init_controller(dataset::Data.CDFDataset)
     fig = Plotting.create_figure()
-    ui = UI.init_ui_elements!(fig, dataset)
+    ui = UI.UIElements(fig, dataset)
     plot_data = Plotting.init_plot_data(ui.state, dataset)
     fig_data = Plotting.init_figure_data(fig, plot_data, ui.state)
     controller = ViewerController(ui, fig_data, dataset, Observable(true), Observable(true))
