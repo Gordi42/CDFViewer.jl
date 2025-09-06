@@ -296,104 +296,216 @@ using CDFViewer.Plotting
 
     end
 
-end
+    # ============================================
+    #  Figure Data
+    # ============================================
 
+    @testset "Figure Data" begin
 
+        # Arrange - helper function
+        function init_figure_data()
+            dataset = make_temp_dataset()
+            fig, ui = make_ui(dataset)
 
+            plot_data = Plotting.init_plot_data(ui.state, dataset)
+            fig_data = Plotting.init_figure_data(fig, plot_data, ui.state)
+            (fig_data, ui.state)
+        end
 
-@testset "Figure Data" begin
+        @testset "Types" begin
+            # Arrange
+            (fig_data, state) = init_figure_data()
 
-    dataset = make_temp_dataset()
-    fig, ui = make_ui(dataset)
+            # Assert
+            @test fig_data isa Plotting.FigureData
+            @test fig_data.fig isa Figure
+            @test fig_data.plot_data isa Plotting.PlotData
+            @test fig_data.ax isa Observable{Union{Makie.AbstractAxis, Nothing}}
+            @test fig_data.plot_obj isa Observable{Union{Makie.AbstractPlot, Nothing}}
+            @test fig_data.cbar isa Observable{Union{Colorbar, Nothing}}
+        end
 
-    plot_data = Plotting.init_plot_data(ui.state, dataset)
-    fig_data = Plotting.init_figure_data(fig, plot_data, ui.state)
+        @testset "Plot 1D" begin
+            # Arrange
+            (fig_data, state) = init_figure_data()
+            state.variable[] = "5d_float"
+            state.x_name[] = "lat"
+            state.plot_type_name[] = "line"
 
-    # Test types
-    @test fig_data isa Plotting.FigureData
-    @test fig_data.fig isa Figure
-    @test fig_data.plot_data isa Plotting.PlotData
-    @test fig_data.ax isa Observable{Union{Makie.AbstractAxis, Nothing}}
-    @test fig_data.plot_obj isa Observable{Union{Makie.AbstractPlot, Nothing}}
-    @test fig_data.cbar isa Observable{Union{Colorbar, Nothing}}
+            # Act
+            Plotting.create_axis!(fig_data, state)
 
-    # Test a 1D plot
-    ui.state.variable[] = "5d_float"
-    ui.state.x_name[] = "lon"
-    ui.state.plot_type_name[] = "line"
-    Plotting.create_axis!(fig_data, ui.state)
-    @test fig_data.ax[] isa Axis
-    @test fig_data.ax[].xlabel[] == "lon"
-    @test fig_data.ax[].ylabel[] == ""
-    @test fig_data.ax[].title[] == "5d_float"
-    @test fig_data.plot_obj[] isa Lines
-    @test fig_data.cbar[] === nothing
-    ui.state.x_name[] = "only_unit"
-    @test fig_data.ax[].xlabel[] == "only_unit [n/a]"
-    ui.state.x_name[] = "lon"
-    ui.state.variable[] = "both_atts_var"
-    @test fig_data.ax[].title[] == "Both [m/s]"
+            # Assert
+            @test fig_data.ax[] isa Axis
+            @test fig_data.ax[].xlabel[] == "lat"
+            @test fig_data.ax[].ylabel[] == ""
+            @test fig_data.ax[].title[] == "5d_float"
+            @test fig_data.plot_obj[] isa Lines
+            @test fig_data.cbar[] === nothing
 
-    # Test a 2D plot
-    ui.state.y_name[] = "lat"
-    ui.state.variable[] = "5d_float"
-    ui.state.plot_type_name[] = "heatmap"
-    Plotting.create_axis!(fig_data, ui.state)
-    @test fig_data.ax[] isa Axis
-    @test fig_data.ax[].xlabel[] == "lon"
-    @test fig_data.ax[].ylabel[] == "lat"
-    @test fig_data.ax[].title[] == "5d_float"
-    @test fig_data.plot_obj[] isa Heatmap
-    @test fig_data.cbar[] isa Colorbar
-    ui.state.x_name[] = "only_unit"
-    @test fig_data.ax[].xlabel[] == "only_unit [n/a]"
-    ui.state.y_name[] = "float_dim"
-    @test fig_data.ax[].ylabel[] == "float_dim"
-    ui.state.x_name[] = "lon"
-    ui.state.variable[] = "2d_gap"
-    @test fig_data.ax[].title[] == "2d_gap"
+            # Act - change observables
+            state.x_name[] = "lon"
+            state.variable[] = "both_atts_var"
 
-    # Test a 2D plot with 3D axis
-    ui.state.plot_type_name[] = "surface"
-    Plotting.create_axis!(fig_data, ui.state)
-    @test fig_data.ax[] isa Axis3
-    @test fig_data.ax[].xlabel[] == "lon"
-    @test fig_data.ax[].ylabel[] == "float_dim"
-    @test fig_data.ax[].zlabel[] == ""
-    @test fig_data.ax[].title[] == "2d_gap"
-    ui.state.plot_type_name[] = "wireframe"
-    Plotting.create_axis!(fig_data, ui.state)
-    @test fig_data.cbar[] === nothing
+            # Assert
+            @test fig_data.ax[].title[] == "Both [m/s]"
+            @test fig_data.ax[].xlabel[] == "lon"
+        end
 
-    # Test a 3D plot
-    ui.state.variable[] = "5d_float"
-    ui.state.x_name[] = "lon"
-    ui.state.y_name[] = "lat"
-    ui.state.z_name[] = "only_long"
-    ui.state.plot_type_name[] = "volume"
-    Plotting.create_axis!(fig_data, ui.state)
-    @test fig_data.ax[] isa Axis3
-    @test fig_data.ax[].xlabel[] == "lon"
-    @test fig_data.ax[].ylabel[] == "lat"
-    @test fig_data.ax[].zlabel[] == "Long"
-    @test fig_data.ax[].title[] == "5d_float"
-    @test fig_data.plot_obj[] isa Volume
-    @test fig_data.cbar[] isa Colorbar
-    ui.state.x_name[] = "float_dim"
+        @testset "Plot 2D" begin
+            # Arrange
+            (fig_data, state) = init_figure_data()
+            state.variable[] = "5d_float"
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+            state.plot_type_name[] = "heatmap"
 
-    # Test the kwargs
-    ui.state.plot_kw[] = "colorrange = (0.2, 0.8), colormap=:ice"
-    @test fig_data.plot_obj[].colorrange.parent.value == (0.2, 0.8)
-    fig_data.plot_obj[].colormap.parent.value == :ice
+            # Act
+            Plotting.create_axis!(fig_data, state)
 
-    ui.state.axes_kw[] = "titlevisible = false"
-    @test fig_data.ax[].titlevisible[] == false
+            # Assert
+            @test fig_data.ax[] isa Axis
+            @test fig_data.ax[].xlabel[] == "lon"
+            @test fig_data.ax[].ylabel[] == "lat"
+            @test fig_data.ax[].title[] == "5d_float"
+            @test fig_data.plot_obj[] isa Heatmap
+            @test fig_data.cbar[] isa Colorbar
 
-    # go back to a 2D plot and check that the settings still apply
-    ui.state.plot_type_name[] = "heatmap"
-    Plotting.create_axis!(fig_data, ui.state)
-    @test fig_data.plot_obj[].colorrange.parent.value == (0.2, 0.8)
-    fig_data.plot_obj[].colormap.parent.value == :ice
-    @test fig_data.ax[].titlevisible[] == false
+            # Act - change observables
+            state.x_name[] = "lon"
+            state.y_name[] = "float_dim"
+            state.variable[] = "2d_gap"
 
+            # Assert
+            @test fig_data.ax[].title[] == "2d_gap"
+            @test fig_data.ax[].xlabel[] == "lon"
+            @test fig_data.ax[].ylabel[] == "float_dim"
+        end
+
+        @testset "Plot 2D with 3D Axis" begin
+            # Arrange
+            (fig_data, state) = init_figure_data()
+            state.variable[] = "2d_gap"
+            state.x_name[] = "lon"
+            state.y_name[] = "float_dim"
+            state.plot_type_name[] = "surface"
+
+            # Act
+            Plotting.create_axis!(fig_data, state)
+
+            # Assert
+            @test fig_data.ax[] isa Axis3
+            @test fig_data.ax[].xlabel[] == "lon"
+            @test fig_data.ax[].ylabel[] == "float_dim"
+            @test fig_data.ax[].zlabel[] == ""
+            @test fig_data.ax[].title[] == "2d_gap"
+            @test fig_data.plot_obj[] isa Surface
+            @test fig_data.cbar[] isa Colorbar
+        end
+
+        @testset "Plot 3D" begin
+            # Arrange
+            (fig_data, state) = init_figure_data()
+            state.variable[] = "5d_float"
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+            state.z_name[] = "only_long"
+            state.plot_type_name[] = "volume"
+
+            # Act
+            Plotting.create_axis!(fig_data, state)
+
+            # Assert
+            @test fig_data.ax[] isa Axis3
+            @test fig_data.ax[].xlabel[] == "lon"
+            @test fig_data.ax[].ylabel[] == "lat"
+            @test fig_data.ax[].zlabel[] == "Long"
+            @test fig_data.ax[].title[] == "5d_float"
+            @test fig_data.plot_obj[] isa Volume
+            @test fig_data.cbar[] isa Colorbar
+
+            # Act - change observables
+            state.x_name[] = "float_dim"
+
+            # Assert
+            @test fig_data.ax[].xlabel[] == "float_dim"
+        end
+
+        @testset "Change Plot Type" begin
+            # Arrange
+            (fig_data, state) = init_figure_data()
+            state.variable[] = "5d_float"
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+            state.plot_type_name[] = "heatmap"
+            Plotting.create_axis!(fig_data, state)
+
+            # Act - change to a 3D plot type
+            state.plot_type_name[] = "surface"
+            Plotting.create_axis!(fig_data, state)
+
+            # Assert
+            @test fig_data.ax[] isa Axis3
+            @test fig_data.plot_obj[] isa Surface
+            @test fig_data.cbar[] isa Colorbar
+        end
+
+        @testset "Change Plot Dimension" begin
+            # Arrange
+            (fig_data, state) = init_figure_data()
+            state.variable[] = "5d_float"
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+            state.plot_type_name[] = "heatmap"
+            Plotting.create_axis!(fig_data, state)
+
+            # Act - change to a 3D plot type
+            state.z_name[] = "only_long"
+            state.plot_type_name[] = "volume"
+            Plotting.create_axis!(fig_data, state)
+
+            # Assert
+            @test fig_data.ax[] isa Axis3
+            @test fig_data.plot_obj[] isa Volume
+            @test fig_data.cbar[] isa Colorbar
+
+            # Act - change to a 1D plot type
+            state.plot_type_name[] = "line"
+            Plotting.create_axis!(fig_data, state)
+
+            # Assert
+            @test fig_data.ax[] isa Axis
+            @test fig_data.plot_obj[] isa Lines
+            @test fig_data.cbar[] === nothing
+        end
+
+        @testset "Apply Kwargs" begin
+            # Arrange
+            (fig_data, state) = init_figure_data()
+            state.variable[] = "5d_float"
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+            state.plot_type_name[] = "heatmap"
+            Plotting.create_axis!(fig_data, state)
+
+            # Act - set some kwargs
+            state.plot_kw[] = "colorrange = (0.2, 0.8), colormap=:ice"
+            state.axes_kw[] = "titlevisible = false"
+
+            # Assert
+            @test fig_data.plot_obj[].colorrange.parent.value == (0.2, 0.8)
+            @test fig_data.plot_obj[].colormap.parent.value == :ice
+            @test fig_data.ax[].titlevisible[] == false
+
+            # Act - change to a 3D plot type
+            state.z_name[] = "only_long"
+            state.plot_type_name[] = "volume"
+            Plotting.create_axis!(fig_data, state)
+
+            # Assert - the kwargs should still apply
+            @test fig_data.plot_obj[].colorrange.parent.value == (0.2, 0.8)
+            @test fig_data.plot_obj[].colormap.parent.value == :ice
+            @test fig_data.ax[].titlevisible[] == false
+        end
+    end
 end
