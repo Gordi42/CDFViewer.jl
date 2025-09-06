@@ -133,92 +133,173 @@ using CDFViewer.Plotting
             @test labels.ylabel[] == "untaken"
         end
     end
-end
 
+    # ============================================
+    #  Plot Data
+    # ============================================
 
+    @testset "Plot Data" begin
+        # Arrange - helper function
+        function init_plot_data()
+            dataset = make_temp_dataset()
+            _fig, ui = make_ui(dataset)
 
-@testset "Plot Data" begin
+            plot_data = Plotting.init_plot_data(ui.state, dataset)
+            (plot_data, ui.state)
+        end
 
-    dataset = make_temp_dataset()
-    fig, ui = make_ui(dataset)
+        @testset "Types" begin
+            # Arrange
+            (plot_data, state) = init_plot_data()
 
-    plot_data = Plotting.init_plot_data(ui.state, dataset)
+            # Assert
+            @test plot_data isa Plotting.PlotData
+            @test plot_data.plot_type isa Observable{Plotting.Plot}
+            @test plot_data.sel_dims isa Observable{Vector{String}}
+            @test plot_data.x isa Observable
+            @test plot_data.y isa Observable
+            @test plot_data.z isa Observable
+            @test plot_data.d isa Vector
+            @test plot_data.labels isa Plotting.FigureLabels
+        end
 
-    # Test types
-    @test plot_data isa Plotting.PlotData
-    @test plot_data.plot_type isa Observable{Plotting.Plot}
-    @test plot_data.sel_dims isa Observable{Vector{String}}
-    @test plot_data.x isa Observable
-    @test plot_data.y isa Observable
-    @test plot_data.z isa Observable
-    @test plot_data.d isa Vector
-    @test plot_data.labels isa Plotting.FigureLabels
+        @testset "Initial Values" begin
+            # Arrange
+            (plot_data, state) = init_plot_data()
 
-    # Test initial values
-    @test plot_data.plot_type[] == Plotting.PLOT_TYPES["Info"]
-    @test plot_data.sel_dims[] == String[]
-    @test plot_data.x[] == collect(Float64, 1:1)
-    @test plot_data.y[] == collect(Float64, 1:1)
-    @test plot_data.z[] == collect(Float64, 1:1)
-    for i in 1:3
-        @test plot_data.d[i] isa Observable
-        @test plot_data.d[i][] === nothing
+            # Assert
+            @test plot_data.plot_type[] == Plotting.PLOT_TYPES["Info"]
+            @test plot_data.sel_dims[] == String[]
+            @test plot_data.x[] == collect(Float64, 1:1)
+            @test plot_data.y[] == collect(Float64, 1:1)
+            @test plot_data.z[] == collect(Float64, 1:1)
+            for i in 1:3
+                @test plot_data.d[i] isa Observable
+                @test plot_data.d[i][] === nothing
+            end
+        end
+
+        @testset "Selected Dimensions" begin
+            # Arrange
+            (plot_data, state) = init_plot_data()
+            state.variable[] = "5d_float"
+
+            # Act: select x and y dimensions
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+
+            # Assert
+            @test length(plot_data.x[]) == 5
+            @test length(plot_data.y[]) == 7
+            @test length(plot_data.z[]) == 1
+
+            # Act: deselect y dimension
+            state.y_name[] = Constants.NOT_SELECTED_LABEL
+
+            # Assert
+            @test length(plot_data.x[]) == 5
+            @test length(plot_data.y[]) == 1
+            @test length(plot_data.z[]) == 1
+        end
+
+        @testset "Data Arrays 1D" begin
+            # Arrange
+            (plot_data, state) = init_plot_data()
+            state.variable[] = "5d_float"
+            state.x_name[] = "lon"
+            state.plot_type_name[] = "line"
+
+            # Assert
+            @test plot_data.plot_type[] == Plotting.PLOT_TYPES["line"]
+            @test plot_data.sel_dims[] == ["lon"]
+            @test plot_data.d[1][].size == (5,)
+            @test plot_data.d[2][] === nothing
+            @test plot_data.d[3][] === nothing
+        end
+
+        @testset "Data Arrays 2D" begin
+            # Arrange
+            (plot_data, state) = init_plot_data()
+            state.variable[] = "5d_float"
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+            state.plot_type_name[] = "heatmap"
+
+            # Assert
+            @test plot_data.plot_type[] == Plotting.PLOT_TYPES["heatmap"]
+            @test plot_data.sel_dims[] == ["lon", "lat"]
+            @test plot_data.d[1][] === nothing
+            @test plot_data.d[2][].size == (5, 7)
+            @test plot_data.d[3][] === nothing
+        end
+            
+        @testset "Data Arrays 3D" begin
+            # Arrange
+            (plot_data, state) = init_plot_data()
+            state.variable[] = "5d_float"
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+            state.z_name[] = "only_long"
+            state.plot_type_name[] = "volume"
+
+            # Assert
+            @test plot_data.plot_type[] == Plotting.PLOT_TYPES["volume"]
+            @test plot_data.sel_dims[] == ["lon", "lat", "only_long"]
+            @test plot_data.d[1][] === nothing
+            @test plot_data.d[2][] === nothing
+            @test plot_data.d[3][].size == (5, 7, 4)
+        end
+
+        @testset "Data at Dimension Change" begin
+            # Arrange
+            (plot_data, state) = init_plot_data()
+            state.variable[] = "5d_float"
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+            state.plot_type_name[] = "heatmap"
+
+            # Act
+            state.x_name[] = "only_unit"
+
+            # Assert
+            @test plot_data.sel_dims[] == ["only_unit", "lat"]
+            @test plot_data.d[2][].size == (3, 7)
+        end
+
+        @testset "Data Update Switch" begin
+            # Arrange
+            (plot_data, state) = init_plot_data()
+            state.variable[] = "5d_float"
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+            state.plot_type_name[] = "heatmap"
+
+            # Act: disable updates
+            plot_data.update_data_switch[] = false
+            x_ori = plot_data.x[]
+            d_ori = plot_data.d[1][]
+            state.x_name[] = "lat"  # change x dimension
+            state.variable[] = "2d_float"  # change variable
+            state.plot_type_name[] = "line"  # change plot type
+
+            # Assert: data should not have changed
+            @test plot_data.x[] == x_ori
+            @test plot_data.d[1][] == d_ori
+
+            # Act: enable updates
+            plot_data.update_data_switch[] = true
+
+            # Assert: data should now reflect the changes
+            @test length(plot_data.x[]) == 7
+            @test plot_data.d[1][].size == (7,)
+        end
+
     end
 
-    #  Test updates
-
-    # set the variable to something with many dimensions
-    ui.state.variable[] = "5d_float"
-
-    # Test the dimensions
-    ui.state.x_name[] = "lon"
-    ui.state.y_name[] = "lat"
-    @test length(plot_data.x[]) == 5
-    @test length(plot_data.y[]) == 7
-    ui.state.y_name[] = "Not Selected"
-    @test plot_data.y[] == collect(Float64, 1:1)
-    plot_data.sel_dims
-
-    # Test with 1d data
-    ui.state.plot_type_name[] = "line"
-    @test plot_data.plot_type[] == Plotting.PLOT_TYPES["line"]
-    @test plot_data.sel_dims[] == ["lon"]
-    @test plot_data.d[1][].size == (5,)
-
-    # Test with 2d data
-    ui.state.y_name[] = "lat"
-    ui.state.plot_type_name[] = "heatmap"
-    @test plot_data.plot_type[] == Plotting.PLOT_TYPES["heatmap"]
-    @test plot_data.sel_dims[] == ["lon", "lat"]
-    @test plot_data.d[2][].size == (5, 7)
-
-    # Test changing the dimension
-    ui.state.x_name[] = "only_unit"
-    @test plot_data.sel_dims[] == ["only_unit", "lat"]
-    @test plot_data.d[2][].size == (3, 7)
-    ui.state.x_name[] = "lon"
-
-    # Test with 3d data
-    ui.state.z_name[] = "only_long"
-    ui.state.plot_type_name[] = "volume"
-    @test plot_data.plot_type[] == Plotting.PLOT_TYPES["volume"]
-    @test plot_data.sel_dims[] == ["lon", "lat", "only_long"]
-    @test plot_data.d[3][].size == (5, 7, 4)
-
-    # Test the update switch
-    plot_data.update_data_switch[] = false
-    x_ori = plot_data.x[]
-    d_ori = plot_data.d[1][]
-    ui.state.x_name[] = "lat"
-    @test plot_data.x[] == x_ori
-    ui.state.variable[] = "2d_float"
-    @test plot_data.d[1][] == d_ori
-    ui.state.plot_type_name[] = "line"
-    plot_data.update_data_switch[] = true
-    @test length(plot_data.x[]) == 7
-    @test plot_data.d[1][].size == (7,)
-
 end
+
+
+
 
 @testset "Figure Data" begin
 
