@@ -2,7 +2,7 @@
 
 julia_version = "1.11.6"
 manifest_format = "2.0"
-project_hash = "a459d75fc2d8b94f26f2cdf703681d1acf347301"
+project_hash = "80d105557b209f9c86cf58a9b19380f5ff954cc1"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -230,6 +230,12 @@ git-tree-sha1 = "439e35b0b36e2e5881738abc8857bd92ad6ff9a8"
 uuid = "d38c429a-6771-53c6-b99e-75d170b6e991"
 version = "0.6.3"
 
+[[deps.CoordinateTransformations]]
+deps = ["LinearAlgebra", "StaticArrays"]
+git-tree-sha1 = "a692f5e257d332de1e554e4566a4e5a8a72de2b2"
+uuid = "150eb455-5306-5404-9cee-2592286d6298"
+version = "0.6.4"
+
 [[deps.DataAPI]]
 git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
 uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
@@ -456,17 +462,87 @@ git-tree-sha1 = "0d27753bf95dc7c5e3952189a1bec78b5ac7b784"
 uuid = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 version = "0.13.6"
 
+[[deps.GeoFormatTypes]]
+git-tree-sha1 = "8e233d5167e63d708d41f87597433f59a0f213fe"
+uuid = "68eda718-8dee-11e9-39e7-89f7f65f511f"
+version = "0.4.4"
+
+[[deps.GeoInterface]]
+deps = ["DataAPI", "Extents", "GeoFormatTypes"]
+git-tree-sha1 = "0f265264b9287a19715dc5d491dbe3aff00c1e71"
+uuid = "cf35fbd7-0cd7-5166-be24-54bfbe79505f"
+version = "1.5.0"
+
+    [deps.GeoInterface.extensions]
+    GeoInterfaceMakieExt = ["Makie", "GeometryBasics"]
+    GeoInterfaceRecipesBaseExt = "RecipesBase"
+
+    [deps.GeoInterface.weakdeps]
+    GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
+    Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
+    RecipesBase = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
+
+[[deps.GeoJSON]]
+deps = ["Extents", "GeoFormatTypes", "GeoInterface", "JSON3", "StructTypes", "Tables"]
+git-tree-sha1 = "ce64817b826c36b30493b31be2ce53c55a277835"
+uuid = "61d90e0f-e114-555e-ac52-39dfb47a3ef9"
+version = "0.8.4"
+
+    [deps.GeoJSON.extensions]
+    GeoJSONMakieExt = "Makie"
+    GeoJSONRecipesBaseExt = "RecipesBase"
+
+    [deps.GeoJSON.weakdeps]
+    Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
+    RecipesBase = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
+
+[[deps.GeoMakie]]
+deps = ["Colors", "CoordinateTransformations", "Downloads", "GeoFormatTypes", "GeoInterface", "GeoJSON", "Geodesy", "GeometryBasics", "GeometryOps", "ImageIO", "LinearAlgebra", "Makie", "NaturalEarth", "Proj", "Reexport", "Statistics", "StructArrays"]
+git-tree-sha1 = "2e6592eab6de69f34806771bdafd769261ae22bc"
+uuid = "db073c08-6b98-4ee5-b6a4-5efafb3259c6"
+version = "0.7.15"
+
+[[deps.Geodesy]]
+deps = ["CoordinateTransformations", "Dates", "LinearAlgebra", "StaticArrays"]
+git-tree-sha1 = "ed98a4429bf0a033ccc5e036120181dd52f06d31"
+uuid = "0ef565a4-170c-5f04-8de2-149903a85f3d"
+version = "1.1.0"
+
 [[deps.GeometryBasics]]
 deps = ["EarCut_jll", "Extents", "IterTools", "LinearAlgebra", "PrecompileTools", "Random", "StaticArrays"]
 git-tree-sha1 = "1f5a80f4ed9f5a4aada88fc2db456e637676414b"
 uuid = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 version = "0.5.10"
+weakdeps = ["GeoInterface"]
 
     [deps.GeometryBasics.extensions]
     GeometryBasicsGeoInterfaceExt = "GeoInterface"
 
-    [deps.GeometryBasics.weakdeps]
-    GeoInterface = "cf35fbd7-0cd7-5166-be24-54bfbe79505f"
+[[deps.GeometryOps]]
+deps = ["AbstractTrees", "AdaptivePredicates", "CoordinateTransformations", "DataAPI", "DelaunayTriangulation", "ExactPredicates", "Extents", "GeoFormatTypes", "GeoInterface", "GeometryOpsCore", "LinearAlgebra", "SortTileRecursiveTree", "StaticArrays", "Statistics", "Tables"]
+git-tree-sha1 = "1b7fef8228b2fb471548d6a1e1b644056b536970"
+uuid = "3251bfac-6a57-4b6d-aa61-ac1fef2975ab"
+version = "0.1.26"
+
+    [deps.GeometryOps.extensions]
+    GeometryOpsDataFramesExt = "DataFrames"
+    GeometryOpsFlexiJoinsExt = "FlexiJoins"
+    GeometryOpsLibGEOSExt = "LibGEOS"
+    GeometryOpsProjExt = "Proj"
+    GeometryOpsTGGeometryExt = "TGGeometry"
+
+    [deps.GeometryOps.weakdeps]
+    DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+    FlexiJoins = "e37f2e79-19fa-4eb7-8510-b63b51fe0a37"
+    LibGEOS = "a90b1aa1-3769-5649-ba7e-abc5a9d163eb"
+    Proj = "c94c279d-25a6-4763-9509-64d165bea63e"
+    TGGeometry = "d7e755d2-3c95-4bcf-9b3c-79ab1a78647b"
+
+[[deps.GeometryOpsCore]]
+deps = ["DataAPI", "GeoInterface", "StableTasks", "Tables"]
+git-tree-sha1 = "69fc98947b06f8ac4279cf5bf8810373fe042be4"
+uuid = "05efe853-fabf-41c8-927e-7063c8b9f013"
+version = "0.1.7"
 
 [[deps.GettextRuntime_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Libiconv_jll"]
@@ -679,6 +755,18 @@ deps = ["Dates", "Mmap", "Parsers", "Unicode"]
 git-tree-sha1 = "31e996f0a15c7b280ba9f76636b3ff9e2ae58c9a"
 uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 version = "0.21.4"
+
+[[deps.JSON3]]
+deps = ["Dates", "Mmap", "Parsers", "PrecompileTools", "StructTypes", "UUIDs"]
+git-tree-sha1 = "411eccfe8aba0814ffa0fdf4860913ed09c34975"
+uuid = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+version = "1.14.3"
+
+    [deps.JSON3.extensions]
+    JSON3ArrowExt = ["ArrowTypes"]
+
+    [deps.JSON3.weakdeps]
+    ArrowTypes = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
 
 [[deps.JpegTurbo]]
 deps = ["CEnum", "FileIO", "ImageCore", "JpegTurbo_jll", "TOML"]
@@ -954,6 +1042,12 @@ git-tree-sha1 = "be1095e2b767c19529409ec670bcfb01b825d717"
 uuid = "85f8d34a-cbdd-5861-8df4-14fed0d494ab"
 version = "0.14.8"
 
+[[deps.NaturalEarth]]
+deps = ["Downloads", "GeoJSON", "Pkg", "Scratch"]
+git-tree-sha1 = "3f75210ac08fe4496a55f9694b95859c40b8eaea"
+uuid = "436b0209-26ab-4e65-94a9-6526d86fea76"
+version = "0.1.0"
+
 [[deps.NetCDF_jll]]
 deps = ["Artifacts", "Blosc_jll", "Bzip2_jll", "HDF5_jll", "JLLWrappers", "LazyArtifacts", "LibCURL_jll", "Libdl", "MPICH_jll", "MPIPreferences", "MPItrampoline_jll", "MicrosoftMPI_jll", "OpenMPI_jll", "TOML", "XML2_jll", "Zlib_jll", "Zstd_jll", "libaec_jll", "libzip_jll"]
 git-tree-sha1 = "d574803b6055116af212434460adf654ce98e345"
@@ -1064,6 +1158,12 @@ git-tree-sha1 = "cf181f0b1e6a18dfeb0ee8acc4a9d1672499626c"
 uuid = "f57f5aa1-a3ce-4bc8-8ab9-96f992907883"
 version = "0.4.4"
 
+[[deps.PROJ_jll]]
+deps = ["Artifacts", "JLLWrappers", "LibCURL_jll", "Libdl", "Libtiff_jll", "SQLite_jll"]
+git-tree-sha1 = "29d4224ba271e3b679cca03a8fd72e271525c113"
+uuid = "58948b4f-47e0-5654-a9ad-f609743f8632"
+version = "902.600.200+0"
+
 [[deps.Packing]]
 deps = ["GeometryBasics"]
 git-tree-sha1 = "bc5bf2ea3d5351edf285a06b0016788a121ce92c"
@@ -1142,6 +1242,12 @@ deps = ["Distributed", "Printf"]
 git-tree-sha1 = "fbb92c6c56b34e1a2c4c36058f68f332bec840e7"
 uuid = "92933f4c-e287-5a05-a399-4b506db050ca"
 version = "1.11.0"
+
+[[deps.Proj]]
+deps = ["CEnum", "CoordinateTransformations", "GeoFormatTypes", "GeoInterface", "NetworkOptions", "PROJ_jll"]
+git-tree-sha1 = "61188669db4f5b400173e4ec60da8bcb72d6e749"
+uuid = "c94c279d-25a6-4763-9509-64d165bea63e"
+version = "1.9.0"
 
 [[deps.PtrArrays]]
 git-tree-sha1 = "1d36ef11a9aaf1e8b74dacc6a731dd1de8fd493d"
@@ -1245,6 +1351,12 @@ git-tree-sha1 = "fea870727142270bdf7624ad675901a1ee3b4c87"
 uuid = "fdea26ae-647d-5447-a871-4b548cad5224"
 version = "3.7.1"
 
+[[deps.SQLite_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Zlib_jll"]
+git-tree-sha1 = "9a325057cdb9b066f1f96dc77218df60fe3007cb"
+uuid = "76ed43ae-9a5d-5a62-8c75-30186b810ce8"
+version = "3.48.0+0"
+
 [[deps.Scratch]]
 deps = ["Dates"]
 git-tree-sha1 = "9b81b8393e50b7d4e6d0a9f14e192294d3b7c109"
@@ -1294,6 +1406,12 @@ version = "0.1.5"
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
 version = "1.11.0"
 
+[[deps.SortTileRecursiveTree]]
+deps = ["AbstractTrees", "Extents", "GeoInterface"]
+git-tree-sha1 = "f9aa6616a9b3bd01f93f27c010f1d25fc5a094a9"
+uuid = "746ee33f-1797-42c2-866d-db2fce69d14d"
+version = "0.1.4"
+
 [[deps.SortingAlgorithms]]
 deps = ["DataStructures"]
 git-tree-sha1 = "64d974c2e6fdf07f8155b5b2ca2ffa9069b608d9"
@@ -1320,6 +1438,11 @@ deps = ["Random"]
 git-tree-sha1 = "95af145932c2ed859b63329952ce8d633719f091"
 uuid = "860ef19b-820b-49d6-a774-d7a799459cd3"
 version = "1.0.3"
+
+[[deps.StableTasks]]
+git-tree-sha1 = "c4f6610f85cb965bee5bfafa64cbeeda55a4e0b2"
+uuid = "91464d47-22a1-43fe-8b7f-2d57ee82463f"
+version = "0.1.7"
 
 [[deps.StackViews]]
 deps = ["OffsetArrays"]
@@ -1396,6 +1519,12 @@ version = "0.7.1"
     LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
     SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
     StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
+[[deps.StructTypes]]
+deps = ["Dates", "UUIDs"]
+git-tree-sha1 = "159331b30e94d7b11379037feeb9b690950cace8"
+uuid = "856f2bd8-1eba-4b0a-8007-ebc267875bd4"
+version = "1.11.0"
 
 [[deps.StyledStrings]]
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"

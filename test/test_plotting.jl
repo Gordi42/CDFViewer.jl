@@ -1,5 +1,6 @@
 using Test
 using GLMakie
+using CDFViewer.Constants
 using CDFViewer.Plotting
 
 function create_dummy_data(number_of_dims)
@@ -22,17 +23,17 @@ end
 
     # Test the plot options
     number_of_plots = length(keys(Plotting.PLOT_TYPES))
-    @test length(Plotting.PLOT_OPTIONS_3D) == number_of_plots
-    @test length(Plotting.PLOT_OPTIONS_2D) < number_of_plots
-    @test length(Plotting.PLOT_OPTIONS_1D) < length(Plotting.PLOT_OPTIONS_2D)
+    @test length(Plotting.get_plot_options(3)) == number_of_plots
+    @test length(Plotting.get_plot_options(2)) < number_of_plots
+    @test length(Plotting.get_plot_options(1)) < length(Plotting.get_plot_options(2))
 
     # Test the plot struct
     for (name, plot) in Plotting.PLOT_TYPES
         @test plot isa Plotting.Plot
         @test plot.type == name
         @test plot.ndims in (0, 1, 2, 3)
-        @test plot.ax_ndims in (0, 2, 3)
         @test plot.func isa Function
+        @test plot.make_axis isa Function
     end
 
     # Test the get_plot_options function
@@ -45,25 +46,29 @@ end
     @test "Info" ∈ Plotting.get_plot_options(0)
 
     # Test the fallback function
-    @test Plotting.get_fallback_plot(4) == "heatmap"
-    @test Plotting.get_fallback_plot(3) == "heatmap"
-    @test Plotting.get_fallback_plot(2) == "heatmap"
-    @test Plotting.get_fallback_plot(1) == "line"
-    @test Plotting.get_fallback_plot(0) == "Info"
+    @test Plotting.get_fallback_plot(4) == Constants.PLOT_DEFAULT_2D
+    @test Plotting.get_fallback_plot(3) == Constants.PLOT_DEFAULT_2D
+    @test Plotting.get_fallback_plot(2) == Constants.PLOT_DEFAULT_2D
+    @test Plotting.get_fallback_plot(1) == Constants.PLOT_DEFAULT_1D
+    @test Plotting.get_fallback_plot(0) == Constants.PLOT_INFO
 
     # Test the dimension plot function
-    @test Plotting.get_dimension_plot(4) == "volume"
-    @test Plotting.get_dimension_plot(3) == "volume"
-    @test Plotting.get_dimension_plot(2) == "heatmap"
-    @test Plotting.get_dimension_plot(1) == "line"
-    @test Plotting.get_dimension_plot(0) == "Info"
+    @test Plotting.get_dimension_plot(4) == Constants.PLOT_DEFAULT_3D
+    @test Plotting.get_dimension_plot(3) == Constants.PLOT_DEFAULT_3D
+    @test Plotting.get_dimension_plot(2) == Constants.PLOT_DEFAULT_2D
+    @test Plotting.get_dimension_plot(1) == Constants.PLOT_DEFAULT_1D
+    @test Plotting.get_dimension_plot(0) == Constants.PLOT_INFO
 
     # Test the plotting functions with dummy data
     fig = Figure()
+    dataset = make_temp_dataset()
+    ui = UI.init_ui_elements!(fig, dataset)
+    plot_data = Plotting.init_plot_data(ui.state, dataset)
+
     for (name, plot) in Plotting.PLOT_TYPES
         empty!(fig)
         (x, y, z, d) = create_dummy_data(plot.ndims)
-        ax = plot.ax_ndims == 3 ? Axis3(fig[1, 1]) : Axis(fig[1, 1])
+        ax = plot.make_axis(fig[1, 1], plot_data)
         plot.func(ax, x, y, z, d)
         plot.type === "Info" && continue  # Skip the Info plot as it does nothing
         @test !isempty(fig.content)  # Ensure something was plotted

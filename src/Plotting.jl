@@ -15,73 +15,48 @@ import ..UI
 struct Plot
     type::String
     ndims::Int
-    ax_ndims::Int
     colorbar::Bool
     func::Function
+    make_axis::Function
 end
 
 const PLOT_TYPES = OrderedDict(plot.type => plot for plot in [
-    Plot("Info", 0, 0, false,
-        (ax, x, y, z, d) -> nothing),
-    Plot("heatmap", 2, 2, true,
-        (ax, x, y, z, d) -> heatmap!(ax, x, y, d, colormap = :balance)),
-    Plot("contour", 2, 2, false,
-        (ax, x, y, z, d) -> contour!(ax, x, y, d, colormap = :balance)),
-    Plot("contourf", 2, 2, true,
-        (ax, x, y, z, d) -> contourf!(ax, x, y, d, colormap = :balance)),
-    Plot("surface", 2, 3, true,
-        (ax, x, y, z, d) -> surface!(ax, x, y, d, colormap = :balance)),
-    Plot("wireframe", 2, 3, false,
-        (ax, x, y, z, d) -> wireframe!(ax, x, y, d, color = :royalblue3)),
-    Plot("line", 1, 2, false,
-        (ax, x, y, z, d) -> lines!(ax, x, d, color = :royalblue3)),
-    Plot("scatter", 1, 2, false,
-        (ax, x, y, z, d) -> scatter!(ax, x, d, color = :royalblue3)),
-    Plot("volume", 3, 3, true,
-        (ax, x, y, z, d) -> volume!(
-            ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
-            d, colormap = :balance)),
-    Plot("contour3d", 3, 3, false,
-        (ax, x, y, z, d) -> contour!(
-            ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
-            d, colormap = :balance)),
+    Plot(Constants.PLOT_INFO, 0, false,
+        (ax, x, y, z, d) -> nothing,
+        (layout, plot_data) -> nothing),
 ])
-
-const PLOT_OPTIONS_3D = collect(keys(PLOT_TYPES))
-const PLOT_OPTIONS_2D = filter(k -> PLOT_TYPES[k].ndims ≤ 2, PLOT_OPTIONS_3D)
-const PLOT_OPTIONS_1D = filter(k -> PLOT_TYPES[k].ndims ≤ 1, PLOT_OPTIONS_3D)
 
 function get_plot_options(ndims::Int)
     if ndims >= 3
-        PLOT_OPTIONS_3D
+        collect(keys(PLOT_TYPES))
     elseif ndims == 2
-        PLOT_OPTIONS_2D
+        filter(k -> PLOT_TYPES[k].ndims ≤ 2, collect(keys(PLOT_TYPES)))
     elseif ndims == 1
-        PLOT_OPTIONS_1D
+        filter(k -> PLOT_TYPES[k].ndims ≤ 1, collect(keys(PLOT_TYPES)))
     else
-        ["Info"]
+        [Constants.PLOT_INFO]
     end
 end
 
 function get_fallback_plot(ndims::Int)
     if ndims >= 2
-        "heatmap"
+        Constants.PLOT_DEFAULT_2D
     elseif ndims == 1
-        "line"
+        Constants.PLOT_DEFAULT_1D
     else
-        "Info"
+        Constants.PLOT_INFO
     end
 end
 
 function get_dimension_plot(ndims::Int)
     if ndims >= 3
-        "volume"
+        Constants.PLOT_DEFAULT_3D
     elseif ndims == 2
-        "heatmap"
+        Constants.PLOT_DEFAULT_2D
     elseif ndims == 1
-        "line"
+        Constants.PLOT_DEFAULT_1D
     else
-        "Info"
+        Constants.PLOT_INFO
     end
 end
 
@@ -182,32 +157,6 @@ function create_figure()
     fig
 end
 
-function create_2d_axis(ax_layout::GridPosition, plot_data::PlotData)
-    Axis(
-        ax_layout,
-        xlabel = plot_data.labels.xlabel,
-        ylabel = plot_data.plot_type[].ndims > 1 ? plot_data.labels.ylabel : "",
-        xlabelsize = 20,    
-        ylabelsize = 20,    
-        title = plot_data.labels.title,
-        titlesize = 24,
-    )
-end
-
-function create_3d_axis(ax_layout::GridPosition, plot_data::PlotData)
-    Axis3(
-        ax_layout,
-        xlabel = plot_data.labels.xlabel,
-        ylabel = plot_data.labels.ylabel,
-        zlabel = plot_data.plot_type[].ndims > 2 ? plot_data.labels.zlabel : "",
-        xlabelsize = 20,    
-        ylabelsize = 20,
-        zlabelsize = 20,
-        title = plot_data.labels.title,
-        titlesize = 24,
-    )
-end
-
 function apply_kwargs!(obj::Union{Makie.AbstractAxis, Makie.AbstractPlot}, kw_str::Union{String, Nothing})
     kw_str === nothing && return
     kw = try
@@ -274,13 +223,7 @@ end
 
 function create_axis!(fig_data::FigureData, ui_state::UI.State)
     fig_data.ax[] !== nothing && delete!(fig_data.ax[])
-    if fig_data.plot_data.plot_type[].ax_ndims == 2
-        fig_data.ax[] = create_2d_axis(fig_data.fig[1, 2], fig_data.plot_data)
-    elseif fig_data.plot_data.plot_type[].ax_ndims == 3
-        fig_data.ax[] = create_3d_axis(fig_data.fig[1, 2], fig_data.plot_data)
-    else
-        fig_data.ax[] = nothing
-    end
+    fig_data.ax[] = fig_data.plot_data.plot_type[].make_axis(fig_data.fig[1, 2], fig_data.plot_data)
     fig_data.ax[] !== nothing && apply_kwargs!(fig_data.ax[], ui_state.axes_kw[])
 end
 
@@ -295,5 +238,78 @@ function clear_axis!(fig_data::FigureData)
     end
     fig_data.plot_obj[] = nothing
 end
+
+# ============================================================
+#  Fill up plot functions
+# ============================================================
+function create_2d_axis(ax_layout::GridPosition, plot_data::PlotData)
+    Axis(
+        ax_layout,
+        xlabel = plot_data.labels.xlabel,
+        ylabel = plot_data.plot_type[].ndims > 1 ? plot_data.labels.ylabel : "",
+        xlabelsize = 20,    
+        ylabelsize = 20,    
+        title = plot_data.labels.title,
+        titlesize = 24,
+    )
+end
+
+function create_3d_axis(ax_layout::GridPosition, plot_data::PlotData)
+    Axis3(
+        ax_layout,
+        xlabel = plot_data.labels.xlabel,
+        ylabel = plot_data.labels.ylabel,
+        zlabel = plot_data.plot_type[].ndims > 2 ? plot_data.labels.zlabel : "",
+        xlabelsize = 20,    
+        ylabelsize = 20,
+        zlabelsize = 20,
+        title = plot_data.labels.title,
+        titlesize = 24,
+    )
+end
+
+
+for plot in [
+    # 2D plots
+    Plot("heatmap", 2, true,
+        (ax, x, y, z, d) -> heatmap!(ax, x, y, d, colormap = :balance),
+        create_2d_axis),
+    Plot("contour", 2, false,
+        (ax, x, y, z, d) -> contour!(ax, x, y, d, colormap = :balance),
+        create_2d_axis),
+    Plot("contourf", 2, true,
+        (ax, x, y, z, d) -> contourf!(ax, x, y, d, colormap = :balance),
+        create_2d_axis),
+    Plot("surface", 2, true,
+        (ax, x, y, z, d) -> surface!(ax, x, y, d, colormap = :balance),
+        create_3d_axis),
+    Plot("wireframe", 2, false,
+        (ax, x, y, z, d) -> wireframe!(ax, x, y, d, color = :royalblue3),
+        create_3d_axis),
+
+    # 1D plots
+    Plot("line", 1, false,
+        (ax, x, y, z, d) -> lines!(ax, x, d, color = :royalblue3),
+        create_2d_axis),
+    Plot("scatter", 1, false,
+        (ax, x, y, z, d) -> scatter!(ax, x, d, color = :royalblue3),
+        create_2d_axis),
+
+    # 3D plots
+    Plot("volume", 3, true,
+        (ax, x, y, z, d) -> volume!(
+            ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
+            d, colormap = :balance),
+        create_3d_axis),
+    Plot("contour3d", 3, false,
+        (ax, x, y, z, d) -> contour!(
+            ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
+            d, colormap = :balance),
+        create_3d_axis),
+]
+    PLOT_TYPES[plot.type] = plot
+end
+
+
 
 end # module Plotting
