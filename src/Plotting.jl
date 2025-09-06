@@ -164,6 +164,7 @@ function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)::Figur
         if plot_data.plot_type[].colorbar
             cbar[] = Colorbar(fig[1, 3], plot_obj[],
                 width = 30, tellwidth = false, tellheight = false)
+            colsize!(fig.layout, 3, Relative(0.05))
         end
         apply_kwargs!(plot_obj[], ui_state.plot_kw[])
     end
@@ -183,9 +184,29 @@ end
 
 function create_figure()::Figure
     GLMakie.activate!()
-    fig = Figure(size = (1200, 800))
+    fig = Figure(size = Constants.FIGSIZE)
+    # create a theme
+    cust_theme = Theme(
+        Axis = (
+            xlabelsize = Constants.LABELSIZE,
+            ylabelsize = Constants.LABELSIZE,
+            titlesize = Constants.TITLESIZE,
+        ),
+        Axis3D = (
+            xlabelsize = Constants.LABELSIZE,
+            ylabelsize = Constants.LABELSIZE,
+            zlabelsize = Constants.LABELSIZE,
+            titlesize = Constants.TITLESIZE,
+        ),
+    )
     theme = merge(theme_minimal(), theme_latexfonts())
+    theme = merge(theme, cust_theme)
     set_theme!(theme)
+
+    # set the column sizes
+    colsize!(fig.layout, 1, Relative(0.3))   # Controls Panel should take 30% of width
+    colgap!(fig.layout, 50)
+
     fig
 end
 
@@ -236,10 +257,7 @@ function create_2d_axis(ax_layout::GridPosition, plot_data::PlotData)::Axis
         ax_layout,
         xlabel = plot_data.labels.xlabel,
         ylabel = plot_data.plot_type[].ndims > 1 ? plot_data.labels.ylabel : "",
-        xlabelsize = 20,    
-        ylabelsize = 20,    
         title = plot_data.labels.title,
-        titlesize = 24,
     )
 end
 
@@ -249,11 +267,7 @@ function create_3d_axis(ax_layout::GridPosition, plot_data::PlotData)::Axis3
         xlabel = plot_data.labels.xlabel,
         ylabel = plot_data.labels.ylabel,
         zlabel = plot_data.plot_type[].ndims > 2 ? plot_data.labels.zlabel : "",
-        xlabelsize = 20,    
-        ylabelsize = 20,
-        zlabelsize = 20,
         title = plot_data.labels.title,
-        titlesize = 24,
     )
 end
 

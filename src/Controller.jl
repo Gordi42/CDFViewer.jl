@@ -2,6 +2,7 @@ module Controller
 
 using Colors
 using GLMakie
+using CDFViewer.Constants
 using CDFViewer.Data
 using CDFViewer.UI
 using CDFViewer.Plotting
@@ -175,26 +176,28 @@ function make_subset!(dims::Vector{String}, selection::Vector{String})::Nothing
 end
 
 function set_slider_inactive!(coord_slider::UI.CoordinateSliders, dim::String)::Nothing
-    inactive_text_color = parse(Colorant, :lightgray)
-    inactive_slider_bar_color = RGBf(0.94, 0.94, 0.94)
+    inactive_text = Constants.THEME_LIGHT.inactive_text_color
+    inactive_slider = Constants.THEME_LIGHT.inactive_slider_bar_color
 
-    coord_slider.labels[dim].color[] = inactive_text_color
-    coord_slider.valuelabels[dim].color[] = inactive_text_color
-    coord_slider.sliders[dim].color_active[] = inactive_text_color
-    coord_slider.sliders[dim].color_active_dimmed[] = inactive_slider_bar_color
-    coord_slider.sliders[dim].color_inactive[] = inactive_slider_bar_color
+    coord_slider.labels[dim].color[] = inactive_text
+    coord_slider.valuelabels[dim].color[] = inactive_text
+    coord_slider.sliders[dim].color_active[] = inactive_text
+    coord_slider.sliders[dim].color_active_dimmed[] = inactive_slider
+    coord_slider.sliders[dim].color_inactive[] = inactive_slider
     nothing
 end
 
 function set_slider_active!(coord_slider::UI.CoordinateSliders, dim::String)::Nothing
-    active_text_color = parse(Colorant, :black)
-    inactive_slider_bar_color = RGBf(0.94, 0.94, 0.94)
+    active_text = Constants.THEME_LIGHT.active_text_color
+    inactive_slider = Constants.THEME_LIGHT.inactive_slider_bar_color
+    accent = Constants.THEME_LIGHT.accent_color
+    accent_dimmed = Constants.THEME_LIGHT.accent_dimmed_color
 
-    coord_slider.labels[dim].color[] = active_text_color
-    coord_slider.valuelabels[dim].color[] = active_text_color
-    coord_slider.sliders[dim].color_active[] = Makie.COLOR_ACCENT[]
-    coord_slider.sliders[dim].color_active_dimmed[] = Makie.COLOR_ACCENT_DIMMED[]
-    coord_slider.sliders[dim].color_inactive[] = inactive_slider_bar_color
+    coord_slider.labels[dim].color[] = active_text
+    coord_slider.valuelabels[dim].color[] = active_text
+    coord_slider.sliders[dim].color_active[] = accent
+    coord_slider.sliders[dim].color_active_dimmed[] = accent_dimmed
+    coord_slider.sliders[dim].color_inactive[] = inactive_slider
     nothing
 end
 
