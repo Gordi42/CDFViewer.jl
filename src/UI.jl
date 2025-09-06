@@ -16,10 +16,6 @@ struct PlotMenu
     fig::Figure
 end
 
-# ------------------------------------
-#  Constructor
-# ------------------------------------
-
 function PlotMenu(fig::Figure)
     function construct_textbox(placeholder::String)
         Textbox(
@@ -39,10 +35,6 @@ function PlotMenu(fig::Figure)
     )
 end
 
-# ------------------------------------
-#  Methods
-# -----------------------------------
-
 function layout(plot_menu::PlotMenu)
     vgrid!(
         hgrid!(
@@ -61,11 +53,8 @@ struct CoordinateSliders
     labels::Dict{String, Label}
     valuelabels::Dict{String, Label}
     slider_grid::SliderGrid
+    fig::Figure
 end
-
-# ------------------------------------
-#  Constructor
-# ------------------------------------
 
 function CoordinateSliders(fig::Figure, dataset::Data.CDFDataset)
     coord_sliders = SliderGrid(fig,[
@@ -77,7 +66,7 @@ function CoordinateSliders(fig::Figure, dataset::Data.CDFDataset)
         dim => coord_sliders.sliders[i] for (i, dim) in enumerate(dataset.dimensions))
     valuelabels = Dict(
         dim => coord_sliders.valuelabels[i] for (i, dim) in enumerate(dataset.dimensions))
-    CoordinateSliders(sliders, labels, valuelabels, coord_sliders)
+    CoordinateSliders(sliders, labels, valuelabels, coord_sliders, fig)
 end
 
 # ============================================
@@ -89,14 +78,16 @@ struct PlaybackMenu
     speed::Slider
     var::Menu
     label::Label
+    fig::Figure
 end
 
-function create_playback_label(
-    fig::Figure,
-    dataset::Data.CDFDataset,
-    vmenu::Menu,
-    coord_sliders::Dict{String, Slider},
-    )
+function PlaybackMenu(fig::Figure, dataset::Data.CDFDataset, coord_sliders::Dict{String, Slider})
+    toggle = Toggle(fig, active = false)
+    speed_slider = Slider(fig, range = 0.1:0.1:10.0, startvalue = 1.0)
+    var_menu = Menu(fig,
+                    options = [Constants.NOT_SELECTED_LABEL; dataset.dimensions],
+                    tellwidth = false)
+    # Create the label that shows the current value of the selected dimension
     label = Label(fig, Constants.NO_DIM_SELECTED_LABEL, halign = :left, tellwidth = false)
     slider_values = [slider.value for slider in values(coord_sliders)]
 
@@ -112,23 +103,13 @@ function create_playback_label(
         end
     end
     notify(vmenu.selection)
-    label
+    PlaybackMenu(toggle, speed_slider, var_menu, label, fig)
 end
 
-function init_playback_menu(fig::Figure, dataset::Data.CDFDataset, coord_sliders::Dict{String, Slider})
-    toggle = Toggle(fig, active = false)
-    speed_slider = Slider(fig, range = 0.1:0.1:10.0, startvalue = 1.0)
-    var_menu = Menu(fig,
-                    options = [Constants.NOT_SELECTED_LABEL; dataset.dimensions],
-                    tellwidth = false)
-    label = create_playback_label(fig, dataset, var_menu, coord_sliders)
-    PlaybackMenu(toggle, speed_slider, var_menu, label)
-end
-
-function playback_menu_layout(fig::Figure, playback_menu::PlaybackMenu)
+function layout(playback_menu::PlaybackMenu)
     vgrid!(
         hgrid!(
-            Label(fig, L"\textbf{Play}", width = 30), 
+            Label(playback_menu.fig, L"\textbf{Play}", width = 30), 
             playback_menu.toggle,
             playback_menu.speed,
             playback_menu.var,
@@ -152,7 +133,7 @@ function init_main_menu(fig::Figure, dataset::Data.CDFDataset)
     variable_menu = Menu(fig, options = dataset.variables)
     plot_menu = PlotMenu(fig)
     coord_sliders = CoordinateSliders(fig, dataset)
-    playback_menu = init_playback_menu(fig, dataset, coord_sliders.sliders)
+    playback_menu = PlaybackMenu(fig, dataset, coord_sliders.sliders)
     MainMenu(variable_menu, plot_menu, playback_menu, coord_sliders)
 end
 
@@ -161,7 +142,7 @@ function main_menu_layout(fig::Figure, main_menu::MainMenu)
         Label(fig, L"\textbf{CDF Viewer}", halign = :center, fontsize=30, tellwidth=false),
         hgrid!(Label(fig, L"\textbf{Variable}", width = nothing), main_menu.variable_menu),
         layout(main_menu.plot_menu),
-        playback_menu_layout(fig, main_menu.playback_menu),
+        layout(main_menu.playback_menu),
         Label(fig, L"\textbf{Coordinates}", width = nothing),
         main_menu.coord_sliders.slider_grid,
     )

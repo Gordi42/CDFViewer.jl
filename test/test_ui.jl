@@ -86,7 +86,7 @@ using GLMakie
             dataset = make_temp_dataset()
             coord_sliders = UI.CoordinateSliders(fig, dataset)
 
-            UI.init_playback_menu(fig, dataset, coord_sliders.sliders)
+            UI.PlaybackMenu(fig, dataset, coord_sliders.sliders)
         end
 
         @testset "Types" begin
@@ -120,7 +120,7 @@ using GLMakie
             playback_menu = init_playback_menu(fig)
 
             # Act
-            layout = UI.playback_menu_layout(fig, playback_menu)
+            layout = UI.layout(playback_menu)
 
             # Assert
             @test layout isa GridLayout
@@ -135,7 +135,7 @@ using GLMakie
             fig = Figure()
             dataset = make_temp_dataset()
             coord_sliders = UI.CoordinateSliders(fig, dataset)
-            playback_menu = UI.init_playback_menu(fig, dataset, coord_sliders.sliders)
+            playback_menu = UI.PlaybackMenu(fig, dataset, coord_sliders.sliders)
 
             # Act
             playback_menu.var.i_selected[] = findfirst(==("string_dim"), playback_menu.var.options[])
