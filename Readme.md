@@ -40,3 +40,4 @@
 - [ ] Unregular grids ?
 - [ ] Dataset distributed over multiple files ?
 - [ ] Add a temporary script to open netcdf files
+- [ ] Replace the init_... functions with real constructors.
