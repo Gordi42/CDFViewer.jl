@@ -22,6 +22,7 @@ function PlotMenu(fig::Figure)::PlotMenu
             fig,
             placeholder = placeholder,
             tellwidth = false,
+            width = Relative(1),
             defocus_on_submit = false,
             halign = :left,
         )

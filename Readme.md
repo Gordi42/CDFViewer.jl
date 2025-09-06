@@ -5,12 +5,10 @@
 
 - [ ] Add functionality to the play toggle (make the slider logarithmic)
 - [ ] The play dimension option should match with the variable dimension
-- [ ] Add label formatting for datetime types
 
 ## Plot Settings
 
 - [ ] Unify the plot and axes settings textbox
-- [ ] Fix the width of the settings textbox
 
 ## Recording and Saving
 
@@ -33,7 +31,6 @@
 - [ ] Add online documentation
 - [ ] Add package compiler
 - [ ] Set automatic aspect ratios
-- [ ] Set default layout
 - [ ] Add support for dark theme
 - [ ] Add possibility to add command line arguments
 - [ ] Add possibility for default configs in a .config folder
