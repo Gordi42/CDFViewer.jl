@@ -19,7 +19,6 @@ using GLMakie
             # Assert
             @test plot_menu isa UI.PlotMenu
             @test plot_menu.plot_type isa Menu
-            @test plot_menu.axes_kw isa Textbox
             @test plot_menu.plot_kw isa Textbox
         end
 
@@ -29,7 +28,6 @@ using GLMakie
 
             # Assert
             @test plot_menu.plot_type.options[] == ["Info"]
-            @test plot_menu.axes_kw.placeholder[] == Constants.AXES_KW_HINTS
             @test plot_menu.plot_kw.placeholder[] == Constants.PLOT_KW_HINTS
         end
 
@@ -43,7 +41,7 @@ using GLMakie
 
             # Assert
             @test layout isa GridLayout
-            @test layout.size == (3, 1)
+            @test layout.size == (2, 1)
             sublayout1 = layout.content[1].content
             @test sublayout1 isa GridLayout
             @test sublayout1.size == (1, 2)

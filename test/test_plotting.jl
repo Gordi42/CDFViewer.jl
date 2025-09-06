@@ -489,13 +489,13 @@ using CDFViewer.Plotting
             Plotting.create_axis!(fig_data, state)
 
             # Act - set some kwargs
-            state.plot_kw[] = "colorrange = (0.2, 0.8), colormap=:ice"
-            state.axes_kw[] = "titlevisible = false"
+            state.plot_kw[] = "colorrange = (0.2, 0.8), colormap=:ice, titlevisible = false, label=\"My Label\""
 
             # Assert
             @test fig_data.plot_obj[].colorrange.parent.value == (0.2, 0.8)
             @test fig_data.plot_obj[].colormap.parent.value == :ice
             @test fig_data.ax[].titlevisible[] == false
+            @test fig_data.cbar[].label[] == "My Label"
 
             # Act - change to a 3D plot type
             state.z_name[] = "only_long"
@@ -506,6 +506,7 @@ using CDFViewer.Plotting
             @test fig_data.plot_obj[].colorrange.parent.value == (0.2, 0.8)
             @test fig_data.plot_obj[].colormap.parent.value == :ice
             @test fig_data.ax[].titlevisible[] == false
+            @test fig_data.cbar[].label[] == "My Label"
         end
     end
 end

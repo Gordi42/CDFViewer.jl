@@ -7,6 +7,7 @@ using GLMakie
 import ..Constants
 import ..Data
 import ..UI
+import ..Parsing
 
 # ============================================================
 #  Plot types and their properties
@@ -148,6 +149,9 @@ function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)::Figur
     plot_obj = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
     cbar = Observable{Union{Colorbar, Nothing}}(nothing)
 
+    # Construct the FigureData
+    fd = FigureData(fig, plot_data, ax, plot_obj, cbar)
+
     # Setup a listener to create the plot if the axis changes
     on(ax) do a
         a === nothing && return
@@ -166,20 +170,16 @@ function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)::Figur
                 width = 30, tellwidth = false, tellheight = false)
             colsize!(fig.layout, 3, Relative(0.05))
         end
-        apply_kwargs!(plot_obj[], ui_state.plot_kw[])
+        apply_kwargs!(fd, ui_state.plot_kw[])
     end
 
     # Setup listeners to apply axis and plot keyword arguments
-    on(ui_state.axes_kw) do kw_str
-        ax[] !== nothing && apply_kwargs!(ax[], kw_str)
-    end
-
     on(ui_state.plot_kw) do kw_str
-        plot_obj[] !== nothing && apply_kwargs!(plot_obj[], kw_str)
+        plot_obj[] !== nothing && apply_kwargs!(fd, kw_str)
     end
     
-    # Construct and return the FigureData
-    FigureData(fig, plot_data, ax, plot_obj, cbar)
+    # return the FigureData
+    fd
 end
 
 function create_figure()::Figure
@@ -192,14 +192,14 @@ function create_figure()::Figure
             ylabelsize = Constants.LABELSIZE,
             titlesize = Constants.TITLESIZE,
         ),
-        Axis3D = (
+        Axis3 = (
             xlabelsize = Constants.LABELSIZE,
             ylabelsize = Constants.LABELSIZE,
             zlabelsize = Constants.LABELSIZE,
             titlesize = Constants.TITLESIZE,
         ),
     )
-    theme = merge(theme_minimal(), theme_latexfonts())
+    theme = merge(theme_latexfonts(), theme_minimal())
     theme = merge(theme, cust_theme)
     set_theme!(theme)
 
@@ -213,7 +213,7 @@ end
 function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
     fig_data.ax[] !== nothing && delete!(fig_data.ax[])
     fig_data.ax[] = fig_data.plot_data.plot_type[].make_axis(fig_data.fig[1, 2], fig_data.plot_data)
-    fig_data.ax[] !== nothing && apply_kwargs!(fig_data.ax[], ui_state.axes_kw[])
+    fig_data.ax[] !== nothing && apply_kwargs!(fig_data, ui_state.plot_kw[])
     nothing
 end
 
@@ -230,20 +230,25 @@ function clear_axis!(fig_data::FigureData)::Nothing
     nothing
 end
 
-function apply_kwargs!(obj::Union{Makie.AbstractAxis, Makie.AbstractPlot}, kw_str::Union{String, Nothing})::Nothing
-    kw_str === nothing && return
-    kw = try
-        kw_expr = Meta.parse("Dict(" * kw_str * ")")
-        Dict(Symbol(pair.args[1]) => eval(pair.args[2]) for pair in kw_expr.args[2:end])
-    catch e
-        @warn "Failed to parse keyword arguments: $e"
-    end
-    for (key, value) in kw
+function apply_kwarg!(fig_data::FigureData, key::Symbol, value::Any)::Nothing
+    for obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[])
+        key ∉ propertynames(obj) && continue
         try
             setproperty!(obj, key, value)
-        catch e
-            @warn "Failed to set property $key to $value: $e"
+            return nothing
+        catch _
+            # try next object
         end
+    end
+    @warn "Failed to apply keyword argument: $key => $value"
+    nothing
+end
+
+function apply_kwargs!(fig_data::FigureData, kw_str::Union{String, Nothing})::Nothing
+    kw_str === nothing && return
+    kwargs = Parsing.parse_kwargs(kw_str)
+    for (key, value) in kwargs
+        apply_kwarg!(fig_data, key, value)
     end
     nothing
 end

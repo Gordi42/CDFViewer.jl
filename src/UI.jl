@@ -11,27 +11,21 @@ import ..Data
 
 struct PlotMenu
     plot_type::Menu
-    axes_kw::Textbox
     plot_kw::Textbox
     fig::Figure
 end
 
 function PlotMenu(fig::Figure)::PlotMenu
-    function construct_textbox(placeholder::String)
+    PlotMenu(
+        Menu(fig, options=["Info"]),
         Textbox(
             fig,
-            placeholder = placeholder,
+            placeholder = Constants.PLOT_KW_HINTS,
             tellwidth = false,
             width = Relative(1),
             defocus_on_submit = false,
             halign = :left,
-        )
-    end
-
-    PlotMenu(
-        Menu(fig, options=["Info"]),
-        construct_textbox(Constants.AXES_KW_HINTS),
-        construct_textbox(Constants.PLOT_KW_HINTS),
+        ),
         fig,
     )
 end
@@ -41,7 +35,6 @@ function layout(plot_menu::PlotMenu)::GridLayout
         hgrid!(
             Label(plot_menu.fig, L"\textbf{Plot Settings}", width = nothing),
             plot_menu.plot_type),
-        plot_menu.axes_kw,
         plot_menu.plot_kw,
     )
 end
@@ -184,7 +177,6 @@ struct State
     y_name::Observable{String}
     z_name::Observable{String}
     dim_obs::Observable{Dict{String, Int}}
-    axes_kw::Observable{Union{String, Nothing}}
     plot_kw::Observable{Union{String, Nothing}}
 end
 
@@ -208,7 +200,6 @@ function State(main_menu::MainMenu, coord_menu::CoordinateMenu)::State
         Observable(coord_menu.menus[2].selection[]),
         Observable(coord_menu.menus[3].selection[]),
         dim_obs,
-        main_menu.plot_menu.axes_kw.stored_string,
         main_menu.plot_menu.plot_kw.stored_string,
     )
 end

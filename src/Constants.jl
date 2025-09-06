@@ -7,7 +7,6 @@ const DIMENSION_LABELS = ["X", "Y", "Z"]
 const NOT_SELECTED_LABEL = "Not Selected"
 const NO_DIM_SELECTED_LABEL = "  → No dimension selected"
 
-const AXES_KW_HINTS = "e.g., xscale=log10, yscale=log10"
 const PLOT_KW_HINTS = "e.g., colormap=:viridis, colorrange=(-1,1)"
 
 const DATETIME_FORMAT = "yyyy-mm-dd HH:MM:SS"

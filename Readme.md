@@ -6,10 +6,6 @@
 - [ ] Add functionality to the play toggle (make the slider logarithmic)
 - [ ] The play dimension option should match with the variable dimension
 
-## Plot Settings
-
-- [ ] Unify the plot and axes settings textbox
-
 ## Recording and Saving
 
 - [ ] Add a button for Saving the figure to file (png, svg, jpg, etc.)
