@@ -59,6 +59,7 @@ using GLMakie
 
             # Assert
             @test coord_sliders isa UI.CoordinateSliders
+            @test coord_sliders.continuous_values isa Dict{String, Observable{Float64}}
             @test coord_sliders.labels isa Dict{String, Label}
             @test coord_sliders.sliders isa Dict{String, Slider}
             @test coord_sliders.slider_grid isa SliderGrid
@@ -72,6 +73,28 @@ using GLMakie
             # Assert
             @test length(coord_sliders.labels) == length(dataset.dimensions)
             @test length(coord_sliders.sliders) == length(dataset.dimensions)
+            @test length(coord_sliders.valuelabels) == length(dataset.dimensions)
+            @test length(coord_sliders.continuous_values) == length(dataset.dimensions)
+        end
+
+        @testset "Slider Continuity" begin
+            # Arange
+            dataset = make_temp_dataset()
+            coord_sliders = UI.CoordinateSliders(Figure(), dataset)
+            sliders = coord_sliders.sliders
+            cont = coord_sliders.continuous_values
+
+            # Act: Set the slider
+            set_close_to!(sliders["lon"], 3.0)
+            
+            # Assert: The continuous value should be adjusted
+            @test cont["lon"][] == sliders["lon"].value[]
+
+            # Act: Set the continuous value
+            cont["lon"][] = 3.8
+
+            # Assert: The slider value should be adjusted
+            @test sliders["lon"].value[] == 4
         end
     end
 

@@ -44,6 +44,7 @@ end
 # ============================================
 struct CoordinateSliders
     sliders::Dict{String, Slider}
+    continuous_values::Dict{String, Observable{Float64}}
     labels::Dict{String, Label}
     valuelabels::Dict{String, Label}
     slider_grid::SliderGrid
@@ -60,7 +61,15 @@ function CoordinateSliders(fig::Figure, dataset::Data.CDFDataset)::CoordinateSli
         dim => coord_sliders.sliders[i] for (i, dim) in enumerate(dataset.dimensions))
     valuelabels = Dict(
         dim => coord_sliders.valuelabels[i] for (i, dim) in enumerate(dataset.dimensions))
-    CoordinateSliders(sliders, labels, valuelabels, coord_sliders, fig)
+
+    continuous_slider = Dict(key => @lift(float.($(val.value))) for (key, val) in sliders)
+    for key in keys(sliders)
+        on(continuous_slider[key]) do v
+            set_close_to!(sliders[key], v)
+        end
+    end
+
+    CoordinateSliders(sliders, continuous_slider, labels, valuelabels, coord_sliders, fig)
 end
 
 # ============================================
