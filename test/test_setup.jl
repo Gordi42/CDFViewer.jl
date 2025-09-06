@@ -84,7 +84,7 @@ function make_temp_dataset()
         defVar(ds, "untaken_dim", collect(1:4), ("untaken",), attrib = OrderedDict())
     end
 
-    Data.open_dataset(file)
+    Data.CDFDataset(file)
 end
 
 function make_ui(dataset::Data.CDFDataset)

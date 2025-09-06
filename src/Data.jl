@@ -7,18 +7,31 @@ using GLMakie
 
 import ..Constants
 
+# ============================================================
+#  CDF Dataset
+# ============================================================
+
 struct CDFDataset
     ds::NCDataset
     dimensions::Vector{String}
     variables::Vector{String}
 end
 
-function open_dataset(file_path::String)
+# ---------------------------------------------------
+#  Constructors
+# ---------------------------------------------------
+
+function CDFDataset(file_path::String)
     ds = NCDataset(file_path, "r")
     dimensions = collect(keys(ds.dim))
     variables = setdiff(collect(keys(ds)), dimensions)
-    return CDFDataset(ds, dimensions, variables)
+
+    CDFDataset(ds, dimensions, variables)
 end
+
+# ---------------------------------------------------
+#  Methods
+# ---------------------------------------------------
 
 function get_var_dims(dataset::CDFDataset, var::String)
     return collect(dimnames(dataset.ds[var]))
