@@ -5,6 +5,10 @@ using CDFViewer.Plotting
 
 @testset "Plotting.jl" begin
 
+    # ============================================
+    #  Plot Struct
+    # ============================================
+
     @testset "Plot Struct" begin
 
         @testset "Number of Plot Options" begin
@@ -83,29 +87,54 @@ using CDFViewer.Plotting
             end
         end
     end
+
+    # ============================================
+    #  Figure Labels
+    # ============================================
+
+    @testset "Figure Labels" begin
+
+        # Arrange - helper function
+        function init_figure_labels()
+            dataset = make_temp_dataset()
+            fig, ui = make_ui(dataset)
+            labels = Plotting.init_figure_labels(ui.state, dataset)
+            (labels, ui.state)
+        end
+
+        @testset "Default Labels" begin
+            # Arrange
+            (labels, state) = init_figure_labels()
+
+            # Assert
+            @test labels.title[] == "1d_float"
+            @test labels.xlabel[] == Constants.NOT_SELECTED_LABEL
+            @test labels.ylabel[] == Constants.NOT_SELECTED_LABEL
+            @test labels.zlabel[] == Constants.NOT_SELECTED_LABEL
+        end
+
+        @testset "Updated Labels" begin
+            # Arrange
+            (labels, state) = init_figure_labels()
+
+            # Act: change variable to something with long_name and units
+            state.variable[] = "both_atts_var"
+            # Assert
+            @test labels.title[] == "Both [m/s]"
+
+            # Act: change x to something with only units
+            state.x_name[] = "only_unit"
+            # Assert
+            @test labels.xlabel[] == "only_unit [n/a]"
+
+            # Act: change y to something with only long_name            
+            state.y_name[] = "untaken"
+            # Assert
+            @test labels.ylabel[] == "untaken"
+        end
+    end
 end
 
-@testset "Figure Labels" begin
-
-    dataset = make_temp_dataset()
-    fig, ui = make_ui(dataset)
-
-    labels = Plotting.init_figure_labels(ui.state, dataset)
-
-    @test labels.title[] == "1d_float"
-    @test labels.xlabel[] == "Not Selected"
-    @test labels.ylabel[] == "Not Selected"
-    @test labels.zlabel[] == "Not Selected"
-
-    ui.state.variable[] = "both_atts_var"
-    @test labels.title[] == "Both [m/s]"
-
-    ui.state.x_name[] = "only_unit"
-    @test labels.xlabel[] == "only_unit [n/a]"
-
-    ui.state.y_name[] = "untaken"
-    @test labels.ylabel[] == "untaken"
-end
 
 
 @testset "Plot Data" begin
