@@ -141,6 +141,7 @@ struct FigureData
     ax::Observable{Union{Makie.AbstractAxis, Nothing}}
     plot_obj::Observable{Union{Makie.AbstractPlot, Nothing}}
     cbar::Observable{Union{Colorbar, Nothing}}
+    data_inspector::Observable{Union{DataInspector, Nothing}}
 end
 
 function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)::FigureData
@@ -148,9 +149,10 @@ function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)::Figur
     ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
     plot_obj = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
     cbar = Observable{Union{Colorbar, Nothing}}(nothing)
+    data_inspector = Observable{Union{DataInspector, Nothing}}(nothing)
 
     # Construct the FigureData
-    fd = FigureData(fig, plot_data, ax, plot_obj, cbar)
+    fd = FigureData(fig, plot_data, ax, plot_obj, cbar, data_inspector)
 
     # Setup a listener to create the plot if the axis changes
     on(ax) do a
@@ -213,7 +215,12 @@ end
 function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
     fig_data.ax[] !== nothing && delete!(fig_data.ax[])
     fig_data.ax[] = fig_data.plot_data.plot_type[].make_axis(fig_data.fig[1, 2], fig_data.plot_data)
-    fig_data.ax[] !== nothing && apply_kwargs!(fig_data, ui_state.plot_kw[])
+    if !isnothing(fig_data.ax[])
+        apply_kwargs!(fig_data, ui_state.plot_kw[])
+        if fig_data.data_inspector[] === nothing
+            fig_data.data_inspector[] = DataInspector(fig_data.ax[])
+        end
+    end
     nothing
 end
 
