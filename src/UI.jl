@@ -91,9 +91,9 @@ function PlaybackMenu(fig::Figure, dataset::Data.CDFDataset, coord_sliders::Dict
     label = Label(fig, Constants.NO_DIM_SELECTED_LABEL, halign = :left, tellwidth = false)
     slider_values = [slider.value for slider in values(coord_sliders)]
 
-    for trigger in (vmenu.selection, slider_values...)
+    for trigger in (var_menu.selection, slider_values...)
         on(trigger) do _
-            dim = vmenu.selection[]
+            dim = var_menu.selection[]
             if dim == Constants.NOT_SELECTED_LABEL
                 label.text[] = Constants.NO_DIM_SELECTED_LABEL
             else
@@ -102,7 +102,7 @@ function PlaybackMenu(fig::Figure, dataset::Data.CDFDataset, coord_sliders::Dict
             end
         end
     end
-    notify(vmenu.selection)
+    notify(var_menu.selection)
     PlaybackMenu(toggle, speed_slider, var_menu, label, fig)
 end
 
@@ -189,7 +189,7 @@ end
 
 function State(main_menu::MainMenu, coord_menu::CoordinateMenu)
     # Create an observable dictionary that tracks the values of all sliders
-    slider_values = Dict(dim => slider.value for (dim, slider) in coord_sliders.sliders)
+    slider_values = Dict(dim => slider.value for (dim, slider) in main_menu.coord_sliders.sliders)
     dim_obs = Observable(Dict(dim => value[] for (dim, value) in slider_values))
 
     # Set up listeners to update the dictionary when any slider changes
