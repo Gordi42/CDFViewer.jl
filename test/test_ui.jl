@@ -153,7 +153,7 @@ using GLMakie
     @testset "UI Main Menu" begin
         function init_main_menu(fig::Figure=Figure())
             dataset = make_temp_dataset()
-            UI.init_main_menu(fig, dataset)
+            UI.MainMenu(fig, dataset)
         end
 
         @testset "Types" begin
@@ -174,7 +174,7 @@ using GLMakie
             main_menu = init_main_menu(fig)
 
             # Act
-            layout = UI.main_menu_layout(fig, main_menu)
+            layout = UI.layout(main_menu)
 
             # Assert
             @test layout isa GridLayout
@@ -232,7 +232,7 @@ using GLMakie
     @testset "UI State" begin
         function init_state(fig::Figure=Figure(),
                             dataset::Data.CDFDataset=make_temp_dataset())
-            main_menu = UI.init_main_menu(fig, dataset)
+            main_menu = UI.MainMenu(fig, dataset)
             coord_menu = UI.init_coordinate_menu(fig)
             UI.init_state(main_menu, coord_menu), main_menu, coord_menu
         end

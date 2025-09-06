@@ -127,23 +127,24 @@ struct MainMenu
     plot_menu::PlotMenu
     playback_menu::PlaybackMenu
     coord_sliders::CoordinateSliders
+    fig::Figure
 end
 
-function init_main_menu(fig::Figure, dataset::Data.CDFDataset)
+function MainMenu(fig::Figure, dataset::Data.CDFDataset)
     variable_menu = Menu(fig, options = dataset.variables)
     plot_menu = PlotMenu(fig)
     coord_sliders = CoordinateSliders(fig, dataset)
     playback_menu = PlaybackMenu(fig, dataset, coord_sliders.sliders)
-    MainMenu(variable_menu, plot_menu, playback_menu, coord_sliders)
+    MainMenu(variable_menu, plot_menu, playback_menu, coord_sliders, fig)
 end
 
-function main_menu_layout(fig::Figure, main_menu::MainMenu)
+function layout(main_menu::MainMenu)
     vgrid!(
-        Label(fig, L"\textbf{CDF Viewer}", halign = :center, fontsize=30, tellwidth=false),
-        hgrid!(Label(fig, L"\textbf{Variable}", width = nothing), main_menu.variable_menu),
+        Label(main_menu.fig, L"\textbf{CDF Viewer}", halign = :center, fontsize=30, tellwidth=false),
+        hgrid!(Label(main_menu.fig, L"\textbf{Variable}", width = nothing), main_menu.variable_menu),
         layout(main_menu.plot_menu),
         layout(main_menu.playback_menu),
-        Label(fig, L"\textbf{Coordinates}", width = nothing),
+        Label(main_menu.fig, L"\textbf{Coordinates}", width = nothing),
         main_menu.coord_sliders.slider_grid,
     )
 end
@@ -230,12 +231,12 @@ end
 
 function init_ui_elements!(fig::Figure, dataset::Data.CDFDataset)
     # Initialize the menus
-    main_menu = init_main_menu(fig, dataset)
+    main_menu = MainMenu(fig, dataset)
     coord_menu = init_coordinate_menu(fig)
     # Initialize the UI state
     state = init_state(main_menu, coord_menu)
     # Put the menus in the figure
-    fig[1:2, 1] = main_menu_layout(fig, main_menu)
+    fig[1:2, 1] = layout(main_menu)
     fig[2, 2] = coordinate_menu_layout(coord_menu)
     # Return the UI elements
     UIElements(main_menu, coord_menu, state)
