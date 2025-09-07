@@ -128,7 +128,7 @@ using GLMakie
 
             # Assert
             @test playback_menu.toggle.active[] == false
-            @test playback_menu.speed.value[] == 1.0
+            @test playback_menu.speed.value[] == 0.0
             @test playback_menu.label.text[] == Constants.NO_DIM_SELECTED_LABEL
             for opt in keys(DIM_DICT)
                 @test opt in playback_menu.var.options[]

@@ -86,7 +86,7 @@ end
 
 function PlaybackMenu(fig::Figure, dataset::Data.CDFDataset, coord_sliders::Dict{String, Slider})::PlaybackMenu
     toggle = Toggle(fig, active = false)
-    speed_slider = Slider(fig, range = 0.1:0.1:10.0, startvalue = 1.0)
+    speed_slider = Slider(fig, range = -2.0:0.05:1, startvalue = 0.0)
     var_menu = Menu(fig,
                     options = [Constants.NOT_SELECTED_LABEL; dataset.dimensions],
                     tellwidth = false)
@@ -121,6 +121,21 @@ function layout(playback_menu::PlaybackMenu)::GridLayout
         ),
         playback_menu.label,
     )
+end
+
+function update_slider!(playback_menu::PlaybackMenu, coord_sliders::CoordinateSliders)::Nothing
+    playback_menu.toggle.active[] || return
+    dim = playback_menu.var.selection[]
+    dim == Constants.NOT_SELECTED_LABEL && return
+
+    dt = 10^playback_menu.speed.value[]
+    current_value = coord_sliders.continuous_values[dim][]
+    new_value = (current_value + dt)
+    if new_value > maximum(coord_sliders.sliders[dim].range[])
+        new_value = minimum(coord_sliders.sliders[dim].range[])
+    end
+    coord_sliders.continuous_values[dim][] = new_value
+    nothing
 end
 
 # ============================================

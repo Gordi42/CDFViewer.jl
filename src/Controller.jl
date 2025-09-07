@@ -146,6 +146,8 @@ function on_dim_sel_change(controller::ViewerController)::Nothing
 end
 
 function on_tick_event(controller::ViewerController, tick::Makie.Tick)::Nothing
+    UI.update_slider!(controller.ui.main_menu.playback_menu, controller.ui.main_menu.coord_sliders)
+    nothing
 end
 
 # ------------------------------------------------
@@ -233,12 +235,16 @@ function set_playback_options!(controller::ViewerController, selected_dims::Vect
     var_dims = Data.get_var_dims(controller.dataset, controller.ui.state.variable[])
     unused_dims = setdiff(var_dims, selected_dims)
     if menu.i_selected[] > length(unused_dims) + 1
-        toggle.active[] = false
+        if toggle.active[]
+            toggle.active[] = false
+        end
         menu.i_selected[] = 1
     end
     menu.options[] = [Constants.NOT_SELECTED_LABEL; unused_dims...]
     if menu.i_selected[] ∈ [0, 1]
-        toggle.active[] = false
+        if toggle.active[]
+            toggle.active[] = false
+        end
         select_default_playback_dim!(controller)
     end
     nothing
