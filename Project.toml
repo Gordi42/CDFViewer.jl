@@ -13,6 +13,7 @@ Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 NCDatasets = "85f8d34a-cbdd-5861-8df4-14fed0d494ab"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
+TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [compat]
@@ -25,4 +26,5 @@ Makie = "0.24.6"
 NCDatasets = "0.14.8"
 Printf = "1.11.0"
 Revise = "3.9.0"
+TOML = "1.0.3"
 Test = "1.11.0"

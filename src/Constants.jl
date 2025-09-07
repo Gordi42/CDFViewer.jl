@@ -1,7 +1,15 @@
 module Constants
 
 using Colors
+using TOML
 
+function get_version()::String
+    project_toml = joinpath(@__DIR__, "..", "Project.toml")
+    project_info = TOML.parsefile(project_toml)
+    return project_info["version"]
+end
+
+const APP_VERSION = get_version()
 
 const DIMENSION_LABELS = ["X", "Y", "Z"]
 const NOT_SELECTED_LABEL = "Not Selected"
