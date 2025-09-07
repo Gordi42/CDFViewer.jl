@@ -55,7 +55,7 @@ fi
 cat << EOF > "$build_dir/cdfviewer"
 #!/bin/bash
 
-julia --project="$project_dir" \
+julia --threads auto--project="$project_dir" \
   -J"$build_dir/CDFViewer.so" \
   -e 'using CDFViewer; julia_main()' "$@"
 EOF
