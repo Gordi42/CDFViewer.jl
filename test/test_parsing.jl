@@ -9,6 +9,7 @@ using CDFViewer.Parsing
 
         # Numeric
         @test Parsing.parse_kwargs("linewidth=2") == Dict(:linewidth => 2)
+        @test Parsing.parse_kwargs("linewidth=2")[:linewidth] isa Int
         @test Parsing.parse_kwargs("threshold=3.14") == Dict(:threshold => 3.14)
         @test Parsing.parse_kwargs("threshold=2e-3") == Dict(:threshold => 2e-3)
         @test Parsing.parse_kwargs("threshold=-1E+5") == Dict(:threshold => -1E+5)
@@ -25,11 +26,26 @@ using CDFViewer.Parsing
         @test Parsing.parse_kwargs("") == Dict{Symbol, Any}()
     end
 
+    @testset "Special Values" begin
+        @test Parsing.parse_kwargs("flag=true, option=false, value=nothing") ==
+              Dict(:flag => true, :option => false, :value => nothing)
+        @test Parsing.parse_kwargs("func=identity") == Dict(:func => identity)
+        @test Parsing.parse_kwargs("log_func=log") == Dict(:log_func => log)
+        @test Parsing.parse_kwargs("log2_func=log2") == Dict(:log2_func => log2)
+        @test Parsing.parse_kwargs("log10_func=log10") == Dict(:log10_func => log10)
+        @test Parsing.parse_kwargs("sqrt_func=sqrt") == Dict(:sqrt_func => sqrt)
+
+        @test Parsing.parse_kwargs("log=\"log\" ") == Dict(:log => "log")
+    end
+
     @testset "Arrays and Tuples" begin
         # Arrays
         @test Parsing.parse_kwargs("levels=[1, 2, 4]") == Dict(:levels => [1, 2, 4])
+        @test Parsing.parse_kwargs("levels=[1, 2, 4]")[:levels] isa Vector{Int}
+        @test Parsing.parse_kwargs("levels=[1.0, 2.5, 3.75]")[:levels] isa Vector{Float64}
         @test Parsing.parse_kwargs("colors=[\"red\", \"green\", \"blue\"]") == Dict(:colors => ["red", "green", "blue"])
         @test Parsing.parse_kwargs("mixed=[1, :a, \"text\"]") == Dict(:mixed => [1, :a, "text"])
+        @test Parsing.parse_kwargs("mixed=[1, :a, \"text\"]")[:mixed][1] isa Int
         @test Parsing.parse_kwargs("spaces=[1.0, 2.5,3.75 ]") == Dict(:spaces => [1.0, 2.5, 3.75])
         @test Parsing.parse_kwargs("empty_array=[]") == Dict(:empty_array => [])
 

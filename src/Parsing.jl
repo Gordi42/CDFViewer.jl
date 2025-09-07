@@ -1,5 +1,18 @@
 module Parsing
 
+using GLMakie
+
+special_values = Dict(
+    "true" => true,
+    "false" => false,
+    "nothing" => nothing,
+    "identity" => identity,
+    "log" => log,
+    "log2" => log2,
+    "log10" => log10,
+    "sqrt" => sqrt,
+)
+
 function parse_kwargs(kw_str::String)::Dict{Symbol, Any}
     kw_dict = Dict{Symbol, Any}()
     isempty(kw_str) && return kw_dict
@@ -73,12 +86,14 @@ function parse_kwargs(kw_str::String)::Dict{Symbol, Any}
         elseif occursin(r"^\d+\.?\d*[eE][+-]?\d+$", val_str) || occursin(r"^\d*\.\d+[eE][+-]?\d+$", val_str)
             # Scientific notation: e.g. 1.5e-3, 2E+5, .5e3
             val = parse(Float64, val_str)
+        elseif tryparse(Int, val_str) !== nothing
+            val = parse(Int, val_str)
         elseif tryparse(Float64, val_str) !== nothing
             val = parse(Float64, val_str)
         elseif startswith(val_str, ":")
             val = Symbol(val_str[2:end])
-        elseif val_str == "true" || val_str == "false"
-            val = val_str == "true"
+        elseif haskey(special_values, val_str)
+            val = special_values[val_str]
         else
             val = val_str
         end
@@ -90,12 +105,14 @@ end
 # Helper function to parse array elements
 function parse_array_element(v::Union{String, SubString{String}})
     v = strip(v)
-    if tryparse(Float64, v) !== nothing
+    if tryparse(Int, v) !== nothing
+        return parse(Int, v)
+    elseif tryparse(Float64, v) !== nothing
         return parse(Float64, v)
     elseif startswith(v, ":")
         return Symbol(v[2:end])
-    elseif v == "true" || v == "false"
-        return v == "true"
+    elseif haskey(special_values, v)
+        return special_values[v]
     elseif (startswith(v, '"') && endswith(v, '"')) || 
            (startswith(v, '\'') && endswith(v, '\''))
         return v[2:end-1]  # Remove quotes
@@ -107,12 +124,14 @@ end
 # Helper function to parse tuple elements
 function parse_tuple_element(v::Union{String, SubString})
     v = strip(v)
-    if tryparse(Float64, v) !== nothing
+    if tryparse(Int, v) !== nothing
+        return parse(Int, v)
+    elseif tryparse(Float64, v) !== nothing
         return parse(Float64, v)
     elseif startswith(v, ":")
         return Symbol(v[2:end])
-    elseif v == "true" || v == "false"
-        return v == "true"
+    elseif haskey(special_values, v)
+        return special_values[v]
     elseif (startswith(v, '"') && endswith(v, '"')) || 
            (startswith(v, '\'') && endswith(v, '\''))
         return v[2:end-1]  # Remove quotes

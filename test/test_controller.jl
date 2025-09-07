@@ -12,7 +12,8 @@ NS = Constants.NOT_SELECTED_LABEL
 
     function init_default_controller()
         controller = Controller.ViewerController(make_temp_dataset())
-        # display(controller.fd.fig)
+        screen = GLMakie.Screen(visible=false)
+        display(screen, controller.fd.fig)
         Controller.setup!(controller)
         controller
     end
@@ -428,4 +429,27 @@ NS = Constants.NOT_SELECTED_LABEL
         assert_controller_state(controller, "5d_float", Heatmap, ["lon", "lat"], "float_dim")
     end
 
+    @testset "Keyword Settings" begin
+        @testset "levels keyword for contour" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="contour")
+
+            controller.ui.state.plot_kw[] = "levels=10, labels=true"
+
+            # Assert
+            @test controller.fd.plot_obj[].levels[] == 10
+            @test controller.fd.plot_obj[].labels[] == true
+        end
+
+        @testset "Axis keywords" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="heatmap")
+
+            controller.ui.state.plot_kw[] = "limits=(nothing, nothing, 1, 3), xscale=log10"
+
+            # Assert
+            @test controller.fd.ax[].limits[] == (nothing, nothing, 1, 3)
+            @test controller.fd.ax[].xscale[] == log10
+        end
+    end
 end

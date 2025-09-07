@@ -77,7 +77,7 @@ function make_temp_dataset()
                     data = reshape(data, size)
                 end
             else
-                data = zeros(var.dtype, size...)
+                data = rand(var.dtype, size...)
             end
             defVar(ds, var.name, data, var.dims, attrib = var.attrib)
         end
