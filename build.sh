@@ -14,15 +14,6 @@ project_dir=$(realpath .)
 build_dir=$(realpath build)
 
 
-
-# Create the precompile content script
-precompile_content=$(mktemp /tmp/precompile_content.XXXXXX.jl)
-cat << EOF > "$precompile_content"
-import CDFViewer
-
-include(joinpath(pkgdir(CDFViewer), "test", "runtests.jl"))
-EOF
-
 # Create the create_sysimage.jl script
 create_sysimage_script=$(mktemp /tmp/create_sysimage.XXXXXX.jl)
 cat << EOF > "$create_sysimage_script"
@@ -33,7 +24,7 @@ Pkg.activate(".")
 create_sysimage(
     ["CDFViewer"],
     sysimage_path = joinpath("$build_dir", "CDFViewer.so"),
-    precompile_execution_file = "$precompile_content",
+    precompile_execution_file = "$project_dir/precompile_script.jl",
 )
 EOF
 
@@ -43,6 +34,20 @@ EOF
 echo "Building the sysimage..."
 echo "This may take a very long time..."
 julia --project=. "$create_sysimage_script"
+
+# Check if the build succeeded
+if [ $? -ne 0 ]; then
+    echo "ERROR: Sysimage build failed!"
+    rm -f "$create_sysimage_script"
+    exit 1
+fi
+
+# Check if the sysimage file was actually created
+if [ ! -f "$build_dir/CDFViewer.so" ]; then
+    echo "ERROR: Sysimage file was not created at $build_dir/CDFViewer.so"
+    rm -f "$create_sysimage_script"
+    exit 1
+fi
 
 # ==============================================
 #  Create the executable script
@@ -63,4 +68,4 @@ echo "Consider adding $build_dir to your PATH."
 #  Clean up
 # ==============================================
 
-rm -f "$precompile_content"
+rm -f "$create_sysimage_script"
