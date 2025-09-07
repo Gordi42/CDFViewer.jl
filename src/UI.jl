@@ -134,6 +134,7 @@ function update_slider!(playback_menu::PlaybackMenu, coord_sliders::CoordinateSl
     if new_value > maximum(coord_sliders.sliders[dim].range[])
         new_value = minimum(coord_sliders.sliders[dim].range[])
     end
+    set_close_to!(coord_sliders.sliders[dim], new_value)
     coord_sliders.continuous_values[dim][] = new_value
     nothing
 end

@@ -165,6 +165,84 @@ using GLMakie
             # Assert
             @test playback_menu.label.text[] == "  → string_dim: " * dataset.ds["string_dim"][2]
         end
+
+        @testset "Playback Tick Update" begin
+            function arrange_playback(dim::String, activate::Bool)
+                fig = Figure()
+                dataset = make_temp_dataset()
+                coord_sliders = UI.CoordinateSliders(fig, dataset)
+                playback_menu = UI.PlaybackMenu(fig, dataset, coord_sliders.sliders)
+                playback_menu.var.i_selected[] = findfirst(==(dim), playback_menu.var.options[])
+
+                tick = () -> UI.update_slider!(playback_menu, coord_sliders)
+                activate && (playback_menu.toggle.active[] = true)
+
+                value_sl = coord_sliders.sliders[dim].value
+                value_cont = coord_sliders.continuous_values[dim]
+                speed = playback_menu.speed
+
+                function assert_sliders(expected)
+                    # round the expected value to the nearest integer within the slider range
+                    @test value_sl[] == round(Int, expected)
+                    @test value_cont[] ≈ expected atol=0.1
+                end
+
+                return (tick, assert_sliders, speed)
+            end
+
+            @testset "Without Activation" begin
+                tick, assert_sliders, speed = arrange_playback("lat", false)
+
+                tick()
+                assert_sliders(1.0)
+            end
+
+            @testset "With Default Speed" begin
+                tick, assert_sliders, speed = arrange_playback("lat", true)
+
+                tick()
+                assert_sliders(2.0)
+
+                tick()
+                assert_sliders(3.0)
+            end
+
+            @testset "With Decreased Speed" begin
+                tick, assert_sliders, speed = arrange_playback("lon", true)
+
+                set_close_to!(speed, log10(0.3))
+
+                tick()
+                assert_sliders(1.3)
+
+                tick()
+                assert_sliders(1.6)
+            end
+
+            @testset "With Increased Speed" begin
+                tick, assert_sliders, speed = arrange_playback("float_dim", true)
+
+                set_close_to!(speed, log10(1.8))
+
+                tick()
+                assert_sliders(2.8)
+
+                tick()
+                assert_sliders(4.6)
+            end
+
+            @testset "Wrap Around" begin
+                tick, assert_sliders, speed = arrange_playback("time", true)
+
+                set_close_to!(speed, log10(2.0))
+
+                tick()
+                assert_sliders(3.0)
+
+                tick() # wraps around
+                assert_sliders(1.0)
+            end
+        end
     end
 
     # ============================================
