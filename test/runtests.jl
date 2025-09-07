@@ -9,4 +9,5 @@ results = @testset "CDFViewer Tests" begin
     include("test_parsing.jl")
     include("test_plotting.jl")
     include("test_controller.jl")
+    include("test_julia_main.jl")
 end

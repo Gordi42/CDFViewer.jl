@@ -1,6 +1,6 @@
 module CDFViewer
 
-using NCDatasets
+using GLMakie
 
 include("Constants.jl")
 include("Parsing.jl")
@@ -11,16 +11,19 @@ include("Controller.jl")
 
 export julia_main
 
-function julia_main()::Cint
+function julia_main(args::Vector{String} = ARGS;
+    wait_for_ui::Bool = true,
+    visible::Bool = true,
+)::Cint
     println("Running CDFViewer: $(Constants.APP_VERSION)")
 
-    if length(ARGS) < 1
+    if length(args) < 1
         println("Error: No NetCDF file path provided.")
         println("Usage: cdfviewer <path_to_netcdf_file> [additional arguments...]")
         return 1
     end
 
-    file_path = ARGS[1]
+    file_path = args[1]
     println("Loading dataset from file: $file_path")
 
     dataset = try
@@ -32,25 +35,17 @@ function julia_main()::Cint
 
     println("Open Figure window...")
     controller = Controller.ViewerController(dataset)
-    gl_screen = display(controller.fd.fig)
+    screen = GLMakie.Screen(visible=visible)
+    display(screen, controller.fd.fig)
     println("Setup UI...")
     Controller.setup!(controller)
     println("Ready.")
 
-    wait(gl_screen)
+    if wait_for_ui
+        wait(screen)
+    end
 
     return 0
 end
-
-function open_test()::Nothing
-    include(joinpath(@__DIR__, "..", "test", "test_setup.jl"))
-    
-    controller = Controller.ViewerController(make_temp_dataset())
-    display(controller.fd.fig)
-    Controller.setup!(controller)
-    nothing
-end
-
-export open_test
 
 end # module CDFViewer
