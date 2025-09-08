@@ -34,6 +34,11 @@ If you don't want to compile the application, you can run it directly using juli
 
 # TODO
 
+## Command Line Arguments
+
+- [ ] Add possibility to add command line arguments
+- [ ] Dataset distributed over multiple files ?
+
 ## Recording and Saving
 
 - [ ] Add a button for Saving the figure to file (png, svg, jpg, etc.)
@@ -55,8 +60,5 @@ If you don't want to compile the application, you can run it directly using juli
 - [ ] Add online documentation
 - [ ] Set automatic aspect ratios
 - [ ] Add support for dark theme
-- [ ] Add possibility to add command line arguments
 - [ ] Add possibility for default configs in a .config folder
 - [ ] Unregular grids ?
-- [ ] Dataset distributed over multiple files ?
-- [ ] Add a temporary script to open netcdf files

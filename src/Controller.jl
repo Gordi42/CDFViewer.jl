@@ -89,6 +89,9 @@ function on_variable_change(controller::ViewerController)::Nothing
 
     # Set the update switch back
     controller.fd.plot_data.update_data_switch[] = true
+
+    # Update the axis limits to fit the new data
+    isnothing(controller.fd.ax[]) || autolimits!(controller.fd.ax[])
     nothing
 end
 
@@ -142,6 +145,9 @@ function on_dim_sel_change(controller::ViewerController)::Nothing
 
     # Set the update switch back
     controller.fd.plot_data.update_data_switch[] = true
+
+    # Update the axis limits to fit the new data
+    isnothing(controller.fd.ax[]) || autolimits!(controller.fd.ax[])
     nothing
 end
 

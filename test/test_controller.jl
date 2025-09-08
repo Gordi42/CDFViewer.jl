@@ -12,7 +12,7 @@ NS = Constants.NOT_SELECTED_LABEL
 
     function init_default_controller()
         controller = Controller.ViewerController(make_temp_dataset())
-        screen = GLMakie.Screen(visible=false)
+        screen = GLMakie.Screen(visible=true)
         display(screen, controller.fd.fig)
         Controller.setup!(controller)
         controller
@@ -276,6 +276,8 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Heatmap, ["float_dim", "only_long"], "only_unit")
+            @test all(Point2f(xi, yi) in controller.fd.ax[].finallimits[]
+                            for xi in controller.fd.plot_data.x[], yi in controller.fd.plot_data.y[])
         end
 
         @testset "Switch Dimensions" begin
@@ -288,6 +290,8 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Heatmap, ["lat", "lon"], "only_long")
+            @test all(Point2f(xi, yi) in controller.fd.ax[].finallimits[]
+                            for xi in controller.fd.plot_data.x[], yi in controller.fd.plot_data.y[])
         end
 
         @testset "Remove x from 1D" begin
@@ -409,6 +413,25 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Volume, ["lon", "lat", "float_dim"], "only_long")
+        end
+
+        @testset "Check Auto Limits" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="line")
+            dim_names[2][] = "float_dim"
+
+            # Act
+            dim_names[2][] = "lat"
+
+            # Assert
+            @test all(Point2f(xi, yi) in controller.fd.ax[].finallimits[]
+                            for xi in controller.fd.plot_data.x[], yi in controller.fd.plot_data.y[])
+
+            # Act
+            dim_names[2][] = "lon"
+            dim_names[1][] = "lat"
+            @test all(Point2f(xi, yi) in controller.fd.ax[].finallimits[]
+                            for xi in controller.fd.plot_data.x[], yi in controller.fd.plot_data.d[1][])
         end
 
     end
