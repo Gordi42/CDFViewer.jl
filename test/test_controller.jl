@@ -8,11 +8,12 @@ using CDFViewer.Controller
 
 NS = Constants.NOT_SELECTED_LABEL
 
+
 @testset "Controller.jl" begin
 
     function init_default_controller()
         controller = Controller.ViewerController(make_temp_dataset())
-        screen = GLMakie.Screen(visible=true)
+        screen = GLMakie.Screen(visible=false)
         display(screen, controller.fd.fig)
         Controller.setup!(controller)
         controller

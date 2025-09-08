@@ -86,6 +86,42 @@ using CDFViewer.Plotting
                 @test plotobj isa Makie.AbstractPlot
             end
         end
+
+        @testset "Compute Aspect Ratio" begin
+            @testset "2D Aspect Ratio" begin
+                default = 1234.0
+                function assert_aspect_2d(x, y, expected; atol = 0.01)
+                    aspect = Plotting.compute_aspect(x, y, default)
+                    @test aspect ≈ expected atol=atol
+                end
+
+                assert_aspect_2d(collect(1:5), collect(1:5), 1.0)
+                assert_aspect_2d(collect(1:5), collect(1:0.2:3.2), 4/2.2)
+                assert_aspect_2d(rand(1000), rand(1000), 1.0, atol=0.1)  # should fail 1 in ~10^500 times
+                assert_aspect_2d([0.2, -0.1, 0.4], [3.1, 0.1, 0.7], 0.5/3.0)
+                assert_aspect_2d([0.1, 100.0, 32], [0.2, 0.3, 0.4], default)
+                assert_aspect_2d([0.1, 0.2, 0.3], [0.1, 100.0, 32], default)
+            end
+
+            @testset "3D Aspect Ratio" begin
+                default = 1234.0
+                function assert_aspect_3d(x, y, z, expected; atol = 0.01)
+                    aspect = Plotting.compute_aspect(x, y, z, (default, default, default))
+                    for (a, b) in zip(aspect, expected)
+                        @test a ≈ b atol=atol
+                    end
+                end
+
+                assert_aspect_3d(collect(1:5), collect(1:5), collect(1:5), (1.0, 1.0, 1.0))
+                assert_aspect_3d(collect(1:4), collect(1:5), collect(1:6), (3/4, 1.0, 5/4))
+                assert_aspect_3d(collect(1:5), collect(1:0.2:3.2), collect(1:0.1:4.1), (4/2.2, 2.2/2.2, 3.1/2.2))
+                assert_aspect_3d(rand(1000), rand(1000), rand(1000), (1.0, 1.0, 1.0), atol=0.1)
+                assert_aspect_3d([0.2, -0.1, 0.4], [3.1, 0.1, 0.7], [0.5, 0.6, -0.2], (0.5/3.0, 3.0/3.0, 0.8/3.0))
+                assert_aspect_3d([0.1, 100.0, 32], [0.2, 0.3, 0.4], [0.5, 0.6, -0.2], (default, 1.0, 0.8/0.2))
+                assert_aspect_3d([0.1, 0.2, 0.3], [0.1, 100.0, 32], [0.5, 0.6, -0.2], (default, 1.0, default))
+                assert_aspect_3d([0.1, 0.2, 0.3], [0.1, 0.2, 0.3], [0.5, 100.0, -0.2], (1.0, 1.0, default))
+            end
+        end
     end
 
     # ============================================

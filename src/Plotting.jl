@@ -263,24 +263,70 @@ end
 # ============================================================
 #  Fill up plot functions
 # ============================================================
+function compute_aspect(x::Array, y::Array, default::Float64)::Float64
+    x_ext = maximum(x) - minimum(x)
+    y_ext = maximum(y) - minimum(y)
+    ratio = x_ext / y_ext
+    isfinite(ratio) || return default
+    if ratio > 20 || ratio < 0.05
+        default
+    else
+        ratio
+    end
+end
+
+function compute_aspect(x::Array, y::Array, z::Array,
+        default::Tuple{Float64, Float64, Float64})::Tuple{Float64, Float64, Float64}
+    exts = [maximum(xi) - minimum(xi) for xi in (x, y, z)]
+    exts = [ext == 0 ? 1.0 : ext for ext in exts]
+    ratio = [exts[1] / exts[2], exts[2] / exts[2], exts[3] / exts[2]]
+    ratio = [r > 20 || r < 0.05 ? default[i] : r for (i, r) in enumerate(ratio)]
+    Tuple(ratio)
+end
 
 function create_2d_axis(ax_layout::GridPosition, plot_data::PlotData)::Axis
+    aspect = Observable{Any}(compute_aspect(plot_data.x[], plot_data.y[], 1.0))
+    for dim in (plot_data.x, plot_data.y)
+        on(dim) do _
+            aspect[] = compute_aspect(plot_data.x[], plot_data.y[], 1.0)
+        end
+    end
+
     Axis(
         ax_layout,
         xlabel = plot_data.labels.xlabel,
         ylabel = plot_data.plot_type[].ndims > 1 ? plot_data.labels.ylabel : "",
+        aspect = plot_data.plot_type[].ndims == 2 ? aspect : nothing,
         title = plot_data.labels.title,
     )
 end
 
 function create_3d_axis(ax_layout::GridPosition, plot_data::PlotData)::Axis3
-    Axis3(
+    function get_aspect()::Tuple{Float64, Float64, Float64}
+        aspect = compute_aspect(
+            plot_data.x[], plot_data.y[], plot_data.z[],
+            (1.0, 1.0, 1.0))
+        if plot_data.plot_type[].ndims == 2
+            aspect = (aspect[1], aspect[2], 0.4)
+        end
+        aspect
+    end
+
+    ax = Axis3(
         ax_layout,
         xlabel = plot_data.labels.xlabel,
         ylabel = plot_data.labels.ylabel,
         zlabel = plot_data.plot_type[].ndims > 2 ? plot_data.labels.zlabel : "",
+        aspect = get_aspect(),
         title = plot_data.labels.title,
     )
+
+    for dim in (plot_data.x, plot_data.y, plot_data.z)
+        on(dim) do _
+            setproperty!(ax, :aspect, get_aspect())
+        end
+    end
+    ax
 end
 
 

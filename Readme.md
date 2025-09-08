@@ -38,11 +38,13 @@ If you don't want to compile the application, you can run it directly using juli
 
 - [ ] Add possibility to add command line arguments
 - [ ] Dataset distributed over multiple files ?
+- [ ] Print String with current settings (Export Option)
 
 ## Recording and Saving
 
 - [ ] Add a button for Saving the figure to file (png, svg, jpg, etc.)
 - [ ] Add a button for Recording the playback
+- [ ] Add a button for export
 - [ ] Add a textbox for saving/recording options
 
 ## Plot Options
@@ -58,7 +60,10 @@ If you don't want to compile the application, you can run it directly using juli
 
 - [ ] Add test workflow for github
 - [ ] Add online documentation
-- [ ] Set automatic aspect ratios
 - [ ] Add support for dark theme
 - [ ] Add possibility for default configs in a .config folder
 - [ ] Unregular grids ?
+
+## Bugs
+
+- [ ] Errors of wrong properties (kw textbox) are not catched properly
