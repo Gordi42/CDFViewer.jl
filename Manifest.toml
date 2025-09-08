@@ -2,7 +2,7 @@
 
 julia_version = "1.11.6"
 manifest_format = "2.0"
-project_hash = "6d984b65a8e6b5ace7bb2946df3577dfde5e5e77"
+project_hash = "1abf282bffe772ae1a98107977ec18d31b7c7612"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -592,10 +592,10 @@ uuid = "2e76f6c2-a576-52d4-95c1-20adfe4de566"
 version = "8.5.1+0"
 
 [[deps.Hwloc_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "XML2_jll", "Xorg_libpciaccess_jll"]
-git-tree-sha1 = "3d468106a05408f9f7b6f161d9e7715159af247b"
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "92f65c4d78ce8cdbb6b68daf88889950b0a99d11"
 uuid = "e33a78d0-f292-5ffc-b300-72abe9b543c8"
-version = "2.12.2+0"
+version = "2.12.1+0"
 
 [[deps.HypergeometricFunctions]]
 deps = ["LinearAlgebra", "OpenLibm_jll", "SpecialFunctions"]
@@ -1452,9 +1452,9 @@ version = "0.1.2"
 
 [[deps.StaticArrays]]
 deps = ["LinearAlgebra", "PrecompileTools", "Random", "StaticArraysCore"]
-git-tree-sha1 = "b8693004b385c842357406e3af647701fe783f98"
+git-tree-sha1 = "cbea8a6bd7bed51b1619658dec70035e07b8502f"
 uuid = "90137ffa-7385-5640-81b9-e52037218182"
-version = "1.9.15"
+version = "1.9.14"
 weakdeps = ["ChainRulesCore", "Statistics"]
 
     [deps.StaticArrays.extensions]
@@ -1538,6 +1538,12 @@ uuid = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
 version = "7.7.0+0"
+
+[[deps.Suppressor]]
+deps = ["Logging"]
+git-tree-sha1 = "6dbb5b635c5437c68c28c2ac9e39b87138f37c0a"
+uuid = "fd094767-a336-5f1f-9728-57cf17d0bbfb"
+version = "0.2.8"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -1710,12 +1716,6 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libX11_jll"]
 git-tree-sha1 = "7ed9347888fac59a618302ee38216dd0379c480d"
 uuid = "ea2f1a96-1ddc-540d-b46f-429655e07cfa"
 version = "0.9.12+0"
-
-[[deps.Xorg_libpciaccess_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Zlib_jll"]
-git-tree-sha1 = "4909eb8f1cbf6bd4b1c30dd18b2ead9019ef2fad"
-uuid = "a65dc6b1-eb27-53a1-bb3e-dea574b5389e"
-version = "0.18.1+0"
 
 [[deps.Xorg_libxcb_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libXau_jll", "Xorg_libXdmcp_jll"]

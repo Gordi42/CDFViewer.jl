@@ -525,7 +525,10 @@ using CDFViewer.Plotting
             Plotting.create_axis!(fig_data, state)
 
             # Act - set some kwargs
-            state.plot_kw[] = "colorrange = (0.2, 0.8), colormap=:ice, titlevisible = false, label=\"My Label\""
+            state.plot_kw[] = "colorrange = (0.2, 0.8), colormap=:ice, titlevisible = false, label=\"My Label\"";
+
+            # wait until all tasks are finished
+            [wait(t) for t in fig_data.tasks[]]
 
             # Assert
             @test fig_data.plot_obj[].colorrange.parent.value == (0.2, 0.8)
@@ -538,11 +541,30 @@ using CDFViewer.Plotting
             state.plot_type_name[] = "volume"
             Plotting.create_axis!(fig_data, state)
 
+            # wait until all tasks are finished
+            [wait(t) for t in fig_data.tasks[]]
+
             # Assert - the kwargs should still apply
             @test fig_data.plot_obj[].colorrange.parent.value == (0.2, 0.8)
             @test fig_data.plot_obj[].colormap.parent.value == :ice
             @test fig_data.ax[].titlevisible[] == false
             @test fig_data.cbar[].label[] == "My Label"
+        end
+
+        @testset "Apply Bad Kwargs" begin
+            # Arrange
+            (fig_data, state) = init_figure_data()
+            state.variable[] = "5d_float"
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+            state.plot_type_name[] = "contour"
+            Plotting.create_axis!(fig_data, state)
+
+            # Act & Assert - set nonexistent kwarg
+            @test_logs (:warn, r"Keyword argument nonexistent not applied") begin
+                state.plot_kw[] = "nonexistent = 123, colormap = :ice"
+                [wait(t) for t in fig_data.tasks[]]
+            end
         end
     end
 end

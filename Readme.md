@@ -66,4 +66,5 @@ If you don't want to compile the application, you can run it directly using juli
 
 ## Bugs
 
-- [ ] Errors of wrong properties (kw textbox) are not catched properly
+- [ ] Colorbar of 3D Contour does not show up
+- [ ] zlabel of 3D plots overlap with menu

@@ -460,6 +460,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             controller.ui.state.plot_kw[] = "levels=10, labels=true"
 
+            # wait until all tasks are finished
+            [wait(t) for t in controller.fd.tasks[]]
+
             # Assert
             @test controller.fd.plot_obj[].levels[] == 10
             @test controller.fd.plot_obj[].labels[] == true
@@ -470,6 +473,9 @@ NS = Constants.NOT_SELECTED_LABEL
             controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="heatmap")
 
             controller.ui.state.plot_kw[] = "limits=(nothing, nothing, 1, 3), xscale=log10"
+
+            # wait until all tasks are finished
+            [wait(t) for t in controller.fd.tasks[]]
 
             # Assert
             @test controller.fd.ax[].limits[] == (nothing, nothing, 1, 3)

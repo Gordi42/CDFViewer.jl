@@ -3,6 +3,7 @@ module Plotting
 using DataStructures: OrderedDict
 using Makie
 using GLMakie
+using Suppressor
 
 import ..Constants
 import ..Data
@@ -142,6 +143,7 @@ struct FigureData
     plot_obj::Observable{Union{Makie.AbstractPlot, Nothing}}
     cbar::Observable{Union{Colorbar, Nothing}}
     data_inspector::Observable{Union{DataInspector, Nothing}}
+    tasks::Observable{Vector{Task}}
 end
 
 function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)::FigureData
@@ -152,7 +154,7 @@ function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)::Figur
     data_inspector = Observable{Union{DataInspector, Nothing}}(nothing)
 
     # Construct the FigureData
-    fd = FigureData(fig, plot_data, ax, plot_obj, cbar, data_inspector)
+    fd = FigureData(fig, plot_data, ax, plot_obj, cbar, data_inspector, Observable(Task[]))
 
     # Setup a listener to create the plot if the axis changes
     on(ax) do a
@@ -237,17 +239,63 @@ function clear_axis!(fig_data::FigureData)::Nothing
     nothing
 end
 
-function apply_kwarg!(fig_data::FigureData, key::Symbol, value::Any)::Nothing
-    for obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[])
-        key ∉ propertynames(obj) && continue
+function setproperty_with_capture!(obj::Any, key::Symbol, value::Any, fig::Figure)::Task
+    @async begin
+        original_value = getproperty(obj, key)
         try
-            setproperty!(obj, key, value)
-            return nothing
-        catch _
-            # try next object
+            original_value = original_value[]
+        catch
+            # not an observable
+        end
+
+        output = try
+            @capture_err begin
+                # First we get the original value so we can restore it later
+                try
+                    setproperty!(obj, key, value)
+                    # Check if the window is open
+                    if fig.scene.events.window_open[]
+                        # Wait for 2 render cycles
+                        tick_count = 0
+                        on(fig.scene.events.tick) do tick
+                            tick_count += 1
+                        end
+        
+                        while tick_count < 2
+                            yield()
+                        end
+                    end
+                catch e
+                    @warn("Error setting property $key to $value: $e")
+                end
+            end
+        catch e
+            @warn("Error capturing output for $key: $e")
+            ""
+        end
+
+        if !isempty(output)
+            try
+                setproperty!(obj, key, original_value)
+            catch e
+                @warn("Error restoring property $key to $original_value: $e")
+            end
+            @warn "Failed to apply keyword argument: $key => $value"
         end
     end
-    @warn "Failed to apply keyword argument: $key => $value"
+end
+
+function apply_kwarg!(fig_data::FigureData, key::Symbol, value::Any)::Nothing
+    tasks = Vector{Task}()
+    for obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[])
+        key ∉ propertynames(obj) && continue
+        push!(tasks, setproperty_with_capture!(obj, key, value, fig_data.fig))
+    end
+    length(tasks) == 0 && @warn "Keyword argument $key not applied: property not found in axis, plot, or colorbar."
+    # add the tasks to the figure data
+    append!(fig_data.tasks[], tasks)
+    # clean up finished tasks
+    fig_data.tasks[] = [t for t in fig_data.tasks[] if !istaskdone(t)]
     nothing
 end
 
