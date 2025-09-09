@@ -239,72 +239,110 @@ function clear_axis!(fig_data::FigureData)::Nothing
     nothing
 end
 
-function setproperty_with_capture!(obj::Any, key::Symbol, value::Any, fig::Figure)::Task
-    @async begin
-        original_value = getproperty(obj, key)
-        try
-            original_value = original_value[]
-        catch
-            # not an observable
-        end
+# ============================================================
+#  Apply keyword arguments to plot objects
+# ============================================================
 
-        output = try
-            @capture_err begin
-                # First we get the original value so we can restore it later
-                try
-                    setproperty!(obj, key, value)
-                    # Check if the window is open
-                    if fig.scene.events.window_open[]
-                        # Wait for 2 render cycles
-                        tick_count = 0
-                        on(fig.scene.events.tick) do tick
-                            tick_count += 1
-                        end
-        
-                        while tick_count < 2
-                            yield()
-                        end
-                    end
-                catch e
-                    @warn("Error setting property $key to $value: $e")
-                end
-            end
-        catch e
-            @warn("Error capturing output for $key: $e")
-            ""
-        end
-
-        if !isempty(output)
-            try
-                setproperty!(obj, key, original_value)
-            catch e
-                @warn("Error restoring property $key to $original_value: $e")
-            end
-            @warn "Failed to apply keyword argument: $key => $value"
-        end
-    end
+struct PropertyMapping
+    property::Symbol
+    target_object::Any
+    current_value::Any
+    intended_value::Any
 end
 
-function apply_kwarg!(fig_data::FigureData, key::Symbol, value::Any)::Nothing
-    tasks = Vector{Task}()
-    for obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[])
-        key ∉ propertynames(obj) && continue
-        push!(tasks, setproperty_with_capture!(obj, key, value, fig_data.fig))
+function get_property_mappings(kwargs::Dict{Symbol, Any}, fig_data::FigureData)::Vector{PropertyMapping}
+    mappings = Vector{PropertyMapping}()
+    for (property, intended_value) in kwargs
+        found_targets = 0
+        for target_obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[])
+            target_obj === nothing && continue
+            property ∉ propertynames(target_obj) && continue
+            
+            # Get the current value of the property
+            current_value = getproperty(target_obj, property)
+            # If it's an Observable, get its value
+            current_value = try
+                current_value[]
+            catch
+                current_value  # not an observable
+            end
+            
+            push!(mappings, PropertyMapping(property, target_obj, current_value, intended_value))
+            found_targets += 1
+        end
+        found_targets == 0 && @warn "Property $property not found in any plot object"
     end
-    length(tasks) == 0 && @warn "Keyword argument $key not applied: property not found in axis, plot, or colorbar."
-    # add the tasks to the figure data
-    append!(fig_data.tasks[], tasks)
-    # clean up finished tasks
-    fig_data.tasks[] = [t for t in fig_data.tasks[] if !istaskdone(t)]
+    return mappings
+end
+
+function apply_property_mappings!(mappings::Vector{PropertyMapping})::Nothing
+    for mapping in mappings
+        mapping.current_value == mapping.intended_value && continue
+        try
+            setproperty!(mapping.target_object, mapping.property, mapping.intended_value)
+        catch e
+            @warn("Error setting property $mapping.property to $mapping.intended_value: $e")
+        end
+    end
+    nothing
+end
+
+function apply_original_property_mappings!(mappings::Vector{PropertyMapping})::Nothing
+    for mapping in mappings
+        try
+            setproperty!(mapping.target_object, mapping.property, mapping.current_value)
+        catch e
+            @warn("Error setting property $mapping.property to $mapping.current_value: $e")
+        end
+    end
+    nothing
+end
+
+function wait_for_n_cycles(fig::Figure, n::Int)::Nothing
+    tick_count = 0
+    on(fig.scene.events.tick) do tick
+        tick_count += 1
+    end
+    while tick_count < n
+        yield()
+    end
     nothing
 end
 
 function apply_kwargs!(fig_data::FigureData, kw_str::Union{String, Nothing})::Nothing
     kw_str === nothing && return
-    kwargs = Parsing.parse_kwargs(kw_str)
-    for (key, value) in kwargs
-        apply_kwarg!(fig_data, key, value)
+    # Wait for all previous tasks to complete
+    while !all(istaskdone, fig_data.tasks[])
+        yield()
     end
+    fig_data.tasks[] = Task[]
+
+    kwargs = Parsing.parse_kwargs(kw_str)
+    mappings = get_property_mappings(kwargs, fig_data)
+
+    task = @async begin
+        output = @capture_err begin
+            # @warn "Applying keyword arguments: $kw_str"
+            apply_property_mappings!(mappings)
+
+            # Check if the window is open
+            if fig_data.fig.scene.events.window_open[]
+                # Wait for 2 render cycles
+                wait_for_n_cycles(fig_data.fig, 2)
+            end
+        end
+        if !isempty(output)
+            @warn "An error occurred while applying keyword arguments"
+            # Only show the first 5 lines of the error
+            lines = split(output, '\n')
+            for line in lines[1:min(end, 5)]
+                # print the line to stderr
+                println(stderr, line)
+            end
+            apply_original_property_mappings!(mappings)
+        end
+    end
+    push!(fig_data.tasks[], task)
     nothing
 end
 

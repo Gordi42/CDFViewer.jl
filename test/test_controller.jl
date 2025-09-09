@@ -481,5 +481,32 @@ NS = Constants.NOT_SELECTED_LABEL
             @test controller.fd.ax[].limits[] == (nothing, nothing, 1, 3)
             @test controller.fd.ax[].xscale[] == log10
         end
+
+        @testset "Invalid keyword" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="contour")
+
+            # Act & Assert: should issue a warning about the invalid keyword
+            @test_warn "Property invalid_kw not found in any plot object" begin
+                controller.ui.state.plot_kw[] = "invalid_kw=123, levels=5, colormap=:balance"
+
+                # wait until all tasks are finished
+                [wait(t) for t in controller.fd.tasks[]]
+            end
+
+            # Assert: should apply only the valid keyword
+            @test controller.fd.plot_obj[].levels[] == 5
+
+            # Act & Assert: should issue a warning about the invalid value
+            @test_warn "An error occurred while applying keyword arguments" begin
+                controller.ui.state.plot_kw[] = "levels=not_a_number, colormap=:viridis"
+                # wait until all tasks are finished
+                [wait(t) for t in controller.fd.tasks[]]
+            end
+
+            # Assert: should revert to original settings
+            @test controller.fd.plot_obj[].levels[] == 5
+            @test controller.fd.plot_obj[].colormap[] == :balance
+        end
     end
 end

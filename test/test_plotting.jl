@@ -561,7 +561,7 @@ using CDFViewer.Plotting
             Plotting.create_axis!(fig_data, state)
 
             # Act & Assert - set nonexistent kwarg
-            @test_logs (:warn, r"Keyword argument nonexistent not applied") begin
+            @test_logs (:warn, r"Property nonexistent not found in any plot object") begin
                 state.plot_kw[] = "nonexistent = 123, colormap = :ice"
                 [wait(t) for t in fig_data.tasks[]]
             end
