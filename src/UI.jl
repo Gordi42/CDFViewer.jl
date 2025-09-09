@@ -40,6 +40,45 @@ function layout(plot_menu::PlotMenu)::GridLayout
 end
 
 # ============================================
+#  Export Menu
+# ============================================
+struct ExportMenu
+    save_button::Button
+    record_button::Button
+    export_button::Button
+    options::Textbox
+    fig::Figure
+end
+
+function ExportMenu(fig::Figure)::ExportMenu
+    ExportMenu(
+        Button(fig, label = "Save", tellwidth = false, width = Relative(1)),
+        Button(fig, label = "Record", tellwidth = false, width = Relative(1)),
+        Button(fig, label = "Export", tellwidth = false, width = Relative(1)),
+        Textbox(
+            fig,
+            placeholder = "e.g., filename=\"output.png\", dpi=300",
+            tellwidth = false,
+            width = Relative(1),
+            defocus_on_submit = false,
+            halign = :left,
+        ),
+        fig,
+    )
+end
+
+function layout(export_menu::ExportMenu)::GridLayout
+    vgrid!(
+        hgrid!(
+            export_menu.save_button,
+            export_menu.record_button,
+            export_menu.export_button,
+        ),
+        export_menu.options,
+    )
+end
+
+# ============================================
 #  Coordinate Sliders
 # ============================================
 struct CoordinateSliders
@@ -172,6 +211,7 @@ struct MainMenu
     playback_menu::PlaybackMenu
     coord_menu::CoordinateMenu
     coord_sliders::CoordinateSliders
+    export_menu::ExportMenu
     fig::Figure
 end
 
@@ -181,7 +221,8 @@ function MainMenu(fig::Figure, dataset::Data.CDFDataset)::MainMenu
     coord_sliders = CoordinateSliders(fig, dataset)
     playback_menu = PlaybackMenu(fig, dataset, coord_sliders.sliders)
     coord_menu = CoordinateMenu(fig)
-    MainMenu(variable_menu, plot_menu, playback_menu, coord_menu, coord_sliders, fig)
+    export_menu = ExportMenu(fig)
+    MainMenu(variable_menu, plot_menu, playback_menu, coord_menu, coord_sliders, export_menu, fig)
 end
 
 function layout(main_menu::MainMenu)::GridLayout
@@ -193,6 +234,7 @@ function layout(main_menu::MainMenu)::GridLayout
         layout(main_menu.playback_menu),
         Label(main_menu.fig, L"\textbf{Fixed Coordinates}", width = nothing),
         main_menu.coord_sliders.slider_grid,
+        layout(main_menu.export_menu),
     )
 end
 
