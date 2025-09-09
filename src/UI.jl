@@ -87,12 +87,15 @@ struct CoordinateSliders
     labels::Dict{String, Label}
     valuelabels::Dict{String, Label}
     slider_grid::SliderGrid
+    auto_update::Toggle
     fig::Figure
 end
 
 function CoordinateSliders(fig::Figure, dataset::Data.CDFDataset)::CoordinateSliders
+    # align the toggle to the right
+    auto_update = Toggle(fig, active = false, halign = :right)
     coord_sliders = SliderGrid(fig,[
-        (label=dim, range=1:dataset.ds.dim[dim], startvalue=1, update_while_dragging=false)
+        (label=dim, range=1:dataset.ds.dim[dim], startvalue=1, update_while_dragging=auto_update.active)
         for dim in dataset.dimensions]...)
     labels = Dict(
         dim => coord_sliders.labels[i] for (i, dim) in enumerate(dataset.dimensions))
@@ -108,7 +111,17 @@ function CoordinateSliders(fig::Figure, dataset::Data.CDFDataset)::CoordinateSli
         end
     end
 
-    CoordinateSliders(sliders, continuous_slider, labels, valuelabels, coord_sliders, fig)
+    CoordinateSliders(sliders, continuous_slider, labels, valuelabels, coord_sliders, auto_update, fig)
+end
+
+function layout(coord_sliders::CoordinateSliders)::GridLayout
+    vgrid!(
+        hgrid!(
+            Label(coord_sliders.fig, L"\textbf{Fixed Coordinates}", width = nothing),
+            coord_sliders.auto_update
+        ),
+        coord_sliders.slider_grid,
+    )
 end
 
 # ============================================
@@ -232,8 +245,7 @@ function layout(main_menu::MainMenu)::GridLayout
         layout(main_menu.plot_menu),
         layout(main_menu.coord_menu),
         layout(main_menu.playback_menu),
-        Label(main_menu.fig, L"\textbf{Fixed Coordinates}", width = nothing),
-        main_menu.coord_sliders.slider_grid,
+        layout(main_menu.coord_sliders),
         layout(main_menu.export_menu),
     )
 end
