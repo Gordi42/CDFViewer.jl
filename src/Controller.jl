@@ -59,18 +59,16 @@ end
 function open_window!(controller::ViewerController,
         screen::Observable{GLMakie.Screen},
         fig::Figure)::Nothing
-    # in headless mode, do nothing
-    controller.visible || return nothing
     # if the window is closed, properly close it and reopen
     if !screen[].window_open[]
         close(screen[])
-        new_screen = GLMakie.Screen(visible = true)
+        new_screen = GLMakie.Screen(visible = controller.visible)
         display(new_screen, fig)
         screen[] = new_screen
         return nothing
     end
 
-    GLMakie.GLFW.ShowWindow(screen[].glscreen)
+    controller.visible && GLMakie.GLFW.ShowWindow(screen[].glscreen)
     nothing
 end
 

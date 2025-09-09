@@ -507,4 +507,26 @@ NS = Constants.NOT_SELECTED_LABEL
             @test controller.fd.plot_obj[].colormap[] == :balance
         end
     end
+
+    @testset "Window Closing" begin
+        # Arrange
+        controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="contour")
+        fig_screen = controller.fig_screen
+        fig = controller.fd.fig
+
+        # Assert: check if the figure is connected
+        @test fig_screen[].scene === fig.scene
+
+        # Act: Close the window
+        close(fig_screen[])
+
+        # Assert: check if the figure is disconnected
+        @test fig_screen[].scene !== fig.scene
+
+        # Act: Change the plot type to see if it recreates the figure
+        plot_type[] = "heatmap"
+
+        # Assert: check if the figure is reconnected
+        @test fig_screen[].scene === fig.scene
+    end
 end
