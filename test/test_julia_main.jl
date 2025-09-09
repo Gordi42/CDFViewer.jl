@@ -1,6 +1,7 @@
 using Test
 using NCDatasets
 using CDFViewer
+using Suppressor
 
 @testset "CDFViewer.jl" begin
     function create_lon_lat_data()::String
@@ -13,12 +14,12 @@ using CDFViewer
     end
 
     @testset "julia_main no kwargs" begin
-        @test julia_main(String[]; wait_for_ui=false) == 1  # No args provided
+        @suppress @test julia_main(String[]; wait_for_ui=false) == 1  # No args provided
     end
 
     @testset "julia_main with lat lon file" begin
         fname = create_lon_lat_data()
 
-        @test julia_main([fname]; wait_for_ui=false, visible=false) == 0
+        @suppress @test julia_main([fname]; wait_for_ui=false, visible=false) == 0
     end
 end

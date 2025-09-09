@@ -27,7 +27,7 @@ using GLMakie
             plot_menu = UI.PlotMenu(Figure())
 
             # Assert
-            @test plot_menu.plot_type.options[] == ["Info"]
+            @test plot_menu.plot_type.options[] == [Constants.NOT_SELECTED_LABEL]
             @test plot_menu.plot_kw.placeholder[] == Constants.PLOT_KW_HINTS
         end
 
@@ -246,42 +246,6 @@ using GLMakie
     end
 
     # ============================================
-    #  Main Menu
-    # ============================================
-
-    @testset "UI Main Menu" begin
-        function init_main_menu(fig::Figure=Figure())
-            dataset = make_temp_dataset()
-            UI.MainMenu(fig, dataset)
-        end
-
-        @testset "Types" begin
-            # Arange
-            main_menu = init_main_menu()
-
-            # Assert
-            @test main_menu isa UI.MainMenu
-            @test main_menu.variable_menu isa Menu
-            @test main_menu.plot_menu isa UI.PlotMenu
-            @test main_menu.coord_sliders isa UI.CoordinateSliders
-            @test main_menu.playback_menu isa UI.PlaybackMenu
-        end
-
-        @testset "Layout" begin
-            # Arange
-            fig = Figure()
-            main_menu = init_main_menu(fig)
-
-            # Act
-            layout = UI.layout(main_menu)
-
-            # Assert
-            @test layout isa GridLayout
-            @test layout.size == (6, 1)
-        end
-    end
-
-    # ============================================
     #  Coordinate Menu
     # ============================================
 
@@ -325,6 +289,44 @@ using GLMakie
     end
 
     # ============================================
+    #  Main Menu
+    # ============================================
+
+    @testset "UI Main Menu" begin
+        function init_main_menu(fig::Figure=Figure())
+            dataset = make_temp_dataset()
+            UI.MainMenu(fig, dataset)
+        end
+
+        @testset "Types" begin
+            # Arange
+            main_menu = init_main_menu()
+
+            # Assert
+            @test main_menu isa UI.MainMenu
+            @test main_menu.variable_menu isa Menu
+            @test main_menu.plot_menu isa UI.PlotMenu
+            @test main_menu.coord_menu isa UI.CoordinateMenu
+            @test main_menu.coord_sliders isa UI.CoordinateSliders
+            @test main_menu.playback_menu isa UI.PlaybackMenu
+        end
+
+        @testset "Layout" begin
+            # Arange
+            fig = Figure()
+            main_menu = init_main_menu(fig)
+
+            # Act
+            layout = UI.layout(main_menu)
+
+            # Assert
+            @test layout isa GridLayout
+            @test layout.size == (7, 1)
+        end
+    end
+
+
+    # ============================================
     #  UI State
     # ============================================
 
@@ -332,8 +334,7 @@ using GLMakie
         function init_state(fig::Figure=Figure(),
                             dataset::Data.CDFDataset=make_temp_dataset())
             main_menu = UI.MainMenu(fig, dataset)
-            coord_menu = UI.CoordinateMenu(fig)
-            UI.State(main_menu, coord_menu), main_menu, coord_menu
+            UI.State(main_menu), main_menu
         end
 
         @testset "Types" begin
@@ -357,7 +358,7 @@ using GLMakie
 
             # Assert
             @test state.variable[] == "1d_float"
-            @test state.plot_type_name[] == "Info"
+            @test state.plot_type_name[] == Constants.NOT_SELECTED_LABEL
             @test state.x_name[] == Constants.NOT_SELECTED_LABEL
             @test state.y_name[] == Constants.NOT_SELECTED_LABEL
             @test state.z_name[] == Constants.NOT_SELECTED_LABEL
@@ -369,7 +370,7 @@ using GLMakie
 
         @testset "Dimension Selection" begin
             # Arange
-            state, main_menu, coord_menu = init_state()
+            state, main_menu = init_state()
             # Create a counter to test if the observable triggers an event
             counter = Observable(0)
             on(state.dim_obs) do _
@@ -386,7 +387,7 @@ using GLMakie
 
         @testset "Variable Selection" begin
             # Arange
-            state, main_menu, coord_menu = init_state()
+            state, main_menu = init_state()
             
             # Act
             main_menu.variable_menu.i_selected[] = 3
@@ -400,7 +401,8 @@ using GLMakie
         @testset "Coordinate Selection" begin
             # Arange
             dataset = make_temp_dataset()
-            state, main_menu, coord_menu = init_state(Figure(), dataset)
+            state, main_menu = init_state(Figure(), dataset)
+            coord_menu = main_menu.coord_menu
 
             for (i, name) in enumerate([state.x_name, state.y_name, state.z_name])
                 # Act
@@ -424,16 +426,16 @@ using GLMakie
     @testset "UI Elements" begin
         # Arange
         dataset = make_temp_dataset()
-        fig = Figure()
-        ui_elements = UI.UIElements(fig, dataset)
+        ui_elements = UI.UIElements(dataset)
 
         # Assert types
         @test ui_elements isa UI.UIElements
         @test ui_elements.main_menu isa UI.MainMenu
-        @test ui_elements.coord_menu isa UI.CoordinateMenu
+        @test ui_elements.state isa UI.State
+        @test ui_elements.menu isa Figure
 
         # Assert Layout
-        @test fig.layout.size == (2, 2)
+        @test ui_elements.menu.layout.size == (1, 1)
     end
 
 end

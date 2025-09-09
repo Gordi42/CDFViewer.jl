@@ -12,21 +12,20 @@ end
 const APP_VERSION = get_version()
 
 const DIMENSION_LABELS = ["X", "Y", "Z"]
-const NOT_SELECTED_LABEL = "Not Selected"
+const NOT_SELECTED_LABEL = "Select"
 const NO_DIM_SELECTED_LABEL = "  → No dimension selected"
 
 const PLOT_KW_HINTS = "e.g., colormap=:viridis, colorrange=(-1,1)"
 
 const DATETIME_FORMAT = "yyyy-mm-dd HH:MM:SS"
 
-const FIGSIZE = (1200, 800)
+const FIGSIZE = (800, 600)
 const LABELSIZE = 20
 const TITLESIZE = 24
 
 # ============================================
 #  PLOT TYPES
 # ============================================
-const PLOT_INFO = "Info"
 const PLOT_DEFAULT_1D = "line"
 const PLOT_DEFAULT_2D = "heatmap"
 const PLOT_DEFAULT_3D = "volume"

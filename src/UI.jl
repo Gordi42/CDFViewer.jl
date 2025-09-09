@@ -17,7 +17,7 @@ end
 
 function PlotMenu(fig::Figure)::PlotMenu
     PlotMenu(
-        Menu(fig, options=["Info"]),
+        Menu(fig, options=[Constants.NOT_SELECTED_LABEL]),
         Textbox(
             fig,
             placeholder = Constants.PLOT_KW_HINTS,
@@ -140,37 +140,6 @@ function update_slider!(playback_menu::PlaybackMenu, coord_sliders::CoordinateSl
 end
 
 # ============================================
-#  Main Menu
-# ============================================
-
-struct MainMenu
-    variable_menu::Menu
-    plot_menu::PlotMenu
-    playback_menu::PlaybackMenu
-    coord_sliders::CoordinateSliders
-    fig::Figure
-end
-
-function MainMenu(fig::Figure, dataset::Data.CDFDataset)::MainMenu
-    variable_menu = Menu(fig, options = dataset.variables)
-    plot_menu = PlotMenu(fig)
-    coord_sliders = CoordinateSliders(fig, dataset)
-    playback_menu = PlaybackMenu(fig, dataset, coord_sliders.sliders)
-    MainMenu(variable_menu, plot_menu, playback_menu, coord_sliders, fig)
-end
-
-function layout(main_menu::MainMenu)::GridLayout
-    vgrid!(
-        Label(main_menu.fig, L"\textbf{CDF Viewer}", halign = :center, fontsize=30, tellwidth=false),
-        hgrid!(Label(main_menu.fig, L"\textbf{Variable}", width = nothing), main_menu.variable_menu),
-        layout(main_menu.plot_menu),
-        layout(main_menu.playback_menu),
-        Label(main_menu.fig, L"\textbf{Coordinates}", width = nothing),
-        main_menu.coord_sliders.slider_grid,
-    )
-end
-
-# ============================================
 #  Coordinate Menu
 # ============================================
 
@@ -194,6 +163,41 @@ function layout(coord_menu::CoordinateMenu)::GridLayout
 end
 
 # ============================================
+#  Main Menu
+# ============================================
+
+struct MainMenu
+    variable_menu::Menu
+    plot_menu::PlotMenu
+    playback_menu::PlaybackMenu
+    coord_menu::CoordinateMenu
+    coord_sliders::CoordinateSliders
+    fig::Figure
+end
+
+function MainMenu(fig::Figure, dataset::Data.CDFDataset)::MainMenu
+    variable_menu = Menu(fig, options = dataset.variables)
+    plot_menu = PlotMenu(fig)
+    coord_sliders = CoordinateSliders(fig, dataset)
+    playback_menu = PlaybackMenu(fig, dataset, coord_sliders.sliders)
+    coord_menu = CoordinateMenu(fig)
+    MainMenu(variable_menu, plot_menu, playback_menu, coord_menu, coord_sliders, fig)
+end
+
+function layout(main_menu::MainMenu)::GridLayout
+    vgrid!(
+        Label(main_menu.fig, L"\textbf{CDF Viewer}", halign = :center, fontsize=30, tellwidth=false),
+        hgrid!(Label(main_menu.fig, L"\textbf{Variable}", width = nothing), main_menu.variable_menu),
+        layout(main_menu.plot_menu),
+        layout(main_menu.coord_menu),
+        layout(main_menu.playback_menu),
+        Label(main_menu.fig, L"\textbf{Fixed Coordinates}", width = nothing),
+        main_menu.coord_sliders.slider_grid,
+    )
+end
+
+
+# ============================================
 #  All Variables Controlled By the UI
 # ============================================
 
@@ -207,7 +211,7 @@ struct State
     plot_kw::Observable{Union{String, Nothing}}
 end
 
-function State(main_menu::MainMenu, coord_menu::CoordinateMenu)::State
+function State(main_menu::MainMenu)::State
     # Create an observable dictionary that tracks the values of all sliders
     slider_values = Dict(dim => slider.value for (dim, slider) in main_menu.coord_sliders.sliders)
     dim_obs = Observable(Dict(dim => value[] for (dim, value) in slider_values))
@@ -223,9 +227,9 @@ function State(main_menu::MainMenu, coord_menu::CoordinateMenu)::State
     State(
         Observable(main_menu.variable_menu.selection[]),
         Observable(main_menu.plot_menu.plot_type.selection[]),
-        Observable(coord_menu.menus[1].selection[]),
-        Observable(coord_menu.menus[2].selection[]),
-        Observable(coord_menu.menus[3].selection[]),
+        Observable(main_menu.coord_menu.menus[1].selection[]),
+        Observable(main_menu.coord_menu.menus[2].selection[]),
+        Observable(main_menu.coord_menu.menus[3].selection[]),
         dim_obs,
         main_menu.plot_menu.plot_kw.stored_string,
     )
@@ -244,22 +248,30 @@ end
 
 struct UIElements
     main_menu::MainMenu
-    coord_menu::CoordinateMenu
     state::State
-    fig::Figure
+    menu::Figure
 end
 
-function UIElements(fig::Figure, dataset::Data.CDFDataset)::UIElements
+function UIElements(dataset::Data.CDFDataset)::UIElements
+    # Initialize the menu figure
+    menu = Figure(size = (400, 100))
+
     # Initialize the menus
-    main_menu = MainMenu(fig, dataset)
-    coord_menu = CoordinateMenu(fig)
+    main_menu = MainMenu(menu, dataset)
     # Initialize the UI state
-    state = State(main_menu, coord_menu)
+    state = State(main_menu)
     # Put the menus in the figure
-    fig[1:2, 1] = layout(main_menu)
-    fig[2, 2] = layout(coord_menu)
+    menu[1, 1] = layout(main_menu)
+    # Resize the window to fit the content
+    resize_to_layout!(menu)
     # Return the UI elements
-    UIElements(main_menu, coord_menu, state, fig)
+    UIElements(main_menu, state, menu)
+end
+
+function compute_height(num_vars::Int)::Int
+    base_height = 340  # Base height for the fixed elements
+    per_var_height = 40 # Additional height per variable
+    base_height + num_vars * per_var_height
 end
 
 end # module

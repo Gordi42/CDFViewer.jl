@@ -12,11 +12,7 @@ NS = Constants.NOT_SELECTED_LABEL
 @testset "Controller.jl" begin
 
     function init_default_controller()
-        controller = Controller.ViewerController(make_temp_dataset())
-        screen = GLMakie.Screen(visible=false)
-        display(screen, controller.fd.fig)
-        Controller.setup!(controller)
-        controller
+        Controller.ViewerController(make_temp_dataset(), visible=false)
     end
 
     function setup_controller(;var::String = "1d_float", plot::String = "line")
@@ -26,7 +22,7 @@ NS = Constants.NOT_SELECTED_LABEL
         # Get references to the relevant UI components
         var_menu = controller.ui.main_menu.variable_menu
         pt_menu = controller.ui.main_menu.plot_menu.plot_type
-        dim_menus = controller.ui.coord_menu.menus
+        dim_menus = controller.ui.main_menu.coord_menu.menus
 
         # Create observables to control the selections
         var_name = Observable(var_menu.selection[])
@@ -61,7 +57,7 @@ NS = Constants.NOT_SELECTED_LABEL
         # Test the plot object type
         @test controller.fd.plot_obj[] isa plot_class
         # Test the dimension options
-        coord_menus = controller.ui.coord_menu.menus
+        coord_menus = controller.ui.main_menu.coord_menu.menus
         for menu in coord_menus
             @test menu.options[] == [NS; get_dims(variable)]
         end
@@ -177,12 +173,12 @@ NS = Constants.NOT_SELECTED_LABEL
             assert_controller_state(controller, "5d_float", Contour, ["lon", "lat", "float_dim"], "only_long")
         end
 
-        @testset "2D → Info" begin
+        @testset "2D → Select" begin
             # Arrange
             controller, var_name, plot_type, dim_names = setup_controller(var="5d_float", plot="heatmap")
 
             # Act
-            plot_type[] = "Info"
+            plot_type[] = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Nothing, String[], "only_long")
@@ -249,7 +245,7 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert
             assert_controller_state(controller, "string_var", Nothing, String[], "string_dim")
             @test controller.fd.plot_obj[] === nothing
-            @test controller.ui.state.plot_type_name[] == "Info"
+            @test controller.ui.state.plot_type_name[] == Constants.NOT_SELECTED_LABEL
         end
 
         @testset "2D → 2D [Different Dims]" begin
@@ -374,7 +370,8 @@ NS = Constants.NOT_SELECTED_LABEL
 
         @testset "Add x to 0D" begin
             # Arrange
-            controller, var_name, plot_type, dim_names = setup_controller(var="1d_float", plot="Info")
+            controller, var_name, plot_type, dim_names = setup_controller(
+                var="1d_float", plot=Constants.NOT_SELECTED_LABEL)
 
             # Act
             dim_names[1][] = "lon"
@@ -385,7 +382,8 @@ NS = Constants.NOT_SELECTED_LABEL
 
         @testset "Add y to 0D" begin
             # Arrange
-            controller, var_name, plot_type, dim_names = setup_controller(var="1d_float", plot="Info")
+            controller, var_name, plot_type, dim_names = setup_controller(
+                var="1d_float", plot=Constants.NOT_SELECTED_LABEL)
 
             # Act
             dim_names[2][] = "lon"

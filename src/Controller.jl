@@ -13,14 +13,25 @@ struct ViewerController
     dataset::Data.CDFDataset
     watch_dim::Observable{Bool}
     watch_plot::Observable{Bool}
+    menu_screen::Observable{GLMakie.Screen}
+    fig_screen::Observable{GLMakie.Screen}
+    visible::Bool
 end
 
-function ViewerController(dataset::Data.CDFDataset)::ViewerController
-    fig = Plotting.create_figure()
-    ui = UI.UIElements(fig, dataset)
+function ViewerController(dataset::Data.CDFDataset; visible::Bool = false)::ViewerController
+    ui = UI.UIElements(dataset)
     plot_data = Plotting.PlotData(ui.state, dataset)
-    fig_data = Plotting.FigureData(fig, plot_data, ui.state)
-    ViewerController(ui, fig_data, dataset, Observable(true), Observable(true))
+    fig_data = Plotting.FigureData(plot_data, ui.state)
+    menu_screen = GLMakie.Screen(visible = visible)
+    fig_screen = GLMakie.Screen(visible = false)  # Start hidden
+    display(menu_screen, ui.menu)
+    display(fig_screen, fig_data.fig)
+
+    controller = ViewerController(
+        ui, fig_data, dataset,
+        Observable(true), Observable(true),
+        Observable(menu_screen), Observable(fig_screen), visible)
+    setup!(controller)
 end
 
 function setup!(controller::ViewerController)::ViewerController
@@ -30,7 +41,7 @@ function setup!(controller::ViewerController)::ViewerController
     # Connect UI changes to controller functions
     on(conv(on_variable_change), controller.ui.main_menu.variable_menu.selection)
     on(conv(on_plot_type_change), controller.ui.main_menu.plot_menu.plot_type.selection)
-    for menu in controller.ui.coord_menu.menus
+    for menu in controller.ui.main_menu.coord_menu.menus
         on(conv(on_dim_sel_change), menu.selection)
     end
     on(tick -> on_tick_event(controller, tick), controller.fd.fig.scene.events.tick)
@@ -38,16 +49,36 @@ function setup!(controller::ViewerController)::ViewerController
     # This will set everything up for the initial variable
     notify(controller.ui.main_menu.variable_menu.selection)
 
-    # Set the initial plot type
-    ndims = length(Data.get_var_dims(controller.dataset, controller.ui.state.variable[]))
-    fallback = Plotting.get_fallback_plot(ndims)
-    plot_type_menu = controller.ui.main_menu.plot_menu.plot_type
-    if fallback ∈ plot_type_menu.options[]
-        plot_type_menu.i_selected[] = findfirst(==(fallback), plot_type_menu.options[])
-    end
-
     # return the controller
     controller
+end
+
+# ------------------------------------------------
+#  Window Control
+# ------------------------------------------------
+function open_window!(controller::ViewerController,
+        screen::Observable{GLMakie.Screen},
+        fig::Figure)::Nothing
+    # in headless mode, do nothing
+    controller.visible || return nothing
+    # if the window is closed, properly close it and reopen
+    if !screen[].window_open[]
+        close(screen[])
+        new_screen = GLMakie.Screen(visible = true)
+        display(new_screen, fig)
+        screen[] = new_screen
+        return nothing
+    end
+
+    GLMakie.GLFW.ShowWindow(screen[].glscreen)
+    nothing
+end
+
+function hide_window!(controller::ViewerController, screen::Observable{GLMakie.Screen})::Nothing
+    # in headless mode, do nothing
+    controller.visible || return nothing
+    GLMakie.GLFW.HideWindow(screen[].glscreen)
+    nothing
 end
 
 # ------------------------------------------------
@@ -69,8 +100,8 @@ function on_variable_change(controller::ViewerController)::Nothing
     fallback = Plotting.get_fallback_plot(new_ndims)
     # Check if the variable is non-numeric
     if new_dtype ∈ (String, Char)
-        new_plot_options = ["Info"]
-        fallback = "Info"
+        new_plot_options = [Constants.NOT_SELECTED_LABEL]
+        fallback = Constants.NOT_SELECTED_LABEL
     end
     plot_type_menu = controller.ui.main_menu.plot_menu.plot_type
     controller.watch_plot[] = false
@@ -92,6 +123,9 @@ function on_variable_change(controller::ViewerController)::Nothing
 
     # Update the axis limits to fit the new data
     isnothing(controller.fd.ax[]) || autolimits!(controller.fd.ax[])
+
+    # Update the plot window visibility
+    update_plot_window_visibility!(controller)
     nothing
 end
 
@@ -118,6 +152,9 @@ function on_plot_type_change(controller::ViewerController)::Nothing
 
     # Create the axis
     Plotting.create_axis!(controller.fd, controller.ui.state)
+
+    # Update the plot window visibility
+    update_plot_window_visibility!(controller)
     nothing
 end
 
@@ -128,7 +165,7 @@ function on_dim_sel_change(controller::ViewerController)::Nothing
 
     # Update the menus with the available dimensions
     dims = Data.get_var_dims(controller.dataset, controller.ui.state.variable[])
-    coord_menus = controller.ui.coord_menu.menus
+    coord_menus = controller.ui.main_menu.coord_menu.menus
     selected_dims = [m.selection[] for m in coord_menus]
     make_subset!(dims, selected_dims)
     # update the options in the menus
@@ -159,11 +196,19 @@ end
 # ------------------------------------------------
 #  Helper functions
 # ------------------------------------------------
+function update_plot_window_visibility!(controller::ViewerController)::Nothing
+    if controller.ui.state.plot_type_name[] != Constants.NOT_SELECTED_LABEL
+        open_window!(controller, controller.fig_screen, controller.fd.fig)
+    else
+        hide_window!(controller, controller.fig_screen)
+    end
+    nothing
+end
 
 function update_dim_selection_with_length!(controller::ViewerController, len::Int)::Nothing
-    coord_menus = controller.ui.coord_menu.menus
+    coord_menus = controller.ui.main_menu.coord_menu.menus
     dims = Data.get_var_dims(controller.dataset, controller.ui.state.variable[])
-    selected_dims = String[m.selection[] for m in coord_menus if m.selection[] != "Not Selected"]
+    selected_dims = String[m.selection[] for m in coord_menus if m.selection[] != Constants.NOT_SELECTED_LABEL]
     selected_dims = selected_dims[1:min(len, length(selected_dims))]
     make_subset!(dims, selected_dims)
     unused = setdiff(dims, selected_dims)
@@ -173,7 +218,7 @@ function update_dim_selection_with_length!(controller::ViewerController, len::In
 end
 
 function make_subset!(dims::Vector{String}, selection::Vector{String})::Nothing
-    filter!(!=("Not Selected"), unique!(selection))
+    filter!(!=(Constants.NOT_SELECTED_LABEL), unique!(selection))
     unused = setdiff(dims, selection)
     for (i, item) in enumerate(selection)
         if item ∉ dims
@@ -260,9 +305,9 @@ function set_menu_options!(controller::ViewerController, selected_dims::Vector{S
     dims = Data.get_var_dims(controller.dataset, controller.ui.state.variable[])
 
     controller.watch_dim[] = false
-    for (i, menu) in enumerate(controller.ui.coord_menu.menus)
+    for (i, menu) in enumerate(controller.ui.main_menu.coord_menu.menus)
         menu.i_selected[] = 1
-        menu.options[] = ["Not Selected"; dims...]
+        menu.options[] = [Constants.NOT_SELECTED_LABEL; dims...]
         menu.i_selected[] = 1
         if i ≤ length(selected_dims)
             menu.i_selected[] = findfirst(==(selected_dims[i]), menu.options[])
@@ -271,7 +316,7 @@ function set_menu_options!(controller::ViewerController, selected_dims::Vector{S
     controller.watch_dim[] = true
 
     # Sync the state with the menu selections
-    UI.sync_dim_selections!(controller.ui.state, controller.ui.coord_menu)
+    UI.sync_dim_selections!(controller.ui.state, controller.ui.main_menu.coord_menu)
     # Update the slider colors
     set_slider_colors!(controller, selected_dims)
     # Update the playback options

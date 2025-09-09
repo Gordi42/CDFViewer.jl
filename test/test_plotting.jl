@@ -35,7 +35,7 @@ using CDFViewer.Plotting
             @test "volume" ∉ Plotting.get_plot_options(2)
             @test "line" ∈ Plotting.get_plot_options(1)
             @test "heatmap" ∉ Plotting.get_plot_options(1)
-            @test "Info" ∈ Plotting.get_plot_options(0)
+            @test Constants.NOT_SELECTED_LABEL ∈ Plotting.get_plot_options(0)
         end
 
         @testset "Fallback Plot Function" begin
@@ -43,7 +43,7 @@ using CDFViewer.Plotting
             @test Plotting.get_fallback_plot(3) == Constants.PLOT_DEFAULT_2D
             @test Plotting.get_fallback_plot(2) == Constants.PLOT_DEFAULT_2D
             @test Plotting.get_fallback_plot(1) == Constants.PLOT_DEFAULT_1D
-            @test Plotting.get_fallback_plot(0) == Constants.PLOT_INFO
+            @test Plotting.get_fallback_plot(0) == Constants.NOT_SELECTED_LABEL
         end
 
         @testset "Dimension Plot Function" begin
@@ -51,7 +51,7 @@ using CDFViewer.Plotting
             @test Plotting.get_dimension_plot(3) == Constants.PLOT_DEFAULT_3D
             @test Plotting.get_dimension_plot(2) == Constants.PLOT_DEFAULT_2D
             @test Plotting.get_dimension_plot(1) == Constants.PLOT_DEFAULT_1D
-            @test Plotting.get_dimension_plot(0) == Constants.PLOT_INFO
+            @test Plotting.get_dimension_plot(0) == Constants.NOT_SELECTED_LABEL
         end
 
         @testset "Plot Functions" begin
@@ -68,9 +68,9 @@ using CDFViewer.Plotting
             end
 
             # Arrange - create a temporary figure and dataset
-            fig = Figure()
             dataset = make_temp_dataset()
-            ui = UI.UIElements(fig, dataset)
+            ui = UI.UIElements(dataset)
+            fig = Figure()
             plot_data = Plotting.PlotData(ui.state, dataset)
 
             for (name, plot) in Plotting.PLOT_TYPES
@@ -81,7 +81,7 @@ using CDFViewer.Plotting
                 plotobj = plot.func(ax, x, y, z, d)
 
                 # Assert
-                plot.type === "Info" && continue  # Skip the Info plot as it does nothing
+                plot.type === Constants.NOT_SELECTED_LABEL && continue  # Skip the Info plot as it does nothing
                 @test !isempty(fig.content)  # Ensure something was plotted
                 @test plotobj isa Makie.AbstractPlot
             end
@@ -133,7 +133,7 @@ using CDFViewer.Plotting
         # Arrange - helper function
         function init_figure_labels()
             dataset = make_temp_dataset()
-            _fig, ui = make_ui(dataset)
+            ui = UI.UIElements(dataset)
             labels = Plotting.FigureLabels(ui.state, dataset)
             (labels, ui.state)
         end
@@ -178,7 +178,7 @@ using CDFViewer.Plotting
         # Arrange - helper function
         function init_plot_data()
             dataset = make_temp_dataset()
-            _fig, ui = make_ui(dataset)
+            ui = UI.UIElements(dataset)
 
             plot_data = Plotting.PlotData(ui.state, dataset)
             (plot_data, ui.state)
@@ -204,7 +204,7 @@ using CDFViewer.Plotting
             (plot_data, state) = init_plot_data()
 
             # Assert
-            @test plot_data.plot_type[] == Plotting.PLOT_TYPES["Info"]
+            @test plot_data.plot_type[] == Plotting.PLOT_TYPES[Constants.NOT_SELECTED_LABEL]
             @test plot_data.sel_dims[] == String[]
             @test plot_data.x[] == collect(Float64, 1:1)
             @test plot_data.y[] == collect(Float64, 1:1)
@@ -341,10 +341,10 @@ using CDFViewer.Plotting
         # Arrange - helper function
         function init_figure_data()
             dataset = make_temp_dataset()
-            fig, ui = make_ui(dataset)
+            ui = UI.UIElements(dataset)
 
             plot_data = Plotting.PlotData(ui.state, dataset)
-            fig_data = Plotting.FigureData(fig, plot_data, ui.state)
+            fig_data = Plotting.FigureData(plot_data, ui.state)
             (fig_data, ui.state)
         end
 

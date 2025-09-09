@@ -27,22 +27,20 @@ function julia_main(args::Vector{String} = ARGS;
     println("Loading dataset from file: $file_path")
 
     dataset = try
-        Data.CDFDataset(file_path)
+        @time Data.CDFDataset(file_path)
     catch e
         println("Error: Failed to open NetCDF file. Details: $e")
         return 1
     end
 
     println("Open Figure window...")
-    controller = Controller.ViewerController(dataset)
-    screen = GLMakie.Screen(visible=visible)
-    display(screen, controller.fd.fig)
+    @time controller = Controller.ViewerController(dataset, visible=visible)
     println("Setup UI...")
-    Controller.setup!(controller)
+    @time Controller.setup!(controller)
     println("Ready.")
 
     if wait_for_ui
-        wait(screen)
+        wait(controller.menu_screen[])
     end
 
     return 0

@@ -1,4 +1,5 @@
 using Test
+using CDFViewer.Constants
 using CDFViewer.Data
 using GLMakie
 
@@ -51,7 +52,7 @@ using GLMakie
         @test Data.get_dim_value_label(dataset, "float_dim", 4) == "  → float_dim: 1.6"
         @test Data.get_dim_value_label(dataset, "time", 2) == "  → time: 1951-01-03 00:00:00"
         @test Data.get_dim_value_label(dataset, "untaken", 2) == "  → untaken: 2"
-        @test Data.get_dim_value_label(dataset, "Not Selected", 1) == "  → No dimension selected"
+        @test Data.get_dim_value_label(dataset, Constants.NOT_SELECTED_LABEL, 1) == "  → No dimension selected"
         @test Data.get_dim_value_label(dataset, "lon", 10) == "  → lon: Index 10 out of bounds"
     end
 
@@ -73,8 +74,8 @@ using GLMakie
             @test length(dim_array[]) == dataset.ds.dim[dim]
         end
 
-        # Act: (Select "Not Selected")
-        test_dim[] = "Not Selected"
+        # Act:
+        test_dim[] = Constants.NOT_SELECTED_LABEL
 
         # Assert
         @test dim_array[] == Float64[1]

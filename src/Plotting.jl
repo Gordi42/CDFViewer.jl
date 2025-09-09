@@ -23,7 +23,7 @@ struct Plot
 end
 
 const PLOT_TYPES = OrderedDict(plot.type => plot for plot in [
-    Plot(Constants.PLOT_INFO, 0, false,
+    Plot(Constants.NOT_SELECTED_LABEL, 0, false,
         (ax, x, y, z, d) -> nothing,
         (layout, plot_data) -> nothing),
 ])
@@ -36,7 +36,7 @@ function get_plot_options(ndims::Int)::Vector{String}
     elseif ndims == 1
         filter(k -> PLOT_TYPES[k].ndims ≤ 1, collect(keys(PLOT_TYPES)))
     else
-        [Constants.PLOT_INFO]
+        [Constants.NOT_SELECTED_LABEL]
     end
 end
 
@@ -46,7 +46,7 @@ function get_fallback_plot(ndims::Int)::String
     elseif ndims == 1
         Constants.PLOT_DEFAULT_1D
     else
-        Constants.PLOT_INFO
+        Constants.NOT_SELECTED_LABEL
     end
 end
 
@@ -58,7 +58,7 @@ function get_dimension_plot(ndims::Int)::String
     elseif ndims == 1
         Constants.PLOT_DEFAULT_1D
     else
-        Constants.PLOT_INFO
+        Constants.NOT_SELECTED_LABEL
     end
 end
 
@@ -146,8 +146,9 @@ struct FigureData
     tasks::Observable{Vector{Task}}
 end
 
-function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)::FigureData
+function FigureData(plot_data::PlotData, ui_state::UI.State)::FigureData
     # Create axis, plot object, and colorbar observables
+    fig = create_figure()
     ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
     plot_obj = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
     cbar = Observable{Union{Colorbar, Nothing}}(nothing)
@@ -162,7 +163,7 @@ function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)::Figur
         # first we clear the previous plot
         cbar[] !== nothing && delete!(cbar[])
         cbar[] = nothing
-        plot_data.plot_type[].type == "Info" && return  # TODO
+        plot_data.plot_type[].type == Constants.NOT_SELECTED_LABEL && return  # TODO
 
         # then we create the new plot
         plot_obj[] = plot_data.plot_type[].func(
@@ -170,9 +171,9 @@ function FigureData(fig::Figure, plot_data::PlotData, ui_state::UI.State)::Figur
             plot_data.d[plot_data.plot_type[].ndims])
         # and add a colorbar if needed
         if plot_data.plot_type[].colorbar
-            cbar[] = Colorbar(fig[1, 3], plot_obj[],
+            cbar[] = Colorbar(fig[1, 2], plot_obj[],
                 width = 30, tellwidth = false, tellheight = false)
-            colsize!(fig.layout, 3, Relative(0.05))
+            colsize!(fig.layout, 2, Relative(0.05))
         end
         apply_kwargs!(fd, ui_state.plot_kw[])
     end
@@ -207,16 +208,12 @@ function create_figure()::Figure
     theme = merge(theme, cust_theme)
     set_theme!(theme)
 
-    # set the column sizes
-    colsize!(fig.layout, 1, Relative(0.3))   # Controls Panel should take 30% of width
-    colgap!(fig.layout, 50)
-
     fig
 end
 
 function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
     fig_data.ax[] !== nothing && delete!(fig_data.ax[])
-    fig_data.ax[] = fig_data.plot_data.plot_type[].make_axis(fig_data.fig[1, 2], fig_data.plot_data)
+    fig_data.ax[] = fig_data.plot_data.plot_type[].make_axis(fig_data.fig[1, 1], fig_data.plot_data)
     if !isnothing(fig_data.ax[])
         apply_kwargs!(fig_data, ui_state.plot_kw[])
         if fig_data.data_inspector[] === nothing
