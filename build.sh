@@ -55,9 +55,10 @@ fi
 cat << EOF > "$build_dir/cdfviewer"
 #!/bin/bash
 
-julia --threads auto--project="$project_dir" \
-  -J"$build_dir/CDFViewer.so" \
-  -e 'using CDFViewer; julia_main()' "$@"
+cd $project_dir
+
+julia --threads auto--project=. -Jbuild/CDFViewer.so \\
+  -e 'using CDFViewer; julia_main()' "\$@"
 EOF
 chmod +x "$build_dir/cdfviewer"
 
