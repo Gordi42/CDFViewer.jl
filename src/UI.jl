@@ -263,6 +263,7 @@ struct State
     z_name::Observable{String}
     dim_obs::Observable{Dict{String, Int}}
     plot_kw::Observable{Union{String, Nothing}}
+    save_path::Observable{String}
 end
 
 function State(main_menu::MainMenu)::State
@@ -286,6 +287,7 @@ function State(main_menu::MainMenu)::State
         Observable(main_menu.coord_menu.menus[3].selection[]),
         dim_obs,
         main_menu.plot_menu.plot_kw.stored_string,
+        Observable("")
     )
 end
 

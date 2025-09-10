@@ -1,5 +1,6 @@
 module CDFViewer
 
+using ArgParse
 using GLMakie
 
 include("Constants.jl")
@@ -11,36 +12,108 @@ include("Controller.jl")
 
 export julia_main
 
-function julia_main(args::Vector{String} = ARGS;
-    wait_for_ui::Bool = true,
-    visible::Bool = true,
-)::Cint
+function get_arg_parser()::ArgParseSettings
+    s = ArgParseSettings()
+
+    @add_arg_table! s begin
+        "files"
+            help = "Path(s) to the NetCDF file(s) to open"
+            arg_type = String
+            nargs = '+'  # one or more files
+            required = true
+        # Options
+        "--var", "-v"
+            help = "Variable to plot"
+            arg_type = String
+            default = ""
+        "--x-axis", "-x"
+            help = "X-axis variable"
+            arg_type = String
+            default = ""
+        "--y-axis", "-y"
+            help = "Y-axis variable"
+            arg_type = String
+            default = ""
+        "--z-axis", "-z"
+            help = "Z-axis variable (for 3D plots)"
+            arg_type = String
+            default = ""
+        "--plot_type", "-p"
+            help = "Type of plot to generate (e.g., contour, surface, scatter)"
+            arg_type = String
+            default = ""
+        "--kwargs"
+            help = "Additional keyword arguments for the plot (as a Julia expression)"
+            arg_type = String
+            default = ""
+        "--dims"
+            help = "Dimensions indices as key=index pairs, e.g., 'time=5, lat=10'"
+            arg_type = String
+            default = ""
+        "--ani-dim", "-a"
+            help = "Dimension to use for animation"
+            arg_type = String
+            default = ""
+        "--saveoptions", "-s"
+            help = "Options for saving the figure (as a Julia expression)"
+            arg_type = String
+            default = ""
+        "--path"
+            help = "Path to save the figure or animation"
+            arg_type = String
+            default = ""
+        # Flags
+        "--savefig"
+            help = "Only save the figure to file and exit"
+            action = :store_true
+        "--record"
+            help = "Only record the animation to a video file and exit"
+            action = :store_true
+        "--no-menu"
+            help = "Disable the menu and only show the plot"
+            action = :store_true
+    end
+
+    return s
+end
+
+function is_headless(testing::Bool, savefig::Bool, record::Bool)::Bool
+    if testing
+        return true
+    else
+        return !(savefig || record)
+    end
+end
+
+function julia_main(;parsed_args::Union{Nothing,Dict}=nothing)
     println("Running CDFViewer: $(Constants.APP_VERSION)")
 
-    if length(args) < 1
-        println("Error: No NetCDF file path provided.")
-        println("Usage: cdfviewer <path_to_netcdf_file> [additional arguments...]")
-        return 1
+    # whether to show the UI or not
+    testing = !isnothing(parsed_args)  # if parsed_args are provided, we are testing
+
+    # only parse command line if no args are provided (e.g. from tests)
+    if isnothing(parsed_args)
+        parsed_args = parse_args(get_arg_parser())
     end
+    file_paths = parsed_args["files"]
 
-    file_path = args[1]
-    println("Loading dataset from file: $file_path")
+    println("Loading dataset from file(s): $file_paths")
+    dataset = Data.CDFDataset(file_paths)
 
-    dataset = try
-        @time Data.CDFDataset(file_path)
-    catch e
-        println("Error: Failed to open NetCDF file. Details: $e")
-        return 1
-    end
+    headless = is_headless(testing, parsed_args["savefig"], parsed_args["record"]) 
 
-    println("Open Figure window...")
-    @time controller = Controller.ViewerController(dataset, visible=visible)
-    println("Setup UI...")
-    @time Controller.setup!(controller)
+    println("Setup...")
+    @time controller = Controller.ViewerController(
+        dataset, headless=headless, parsed_args=parsed_args)
     println("Ready.")
 
-    if wait_for_ui
-        wait(controller.menu_screen[])
+    # Check if we need to save or record and exit
+    parsed_args["savefig"] && notify(controller.ui.main_menu.export_menu.save_button.clicks)
+    parsed_args["record"] && notify(controller.ui.main_menu.export_menu.record_button.clicks)
+
+    if !headless
+        main_screen = parsed_args["no_menu"] ? controller.plot_screen[] : controller.menu_screen[]
+        wait(main_screen)
     end
 
     return 0

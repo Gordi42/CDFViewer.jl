@@ -15,10 +15,12 @@ struct ViewerController
     watch_plot::Observable{Bool}
     menu_screen::Observable{GLMakie.Screen}
     fig_screen::Observable{GLMakie.Screen}
-    visible::Bool
+    headless::Bool
+    parsed_args::Union{Nothing,Dict}
 end
 
-function ViewerController(dataset::Data.CDFDataset; visible::Bool = false)::ViewerController
+function ViewerController(dataset::Data.CDFDataset;
+    headless::Bool = true, parsed_args::Union{Nothing,Dict}=nothing)::ViewerController
     ui = UI.UIElements(dataset)
     plot_data = Plotting.PlotData(ui.state, dataset)
     fig_data = Plotting.FigureData(plot_data, ui.state)
@@ -26,11 +28,14 @@ function ViewerController(dataset::Data.CDFDataset; visible::Bool = false)::View
     fig_screen = GLMakie.Screen(visible = false, title = "CDFViewer - Figure")  # Start hidden
     display(menu_screen, ui.menu)
     display(fig_screen, fig_data.fig)
+    parsed_args = isnothing(parsed_args) ? Dict() : parsed_args
 
     controller = ViewerController(
         ui, fig_data, dataset,
         Observable(true), Observable(true),
-        Observable(menu_screen), Observable(fig_screen), visible)
+        Observable(menu_screen), Observable(fig_screen), headless,
+        parsed_args
+    )
     setup!(controller)
 end
 
@@ -51,16 +56,119 @@ function setup!(controller::ViewerController)::ViewerController
             on_fig_window_close(controller)
         end
     end
+    on(conv(on_save_event), controller.ui.main_menu.export_menu.save_button.clicks)
+    on(conv(on_record_event), controller.ui.main_menu.export_menu.record_button.clicks)
+    on(conv(on_export_event), controller.ui.main_menu.export_menu.export_button.clicks)
 
+    # Process command line arguments
+    process_parsed_args!(controller)
 
     # This will set everything up for the initial variable
     notify(controller.ui.main_menu.variable_menu.selection)
 
     # Open the menu window
-    open_window!(controller, controller.menu_screen, controller.ui.menu, "CDFViewer - Menu")
+    if haskey(controller.parsed_args, "no_menu") && controller.parsed_args["no_menu"]
+        # Do not open the menu
+    else
+        open_window!(controller, controller.menu_screen, controller.ui.menu, "CDFViewer - Menu")
+    end
 
     # return the controller
     controller
+end
+
+
+function process_parsed_args!(controller::ViewerController)::Nothing
+    parsed_args = controller.parsed_args
+    isnothing(parsed_args) && return nothing
+    # Set the variable if provided
+    if haskey(parsed_args, "var") && parsed_args["var"] != ""
+        var = parsed_args["var"]
+        var_menu = controller.ui.main_menu.variable_menu
+        if var in var_menu.options[]
+            var_menu.i_selected[] = findfirst(==(var), var_menu.options[])
+        else
+            available_vars = var_menu.options[]
+            @warn "Variable '$var' not found in dataset. Available variables: $(available_vars)"
+        end
+    end
+
+    # Set the axes if provided
+    axis_keys = ["x-axis", "y-axis", "z-axis"]
+    axis_menus = [controller.ui.main_menu.coord_menu.menus[i] for i in 1:3]
+    for (key, menu) in zip(axis_keys, axis_menus)
+        if haskey(parsed_args, key) && parsed_args[key] != ""
+            dim = parsed_args[key]
+            if dim in menu.options[]
+                menu.i_selected[] = findfirst(==(dim), menu.options[])
+            else
+                avail_dims = menu.options[][2:end]  # skip the NOT_SELECTED_LABEL
+                @warn "Dimension '$dim' not found for axis '$key'. Available dimensions: $(avail_dims)"
+            end
+        end
+    end
+
+    # Set the plot type if provided
+    if haskey(parsed_args, "plot_type") && parsed_args["plot_type"] != ""
+        plot_type = parsed_args["plot_type"]
+        plot_type_menu = controller.ui.main_menu.plot_menu.plot_type
+        if plot_type in plot_type_menu.options[]
+            plot_type_menu.i_selected[] = findfirst(==(plot_type), plot_type_menu.options[])
+        else
+            avail_plots = plot_type_menu.options[][2:end]  # skip the NOT_SELECTED_LABEL
+            @warn "Plot type '$plot_type' not available. Available plot types: $(avail_plots)"
+        end
+    end
+
+    # Process dimension indices if provided
+    if haskey(parsed_args, "dims") && parsed_args["dims"] != ""
+        dim_str = parsed_args["dims"]
+        dim_dict = Parsing.parse_kwargs(dim_str)
+        for (dim, idx) in dim_dict
+            if dim in keys(controller.ui.main_menu.coord_sliders.sliders)
+                slider = controller.ui.main_menu.coord_sliders.sliders[dim]
+                # check if idx is numeric
+                if !isa(idx, Number)
+                    @warn "Dimension index for '$dim' must be a number. Got: $idx"
+                    continue
+                end
+                set_close_to!(slider, idx)
+            else
+                avail_dims = keys(controller.ui.main_menu.coord_sliders.sliders)
+                @warn "Dimension '$dim' not found for sliders. Available dimensions: $(avail_dims)"
+            end
+        end
+    end
+
+    # Process animation dimension if provided
+    if haskey(parsed_args, "ani-dim") && parsed_args["ani-dim"] != ""
+        ani_dim = parsed_args["ani-dim"]
+        playback_menu = controller.ui.main_menu.playback_menu.var
+        if ani_dim in playback_menu.options[]
+            playback_menu.i_selected[] = findfirst(==(ani_dim), playback_menu.options[])
+        else
+            avail_dims = playback_menu.options[][2:end]  # skip the NOT_SELECTED_LABEL
+            @warn "Animation dimension '$ani_dim' not found. Available dimensions: $(avail_dims)"
+        end
+    end
+
+    # Process the work path if provided
+    if haskey(parsed_args, "path") && parsed_args["path"] != ""
+        path = parsed_args["path"]
+        if !isdir(dirname(path))
+            @warn "Directory for path '$path' does not exist."
+        else
+            controller.ui.state.save_path[] = path
+        end
+    end
+
+    # Process kwargs if provided
+    # TODO
+
+    # Process saveoptions if provided
+    # TODO
+
+    nothing
 end
 
 # ------------------------------------------------
@@ -73,7 +181,7 @@ function open_window!(controller::ViewerController,
     # if the window is closed, properly close it and reopen
     if !screen[].window_open[]
         close(screen[])
-        new_screen = GLMakie.Screen(visible = controller.visible, title = title)
+        new_screen = GLMakie.Screen(visible = !controller.headless, title = title)
         display(new_screen, fig)
         # set up the close event for the new screen
         on(new_screen.window_open) do is_open
@@ -86,13 +194,13 @@ function open_window!(controller::ViewerController,
         return nothing
     end
 
-    controller.visible && GLMakie.GLFW.ShowWindow(screen[].glscreen)
+    !controller.headless && GLMakie.GLFW.ShowWindow(screen[].glscreen)
     nothing
 end
 
 function hide_window!(controller::ViewerController, screen::Observable{GLMakie.Screen})::Nothing
     # in headless mode, do nothing
-    controller.visible || return nothing
+    controller.headless && return nothing
     GLMakie.GLFW.HideWindow(screen[].glscreen)
     nothing
 end
@@ -214,6 +322,24 @@ function on_fig_window_close(controller::ViewerController)::Nothing
     # select the "Select" option in the plot type menu
     plot_type_menu = controller.ui.main_menu.plot_menu.plot_type
     plot_type_menu.i_selected[] = 1
+    nothing
+end
+
+function on_save_event(controller::ViewerController)::Nothing
+    # TODO
+    @warn "Figure saving not implemented yet."
+    nothing
+end
+
+function on_record_event(controller::ViewerController)::Nothing
+    # TODO
+    @warn "Animation recording not implemented yet."
+    nothing
+end
+
+function on_export_event(controller::ViewerController)::Nothing
+    # TODO
+    @warn "Export not implemented yet."
     nothing
 end
 

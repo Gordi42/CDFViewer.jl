@@ -12,7 +12,7 @@ NS = Constants.NOT_SELECTED_LABEL
 @testset "Controller.jl" begin
 
     function init_default_controller()
-        Controller.ViewerController(make_temp_dataset(), visible=false)
+        Controller.ViewerController(make_temp_dataset(), headless=true)
     end
 
     function setup_controller(;var::String = "1d_float", plot::String = "line")

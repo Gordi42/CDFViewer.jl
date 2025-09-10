@@ -21,8 +21,13 @@ end
 #  Constructors
 # ---------------------------------------------------
 
-function CDFDataset(file_path::String)::CDFDataset
-    ds = NCDataset(file_path, "r")
+function CDFDataset(file_paths::Vector{String})::CDFDataset
+    ds = if length(file_paths) == 1
+        NCDataset(file_paths[1], "r")
+    else
+        NCDataset(file_paths, "r")
+    end
+
     dimensions = collect(keys(ds.dim))
     variables = setdiff(collect(keys(ds)), dimensions)
 

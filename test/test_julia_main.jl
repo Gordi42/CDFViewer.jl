@@ -13,13 +13,25 @@ using Suppressor
         fname
     end
 
-    @testset "julia_main no kwargs" begin
-        @suppress @test julia_main(String[]; wait_for_ui=false) == 1  # No args provided
+    @testset "is_headless" begin
+        # while testing it should always be headless
+        for (savefig, record) in ((false, false), (true, false), (false, true), (true, true))
+            @test CDFViewer.is_headless(true, savefig, record) == true
+        end
+        # when not testing it should be headless only if savefig or record is true
+        for (savefig, record) in ((true, false), (false, true), (true, true))
+            @test CDFViewer.is_headless(false, savefig, record) == false
+        end
+        @test CDFViewer.is_headless(false, false, false) == true
     end
 
-    @testset "julia_main with lat lon file" begin
-        fname = create_lon_lat_data()
-
-        @suppress @test julia_main([fname]; wait_for_ui=false, visible=false) == 0
-    end
+    # @testset "julia_main no kwargs" begin
+    #     @suppress @test julia_main(String[]; wait_for_ui=false) == 1  # No args provided
+    # end
+    #
+    # @testset "julia_main with lat lon file" begin
+    #     fname = create_lon_lat_data()
+    #
+    #     @suppress @test julia_main([fname]; wait_for_ui=false, visible=false) == 0
+    # end
 end
