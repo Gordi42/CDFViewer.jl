@@ -117,6 +117,11 @@ function get_data(
         perm = sortperm([findfirst(==(dim), var_dims) for dim in plot_dimensions])
         data = permutedims(dataset.ds[variable][slices...], perm)
     end
+
+    # If there are missing values, convert to Float64 and replace missing with NaN
+    if Missing <: eltype(data)
+        data = replace(data, missing => NaN)
+    end
     data
 end
 
