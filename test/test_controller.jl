@@ -522,11 +522,19 @@ NS = Constants.NOT_SELECTED_LABEL
 
         # Assert: check if the figure is disconnected
         @test fig_screen[].scene !== fig.scene
+        @test controller.ui.state.plot_type_name[] === Constants.NOT_SELECTED_LABEL
 
         # Act: Change the plot type to see if it recreates the figure
         plot_type[] = "heatmap"
 
         # Assert: check if the figure is reconnected
         @test fig_screen[].scene === fig.scene
+
+        # Act: Close the window again
+        close(fig_screen[])
+
+        # Assert: check if the figure is disconnected again
+        @test fig_screen[].scene !== fig.scene
+        @test controller.ui.state.plot_type_name[] === Constants.NOT_SELECTED_LABEL
     end
 end

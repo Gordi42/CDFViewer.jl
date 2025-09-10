@@ -46,6 +46,13 @@ function setup!(controller::ViewerController)::ViewerController
     end
     on(tick -> on_tick_event(controller, tick), controller.fd.fig.scene.events.tick)
 
+    on(controller.fig_screen[].window_open) do is_open
+        if !is_open
+            on_fig_window_close(controller)
+        end
+    end
+
+
     # This will set everything up for the initial variable
     notify(controller.ui.main_menu.variable_menu.selection)
 
@@ -64,6 +71,13 @@ function open_window!(controller::ViewerController,
         close(screen[])
         new_screen = GLMakie.Screen(visible = controller.visible)
         display(new_screen, fig)
+        # set up the close event for the new screen
+        on(new_screen.window_open) do is_open
+            if !is_open
+                on_fig_window_close(controller)
+            end
+        end
+
         screen[] = new_screen
         return nothing
     end
@@ -171,7 +185,7 @@ function on_dim_sel_change(controller::ViewerController)::Nothing
 
     # If the number of selected dimensions does not match the plot type, change the plot type
     plot_ndims = controller.fd.plot_data.plot_type[].ndims
-    if plot_ndims != length(selected_dims)
+    if plot_ndims != length(selected_dims) && plot_ndims != 0
         new_plot = Plotting.get_dimension_plot(length(selected_dims))
         plot_type_menu = controller.ui.main_menu.plot_menu.plot_type
         plot_type_menu.i_selected[] = findfirst(==(new_plot), plot_type_menu.options[])
@@ -188,6 +202,14 @@ end
 
 function on_tick_event(controller::ViewerController, tick::Makie.Tick)::Nothing
     UI.update_slider!(controller.ui.main_menu.playback_menu, controller.ui.main_menu.coord_sliders)
+    nothing
+end
+
+function on_fig_window_close(controller::ViewerController)::Nothing
+    close(controller.fig_screen[])
+    # select the "Select" option in the plot type menu
+    plot_type_menu = controller.ui.main_menu.plot_menu.plot_type
+    plot_type_menu.i_selected[] = 1
     nothing
 end
 
