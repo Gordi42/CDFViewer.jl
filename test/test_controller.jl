@@ -377,7 +377,7 @@ NS = Constants.NOT_SELECTED_LABEL
             dim_names[1][] = "lon"
 
             # Assert
-            assert_controller_state(controller, "1d_float", Lines, ["lon"], NS)
+            assert_controller_state(controller, "1d_float", Nothing, ["lon"], NS)
         end
 
         @testset "Add y to 0D" begin
@@ -389,7 +389,7 @@ NS = Constants.NOT_SELECTED_LABEL
             dim_names[2][] = "lon"
 
             # Assert
-            assert_controller_state(controller, "1d_float", Lines, ["lon"], NS)
+            assert_controller_state(controller, "1d_float", Nothing, ["lon"], NS)
         end
 
         @testset "Add y to 1D" begin
