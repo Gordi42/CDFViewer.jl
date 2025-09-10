@@ -621,7 +621,51 @@ using CDFViewer.Plotting
             end
         end
 
-        # @testset "cbar kwarg" begin
+        @testset "cbar kwarg" begin
+            # Arrange
+            fd, state = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
+
+            # Assert Check that a colorbar is present
+            @test fd.cbar[] isa Colorbar
+
+            # Act - remove colorbar via kwarg
+            state.plot_kw[] = "cbar = false"
+            [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+            @test fd.cbar[] === nothing
+
+            # Act - add colorbar via kwarg
+            state.plot_kw[] = "cbar = true"
+            [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+            @test fd.cbar[] isa Colorbar
+
+            # Act - set to non-Bool value
+            state.plot_kw[] = "cbar = 123"
+            [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+            @test fd.cbar[] isa Colorbar  # should not have changed
+
+            # Act - change to a plot type that does not support colorbar
+            state.plot_kw[] = ""
+            state.plot_type_name[] = "line"
+            Plotting.create_axis!(fd, state)
+
+            # Assert Check that no colorbar is present
+            @test fd.cbar[] === nothing
+
+            # Act & Assert - try to add colorbar via kwarg
+            @test_warn "Current plot type does not support colorbar" begin
+                state.plot_kw[] = "cbar = true"
+                [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+                @test fd.cbar[] === nothing
+            end
+
+            # Act & Assert - Setting to false should not produce a warning
+            @test_nowarn begin
+                state.plot_kw[] = "cbar = false"
+                [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+                @test fd.cbar[] === nothing
+            end
+            
+        end
 
     end
 end
