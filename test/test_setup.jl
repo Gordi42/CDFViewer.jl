@@ -86,9 +86,3 @@ function make_temp_dataset()
 
     Data.CDFDataset(file)
 end
-
-function make_ui(dataset::Data.CDFDataset)
-    fig = Plotting.create_figure()
-    ui = UI.UIElements(fig, dataset)
-    fig, ui
-end
