@@ -22,8 +22,8 @@ function ViewerController(dataset::Data.CDFDataset; visible::Bool = false)::View
     ui = UI.UIElements(dataset)
     plot_data = Plotting.PlotData(ui.state, dataset)
     fig_data = Plotting.FigureData(plot_data, ui.state)
-    menu_screen = GLMakie.Screen(visible = visible)
-    fig_screen = GLMakie.Screen(visible = false)  # Start hidden
+    menu_screen = GLMakie.Screen(visible = false, title = "CDFViewer - Menu") # Start hidden
+    fig_screen = GLMakie.Screen(visible = false, title = "CDFViewer - Figure")  # Start hidden
     display(menu_screen, ui.menu)
     display(fig_screen, fig_data.fig)
 
@@ -56,6 +56,9 @@ function setup!(controller::ViewerController)::ViewerController
     # This will set everything up for the initial variable
     notify(controller.ui.main_menu.variable_menu.selection)
 
+    # Open the menu window
+    open_window!(controller, controller.menu_screen, controller.ui.menu, "CDFViewer - Menu")
+
     # return the controller
     controller
 end
@@ -65,11 +68,12 @@ end
 # ------------------------------------------------
 function open_window!(controller::ViewerController,
         screen::Observable{GLMakie.Screen},
-        fig::Figure)::Nothing
+        fig::Figure,
+        title::String)::Nothing
     # if the window is closed, properly close it and reopen
     if !screen[].window_open[]
         close(screen[])
-        new_screen = GLMakie.Screen(visible = controller.visible)
+        new_screen = GLMakie.Screen(visible = controller.visible, title = title)
         display(new_screen, fig)
         # set up the close event for the new screen
         on(new_screen.window_open) do is_open
@@ -218,7 +222,7 @@ end
 # ------------------------------------------------
 function update_plot_window_visibility!(controller::ViewerController)::Nothing
     if controller.ui.state.plot_type_name[] != Constants.NOT_SELECTED_LABEL
-        open_window!(controller, controller.fig_screen, controller.fd.fig)
+        open_window!(controller, controller.fig_screen, controller.fd.fig, "CDFViewer - Figure")
     else
         hide_window!(controller, controller.fig_screen)
     end

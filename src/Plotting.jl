@@ -144,18 +144,21 @@ struct FigureData
     cbar::Observable{Union{Colorbar, Nothing}}
     data_inspector::Observable{Union{DataInspector, Nothing}}
     tasks::Observable{Vector{Task}}
+    size::Observable{Tuple{Int, Int}}
 end
 
 function FigureData(plot_data::PlotData, ui_state::UI.State)::FigureData
     # Create axis, plot object, and colorbar observables
-    fig = create_figure()
+    size = Observable(Constants.FIGSIZE)
+    fig = create_figure(size[])
     ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
     plot_obj = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
     cbar = Observable{Union{Colorbar, Nothing}}(nothing)
     data_inspector = Observable{Union{DataInspector, Nothing}}(nothing)
 
     # Construct the FigureData
-    fd = FigureData(fig, plot_data, ax, plot_obj, cbar, data_inspector, Observable(Task[]))
+    fd = FigureData(fig, plot_data, ax, plot_obj, cbar,
+        data_inspector, Observable(Task[]), size)
 
     # Setup a listener to create the plot if the axis changes
     on(ax) do a
@@ -170,13 +173,13 @@ function FigureData(plot_data::PlotData, ui_state::UI.State)::FigureData
             a, plot_data.x, plot_data.y, plot_data.z,
             plot_data.d[plot_data.plot_type[].ndims])
         # and add a colorbar if needed
-        if plot_data.plot_type[].colorbar
-            cbar[] = Colorbar(fig[1, 2], plot_obj[],
-                width = 30, tellwidth = false, tellheight = false)
-            colsize!(fig.layout, 2, Relative(0.05))
-        end
+        add_colorbar!(fd)
         apply_kwargs!(fd, ui_state.plot_kw[])
     end
+
+    # on(size) do new_size
+    #     resize_figure!(fd, new_size)
+    # end
 
     # Setup listeners to apply axis and plot keyword arguments
     on(ui_state.plot_kw) do kw_str
@@ -187,9 +190,9 @@ function FigureData(plot_data::PlotData, ui_state::UI.State)::FigureData
     fd
 end
 
-function create_figure()::Figure
+function create_figure(size::Tuple{Int, Int})::Figure
     GLMakie.activate!()
-    fig = Figure(size = Constants.FIGSIZE)
+    fig = Figure(size = size)
     # create a theme
     cust_theme = Theme(
         Axis = (
@@ -223,6 +226,19 @@ function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
     nothing
 end
 
+function add_colorbar!(fig_data::FigureData)::Nothing
+    if fig_data.cbar[] !== nothing
+        delete!(fig_data.cbar[])
+        fig_data.cbar[] = nothing
+    end
+    if fig_data.plot_data.plot_type[].colorbar && fig_data.plot_obj[] !== nothing
+        fig_data.cbar[] = Colorbar(fig_data.fig[1, 2], fig_data.plot_obj[],
+            width = 30, tellwidth = false, tellheight = false)
+        colsize!(fig_data.fig.layout, 2, Relative(0.05))
+    end
+    nothing
+end
+
 function clear_axis!(fig_data::FigureData)::Nothing
     if fig_data.cbar[] !== nothing
         delete!(fig_data.cbar[])
@@ -233,6 +249,51 @@ function clear_axis!(fig_data::FigureData)::Nothing
         fig_data.ax[] = nothing
     end
     fig_data.plot_obj[] = nothing
+    nothing
+end
+
+function resize_figure!(fd::FigureData, new_size::Tuple{Int, Int})::Nothing
+    try
+        resize!(fd.fig, new_size[1], new_size[2])
+        fd.size[] = new_size
+    catch e
+        @error "Error resizing figure: $e"
+    end
+    nothing
+end
+
+function set_colorbar!(fd::FigureData, show::Bool)::Nothing
+    if show
+        if !fd.plot_data.plot_type[].colorbar
+            @warn "Current plot type does not support colorbar"
+            return nothing
+        end
+        add_colorbar!(fd)
+        return nothing
+    end
+    if fd.cbar[] !== nothing
+        delete!(fd.cbar[])
+        fd.cbar[] = nothing
+    end
+    nothing
+end
+
+function Base.setproperty!(fd::FigureData, property::Symbol, value::Any)::Nothing
+    if property == :size
+        # check that the value is a tuple of two integers
+        if !isa(value, Tuple{Int, Int})
+            @error "Size must be a tuple of two integers"
+            return nothing
+        end
+        resize_figure!(fd, value)
+    elseif property == :cbar
+        if !isa(value, Bool)
+            return nothing
+        end
+        set_colorbar!(fd, value)
+    else
+        @error "Property $property not recognized in FigureData"
+    end
     nothing
 end
 
@@ -251,7 +312,7 @@ function get_property_mappings(kwargs::Dict{Symbol, Any}, fig_data::FigureData):
     mappings = Vector{PropertyMapping}()
     for (property, intended_value) in kwargs
         found_targets = 0
-        for target_obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[])
+        for target_obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[], fig_data)
             target_obj === nothing && continue
             property ∉ propertynames(target_obj) && continue
             

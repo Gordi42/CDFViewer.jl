@@ -348,6 +348,19 @@ using CDFViewer.Plotting
             (fig_data, ui.state)
         end
 
+        function arrange_and_create_axis(var::String, sel::Vector{String}, plot_type::String)
+            (fig_data, state) = init_figure_data()
+            state.variable[] = var
+            for (dim, name) in zip((state.x_name, state.y_name, state.z_name),
+                    (sel..., Constants.NOT_SELECTED_LABEL, Constants.NOT_SELECTED_LABEL))
+                dim[] = name
+            end
+            state.plot_type_name[] = plot_type
+            Plotting.create_axis!(fig_data, state)
+            (fig_data, state)
+        end
+            
+
         @testset "Types" begin
             # Arrange
             (fig_data, state) = init_figure_data()
@@ -359,6 +372,7 @@ using CDFViewer.Plotting
             @test fig_data.ax isa Observable{Union{Makie.AbstractAxis, Nothing}}
             @test fig_data.plot_obj isa Observable{Union{Makie.AbstractPlot, Nothing}}
             @test fig_data.cbar isa Observable{Union{Colorbar, Nothing}}
+            @test fig_data.size isa Observable{Tuple{Int, Int}}
         end
 
         @testset "Plot 1D" begin
@@ -515,6 +529,47 @@ using CDFViewer.Plotting
             @test fig_data.cbar[] === nothing
         end
 
+        @testset "Resize Figure" begin
+            # Arrange
+            fd, state = arrange_and_create_axis("5d_float", ["lon", "lat"], "contour")
+
+            # Assert default size
+            @test fd.size[] == Constants.FIGSIZE
+
+            # Act - resize figure via method
+            new_size = (100, 100)
+            Plotting.resize_figure!(fd, new_size)
+            
+            # Assert
+            function assert_fig_size(fig, expected_size)
+                actual_size = fig.scene.viewport[].widths
+                @test actual_size == [expected_size[1], expected_size[2]]
+                @test fd.size[] == expected_size
+            end
+            assert_fig_size(fd.fig, new_size)
+
+            # resize figure via setproperty!
+            new_size2 = (300, 150)
+            fd.size = new_size2  # calls setproperty!
+            assert_fig_size(fd.fig, new_size2)
+
+            # resize figure via kwarg
+            state.plot_kw[] = "size = $(new_size)"
+            [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
+            assert_fig_size(fd.fig, new_size)
+
+            # resize figure with bad value
+            @test_warn "Size must be a tuple of two integers" begin
+                fd.size = (100.0, 200.0)  # wrong type
+                assert_fig_size(fd.fig, new_size)  # size should not have changed
+            end
+
+            @test_warn "Size must be a tuple of two integers" begin
+                fd.size = (100, 200, 300)  # wrong length
+                assert_fig_size(fd.fig, new_size)  # size should not have changed
+            end
+        end
+
         @testset "Apply Kwargs" begin
             # Arrange
             (fig_data, state) = init_figure_data()
@@ -550,7 +605,6 @@ using CDFViewer.Plotting
             @test fig_data.ax[].titlevisible[] == false
             @test fig_data.cbar[].label[] == "My Label"
         end
-
         @testset "Apply Bad Kwargs" begin
             # Arrange
             (fig_data, state) = init_figure_data()
@@ -566,5 +620,8 @@ using CDFViewer.Plotting
                 [wait(t) for t in fig_data.tasks[]]
             end
         end
+
+        # @testset "cbar kwarg" begin
+
     end
 end
