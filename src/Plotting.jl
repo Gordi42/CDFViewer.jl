@@ -506,7 +506,7 @@ for plot in [
             ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
             d, colormap = :balance),
         create_3d_axis),
-    Plot("contour3d", 3, false,
+    Plot("contour3d", 3, true,
         (ax, x, y, z, d) -> contour!(
             ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
             d, colormap = :balance),

@@ -42,10 +42,9 @@ If you don't want to compile the application, you can run it directly using juli
 
 ## Recording and Saving
 
-- [ ] Add a button for Saving the figure to file (png, svg, jpg, etc.)
-- [ ] Add a button for Recording the playback
-- [ ] Add a button for export
-- [ ] Add a textbox for saving/recording options
+- [ ] Add functionality to save
+- [ ] Add functionality to record
+- [ ] Add functionality to export
 
 ## Plot Options
 
@@ -63,8 +62,3 @@ If you don't want to compile the application, you can run it directly using juli
 - [ ] Add support for dark theme
 - [ ] Add possibility for default configs in a .config folder
 - [ ] Unregular grids ?
-
-## Bugs
-
-- [ ] Colorbar of 3D Contour does not show up
-- [ ] zlabel of 3D plots overlap with menu
