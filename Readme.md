@@ -62,3 +62,7 @@ If you don't want to compile the application, you can run it directly using juli
 - [ ] Add support for dark theme
 - [ ] Add possibility for default configs in a .config folder
 - [ ] Unregular grids ?
+
+## Bugs
+
+- [ ] size kwarg of fig collides with colorbar

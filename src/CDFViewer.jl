@@ -78,11 +78,7 @@ function get_arg_parser()::ArgParseSettings
 end
 
 function is_headless(testing::Bool, savefig::Bool, record::Bool)::Bool
-    if testing
-        return true
-    else
-        return !(savefig || record)
-    end
+    any([testing, savefig, record])
 end
 
 function julia_main(;parsed_args::Union{Nothing,Dict}=nothing)
@@ -112,7 +108,7 @@ function julia_main(;parsed_args::Union{Nothing,Dict}=nothing)
     parsed_args["record"] && notify(controller.ui.main_menu.export_menu.record_button.clicks)
 
     if !headless
-        main_screen = parsed_args["no_menu"] ? controller.plot_screen[] : controller.menu_screen[]
+        main_screen = parsed_args["no-menu"] ? controller.fig_screen[] : controller.menu_screen[]
         wait(main_screen)
     end
 

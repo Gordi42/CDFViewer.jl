@@ -16,7 +16,7 @@ struct ViewerController
     watch_plot::Observable{Bool}
     menu_screen::Observable{GLMakie.Screen}
     fig_screen::Observable{GLMakie.Screen}
-    headless::Bool
+    headless::Observable{Bool}
     parsed_args::Union{Nothing,Dict}
 end
 
@@ -34,10 +34,12 @@ function ViewerController(dataset::Data.CDFDataset;
     controller = ViewerController(
         ui, fig_data, dataset,
         Observable(true), Observable(true),
-        Observable(menu_screen), Observable(fig_screen), headless,
+        Observable(menu_screen), Observable(fig_screen), Observable(true),
         parsed_args
     )
     setup!(controller)
+    controller.headless[] = headless
+    controller
 end
 
 function setup!(controller::ViewerController)::ViewerController
@@ -60,19 +62,13 @@ function setup!(controller::ViewerController)::ViewerController
     on(conv(on_save_event), controller.ui.main_menu.export_menu.save_button.clicks)
     on(conv(on_record_event), controller.ui.main_menu.export_menu.record_button.clicks)
     on(conv(on_export_event), controller.ui.main_menu.export_menu.export_button.clicks)
+    on(conv(on_headless_change), controller.headless)
 
     # This will set everything up for the initial variable
     notify(controller.ui.main_menu.variable_menu.selection)
 
     # Process command line arguments
     process_parsed_args!(controller)
-
-    # Open the menu window
-    if haskey(controller.parsed_args, "no_menu") && controller.parsed_args["no_menu"]
-        # Do not open the menu
-    else
-        open_window!(controller, controller.menu_screen, controller.ui.menu, "CDFViewer - Menu")
-    end
 
     # return the controller
     controller
@@ -184,6 +180,20 @@ end
 # ------------------------------------------------
 #  Window Control
 # ------------------------------------------------
+function on_headless_change(controller::ViewerController)::Nothing
+    controller.headless[] && return nothing
+    # Open the menu window
+    if haskey(controller.parsed_args, "no-menu") && controller.parsed_args["no-menu"]
+        # Do not open the menu
+    else
+        open_window!(controller, controller.menu_screen, controller.ui.menu, "CDFViewer - Menu")
+    end
+    # Open the figure window if a plot type is selected
+    update_plot_window_visibility!(controller)
+end
+
+
+
 function open_window!(controller::ViewerController,
         screen::Observable{GLMakie.Screen},
         fig::Figure,
@@ -191,7 +201,7 @@ function open_window!(controller::ViewerController,
     # if the window is closed, properly close it and reopen
     if !screen[].window_open[]
         close(screen[])
-        new_screen = GLMakie.Screen(visible = !controller.headless, title = title)
+        new_screen = GLMakie.Screen(visible = !controller.headless[], title = title)
         display(new_screen, fig)
         # set up the close event for the new screen
         on(new_screen.window_open) do is_open
@@ -204,13 +214,13 @@ function open_window!(controller::ViewerController,
         return nothing
     end
 
-    !controller.headless && GLMakie.GLFW.ShowWindow(screen[].glscreen)
+    !controller.headless[] && GLMakie.GLFW.ShowWindow(screen[].glscreen)
     nothing
 end
 
 function hide_window!(controller::ViewerController, screen::Observable{GLMakie.Screen})::Nothing
     # in headless mode, do nothing
-    controller.headless && return nothing
+    controller.headless[] && return nothing
     GLMakie.GLFW.HideWindow(screen[].glscreen)
     nothing
 end
