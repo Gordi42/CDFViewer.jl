@@ -10,7 +10,7 @@ using CDFViewer.Controller
 
 NS = Constants.NOT_SELECTED_LABEL
 
-@testset "Controller.jl" begin
+@testset "Command Line Parsing" begin
 
     function get_args(fname::String="", arg_string::String="")::Dict{String,Any}
         fullargs = fname * " " * arg_string
@@ -122,8 +122,8 @@ NS = Constants.NOT_SELECTED_LABEL
         end
         
         @testset "Keyword Arguments" begin
-            args = get_args("file.nc", "--kwargs=\"color=:red, linewidth=2\"")
-            @test args["kwargs"] == "color=:red, linewidth=2"
+            args = get_args("file.nc", "--kwargs='color=:red, linewidth=2, title=\"My Plot\"'")
+            @test args["kwargs"] == "color=:red, linewidth=2, title=\"My Plot\""
         end
 
         @testset "Dimensions" begin

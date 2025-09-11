@@ -1,6 +1,7 @@
 module Controller
 
 using Colors
+using Printf
 using GLMakie
 using CDFViewer.Constants
 using CDFViewer.Data
@@ -38,6 +39,8 @@ function ViewerController(dataset::Data.CDFDataset;
         parsed_args
     )
     setup!(controller)
+    # wait until the tasks are done
+    [wait(t) for t in controller.fd.tasks[]]
     controller.headless[] = headless
     controller
 end
@@ -73,7 +76,6 @@ function setup!(controller::ViewerController)::ViewerController
     # return the controller
     controller
 end
-
 
 function process_parsed_args!(controller::ViewerController)::Nothing
     parsed_args = controller.parsed_args
@@ -191,8 +193,6 @@ function on_headless_change(controller::ViewerController)::Nothing
     # Open the figure window if a plot type is selected
     update_plot_window_visibility!(controller)
 end
-
-
 
 function open_window!(controller::ViewerController,
         screen::Observable{GLMakie.Screen},
@@ -358,8 +358,9 @@ function on_record_event(controller::ViewerController)::Nothing
 end
 
 function on_export_event(controller::ViewerController)::Nothing
-    # TODO
-    @warn "Export not implemented yet."
+    exp_str = get_export_string(controller)
+    println("Export command arguments:")
+    println(exp_str)
     nothing
 end
 
@@ -494,5 +495,117 @@ function set_menu_options!(controller::ViewerController, selected_dims::Vector{S
     nothing
 end
 
+function get_export_string(controller::ViewerController)::String
+    state = controller.ui.state
+    exp = ""
+    # get the variable
+    var = state.variable[]
+    exp *= "-v$var"
+    # get the axis dimensions
+    for (axis, dim) in zip(("x", "y", "z"), (state.x_name[], state.y_name[], state.z_name[]))
+        if dim != Constants.NOT_SELECTED_LABEL
+            exp *= " -$axis$dim"
+        end
+    end
+    # get the plot type
+    plot_type = state.plot_type_name[]
+    if plot_type != Constants.NOT_SELECTED_LABEL
+        exp *= " -p$plot_type"
+    end
+    # get the dimensions (only those that are relevant)
+    var_dims = Data.get_var_dims(controller.dataset, var)
+    coord_menus = controller.ui.main_menu.coord_menu.menus
+    selected_dims = [m.selection[] for m in coord_menus]
+    unused_dims = setdiff(var_dims, selected_dims)
+    dim_strs = String[]
+    for dim in unused_dims
+        id = state.dim_obs[][dim]
+        if id != 1
+            push!(dim_strs, "$dim=$id")
+        end
+    end
+    if !isempty(dim_strs)
+        exp *= " --dims=" * join(dim_strs, ",")
+    end
+    # get the animation dimension
+    ani_dim = controller.ui.main_menu.playback_menu.var.selection[]
+    if ani_dim != Constants.NOT_SELECTED_LABEL
+        exp *= " -a$ani_dim"
+    end
+    # get the plot kwargs
+    text = state.plot_kw[]
+    text = isnothing(text) ? "" : strip(text)
+    keywords = Parsing.parse_kwargs(text)
+    additional_kwargs = get_figure_kwargs(controller) # Dict of symbol => value
+    if !isempty(additional_kwargs)
+        for (k,v) in additional_kwargs
+            # check if k already exists in keywords
+            if !haskey(keywords, Symbol(k))
+                if !isempty(text)
+                    text *= ", "
+                end
+                text *= "$k=$v"
+            end
+        end
+    end
+    if !isempty(text)
+        exp *= " --kwargs='$text'"
+    end
+    # get the saveoptions
+    text = controller.ui.main_menu.export_menu.options.stored_string[]
+    if !isnothing(text) && !isempty(text)
+        exp *= " --saveoptions='$text'"
+    end
+    # get the path
+    path = state.save_path[]
+    if !isempty(path)
+        exp *= " --path=$path"
+    end
+    
+    exp
+end
+
+function get_figure_kwargs(controller::ViewerController)::Dict{String,Any}
+    controller.ui.state.plot_type_name[] == Constants.NOT_SELECTED_LABEL && return Dict{String,Any}()
+    kwargs = Dict{String,Any}()
+
+    # figsize
+    figwidths = controller.fd.fig.scene.viewport[].widths
+    figsize = (figwidths[1], figwidths[2])
+    if figsize != Constants.FIGSIZE
+        println("Figsize: ", figsize)
+        kwargs["figsize"] = (figwidths[1], figwidths[2])
+    end
+
+    # axis limits
+    ax = controller.fd.ax[]
+    if !isnothing(ax)
+        kwargs["limits"] = get_limit_string(controller)
+    end
+
+    # 3D axis orientation
+    if ax isa Axis3
+        kwargs["azimuth"] = @sprintf("%g", ax.azimuth[])
+        kwargs["elevation"] = @sprintf("%g", ax.elevation[])
+    end
+    kwargs
+end
+
+function get_limit_string(controller::Controller.ViewerController)::String
+    ax = controller.fd.ax[]
+
+    lim_rect = ax.finallimits[]
+    limits = Float64[]
+    # Loop through each dimension
+    for dim in 1:length(lim_rect.origin)
+        # Add min limit (origin)
+        push!(limits, lim_rect.origin[dim])
+        # Add max limit (origin + width)
+        push!(limits, lim_rect.origin[dim] + lim_rect.widths[dim])
+    end
+
+    lim_strings = [@sprintf("%g", value) for value in limits]
+    "(" * join(lim_strings, ", ") * ")"
+end
 
 end # module

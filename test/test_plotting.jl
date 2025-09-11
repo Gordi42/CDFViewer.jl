@@ -372,7 +372,7 @@ using CDFViewer.Plotting
             @test fig_data.ax isa Observable{Union{Makie.AbstractAxis, Nothing}}
             @test fig_data.plot_obj isa Observable{Union{Makie.AbstractPlot, Nothing}}
             @test fig_data.cbar isa Observable{Union{Colorbar, Nothing}}
-            @test fig_data.size isa Observable{Tuple{Int, Int}}
+            @test fig_data.figsize isa Observable{Tuple{Int, Int}}
         end
 
         @testset "Plot 1D" begin
@@ -534,7 +534,7 @@ using CDFViewer.Plotting
             fd, state = arrange_and_create_axis("5d_float", ["lon", "lat"], "contour")
 
             # Assert default size
-            @test fd.size[] == Constants.FIGSIZE
+            @test fd.figsize[] == Constants.FIGSIZE
 
             # Act - resize figure via method
             new_size = (100, 100)
@@ -544,29 +544,29 @@ using CDFViewer.Plotting
             function assert_fig_size(fig, expected_size)
                 actual_size = fig.scene.viewport[].widths
                 @test actual_size == [expected_size[1], expected_size[2]]
-                @test fd.size[] == expected_size
+                @test fd.figsize[] == expected_size
             end
             assert_fig_size(fd.fig, new_size)
 
             # resize figure via setproperty!
             new_size2 = (300, 150)
-            fd.size = new_size2  # calls setproperty!
+            fd.figsize = new_size2  # calls setproperty!
             assert_fig_size(fd.fig, new_size2)
 
             # resize figure via kwarg
-            state.plot_kw[] = "size = $(new_size)"
+            state.plot_kw[] = "figsize = $(new_size)"
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
             assert_fig_size(fd.fig, new_size)
 
             # resize figure with bad value
-            @test_warn "Size must be a tuple of two integers" begin
-                fd.size = (100.0, 200.0)  # wrong type
-                assert_fig_size(fd.fig, new_size)  # size should not have changed
+            @test_warn "Figsize must be a tuple of two integers" begin
+                fd.figsize = (100.0, 200.0)  # wrong type
+                assert_fig_size(fd.fig, new_size)  # figsize should not have changed
             end
 
-            @test_warn "Size must be a tuple of two integers" begin
-                fd.size = (100, 200, 300)  # wrong length
-                assert_fig_size(fd.fig, new_size)  # size should not have changed
+            @test_warn "Figsize must be a tuple of two integers" begin
+                fd.figsize = (100, 200, 300)  # wrong length
+                assert_fig_size(fd.fig, new_size)  # figsize should not have changed
             end
         end
 

@@ -144,13 +144,13 @@ struct FigureData
     cbar::Observable{Union{Colorbar, Nothing}}
     data_inspector::Observable{Union{DataInspector, Nothing}}
     tasks::Observable{Vector{Task}}
-    size::Observable{Tuple{Int, Int}}
+    figsize::Observable{Tuple{Int, Int}}
 end
 
 function FigureData(plot_data::PlotData, ui_state::UI.State)::FigureData
     # Create axis, plot object, and colorbar observables
-    size = Observable(Constants.FIGSIZE)
-    fig = create_figure(size[])
+    figsize = Observable(Constants.FIGSIZE)
+    fig = create_figure(figsize[])
     ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
     plot_obj = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
     cbar = Observable{Union{Colorbar, Nothing}}(nothing)
@@ -158,7 +158,7 @@ function FigureData(plot_data::PlotData, ui_state::UI.State)::FigureData
 
     # Construct the FigureData
     fd = FigureData(fig, plot_data, ax, plot_obj, cbar,
-        data_inspector, Observable(Task[]), size)
+        data_inspector, Observable(Task[]), figsize)
 
     # Setup a listener to create the plot if the axis changes
     on(ax) do a
@@ -177,10 +177,6 @@ function FigureData(plot_data::PlotData, ui_state::UI.State)::FigureData
         apply_kwargs!(fd, ui_state.plot_kw[])
     end
 
-    # on(size) do new_size
-    #     resize_figure!(fd, new_size)
-    # end
-
     # Setup listeners to apply axis and plot keyword arguments
     on(ui_state.plot_kw) do kw_str
         plot_obj[] !== nothing && apply_kwargs!(fd, kw_str)
@@ -190,9 +186,9 @@ function FigureData(plot_data::PlotData, ui_state::UI.State)::FigureData
     fd
 end
 
-function create_figure(size::Tuple{Int, Int})::Figure
+function create_figure(figsize::Tuple{Int, Int})::Figure
     GLMakie.activate!()
-    fig = Figure(size = size)
+    fig = Figure(size = figsize)
     # create a theme
     cust_theme = Theme(
         Axis = (
@@ -255,7 +251,7 @@ end
 function resize_figure!(fd::FigureData, new_size::Tuple{Int, Int})::Nothing
     try
         resize!(fd.fig, new_size[1], new_size[2])
-        fd.size[] = new_size
+        fd.figsize[] = new_size
     catch e
         @error "Error resizing figure: $e"
     end
@@ -279,10 +275,10 @@ function set_colorbar!(fd::FigureData, show::Bool)::Nothing
 end
 
 function Base.setproperty!(fd::FigureData, property::Symbol, value::Any)::Nothing
-    if property == :size
+    if property == :figsize
         # check that the value is a tuple of two integers
         if !isa(value, Tuple{Int, Int})
-            @error "Size must be a tuple of two integers"
+            @error "Figsize must be a tuple of two integers"
             return nothing
         end
         resize_figure!(fd, value)

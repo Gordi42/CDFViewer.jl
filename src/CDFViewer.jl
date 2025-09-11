@@ -47,7 +47,7 @@ function get_arg_parser()::ArgParseSettings
             arg_type = String
             default = ""
         "--dims"
-            help = "Dimensions indices as key=index pairs, e.g., 'time=5, lat=10'"
+            help = "Dimensions indices as key=index pairs, e.g., '--dims=time=5,lat=10'"
             arg_type = String
             default = ""
         "--ani-dim", "-a"

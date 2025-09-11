@@ -506,6 +506,21 @@ NS = Constants.NOT_SELECTED_LABEL
             @test controller.fd.plot_obj[].levels[] == 5
             @test controller.fd.plot_obj[].colormap[] == :balance
         end
+
+        @testset "Figsize and Colorbar" begin
+            controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="heatmap")
+
+            # Act: change the figure size
+            controller.ui.state.plot_kw[] = "figsize=(200, 200)"
+            # wait until all tasks are finished
+            [wait(t) for t in controller.fd.tasks[]]
+
+            # Assert: should update the figure size
+            actual_size = controller.fd.fig.scene.viewport[].widths
+            @test actual_size == [200, 200]
+            @test controller.fd.figsize[] == (200, 200)
+        end
+
     end
 
     @testset "Window Closing" begin

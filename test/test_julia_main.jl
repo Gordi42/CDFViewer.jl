@@ -21,9 +21,9 @@ using Suppressor
         end
         # when not testing it should be headless only if savefig or record is true
         for (savefig, record) in ((true, false), (false, true), (true, true))
-            @test CDFViewer.is_headless(false, savefig, record) == false
+            @test CDFViewer.is_headless(false, savefig, record) == true
         end
-        @test CDFViewer.is_headless(false, false, false) == true
+        @test CDFViewer.is_headless(false, false, false) == false
     end
 
     @testset "julia_main with lat lon file" begin
