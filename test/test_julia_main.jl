@@ -1,4 +1,5 @@
 using Test
+using ArgParse
 using NCDatasets
 using CDFViewer
 using Suppressor
@@ -25,13 +26,10 @@ using Suppressor
         @test CDFViewer.is_headless(false, false, false) == true
     end
 
-    # @testset "julia_main no kwargs" begin
-    #     @suppress @test julia_main(String[]; wait_for_ui=false) == 1  # No args provided
-    # end
-    #
-    # @testset "julia_main with lat lon file" begin
-    #     fname = create_lon_lat_data()
-    #
-    #     @suppress @test julia_main([fname]; wait_for_ui=false, visible=false) == 0
-    # end
+    @testset "julia_main with lat lon file" begin
+        fname = create_lon_lat_data()
+        args = parse_args([fname], CDFViewer.get_arg_parser())
+    
+        @suppress @test julia_main(parsed_args=args) == 0
+    end
 end

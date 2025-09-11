@@ -60,9 +60,7 @@ function get_dims(var::String)
     end
 end
 
-
-function make_temp_dataset()
-
+function init_temp_dataset()::String
     file = tempname() * ".nc"
 
     NCDataset(file,"c",attrib = OrderedDict("title" => "this is a test file")) do ds
@@ -84,5 +82,9 @@ function make_temp_dataset()
         defVar(ds, "untaken_dim", collect(1:4), ("untaken",), attrib = OrderedDict())
     end
 
-    Data.CDFDataset([file])
+    file
+end
+
+function make_temp_dataset()
+    Data.CDFDataset([init_temp_dataset()])
 end

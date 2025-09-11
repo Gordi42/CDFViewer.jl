@@ -6,6 +6,7 @@ using CDFViewer.Constants
 using CDFViewer.Data
 using CDFViewer.UI
 using CDFViewer.Plotting
+using CDFViewer.Parsing
 
 struct ViewerController
     ui::UI.UIElements
@@ -60,11 +61,11 @@ function setup!(controller::ViewerController)::ViewerController
     on(conv(on_record_event), controller.ui.main_menu.export_menu.record_button.clicks)
     on(conv(on_export_event), controller.ui.main_menu.export_menu.export_button.clicks)
 
-    # Process command line arguments
-    process_parsed_args!(controller)
-
     # This will set everything up for the initial variable
     notify(controller.ui.main_menu.variable_menu.selection)
+
+    # Process command line arguments
+    process_parsed_args!(controller)
 
     # Open the menu window
     if haskey(controller.parsed_args, "no_menu") && controller.parsed_args["no_menu"]
@@ -125,7 +126,8 @@ function process_parsed_args!(controller::ViewerController)::Nothing
         dim_str = parsed_args["dims"]
         dim_dict = Parsing.parse_kwargs(dim_str)
         for (dim, idx) in dim_dict
-            if dim in keys(controller.ui.main_menu.coord_sliders.sliders)
+            dim = string(dim)  # Convert Symbol to String
+            if dim ∈ keys(controller.ui.main_menu.coord_sliders.sliders)
                 slider = controller.ui.main_menu.coord_sliders.sliders[dim]
                 # check if idx is numeric
                 if !isa(idx, Number)
@@ -163,10 +165,18 @@ function process_parsed_args!(controller::ViewerController)::Nothing
     end
 
     # Process kwargs if provided
-    # TODO
+    if haskey(parsed_args, "kwargs") && parsed_args["kwargs"] != ""
+        textbox = controller.ui.main_menu.plot_menu.plot_kw
+        textbox.displayed_string = parsed_args["kwargs"]
+        textbox.stored_string = parsed_args["kwargs"]
+    end
 
     # Process saveoptions if provided
-    # TODO
+    if haskey(parsed_args, "saveoptions") && parsed_args["saveoptions"] != ""
+        textbox = controller.ui.main_menu.export_menu.options
+        textbox.displayed_string = parsed_args["saveoptions"]
+        textbox.stored_string = parsed_args["saveoptions"]
+    end
 
     nothing
 end
