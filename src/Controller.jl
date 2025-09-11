@@ -153,16 +153,6 @@ function process_parsed_args!(controller::ViewerController)::Nothing
         end
     end
 
-    # Process the work path if provided
-    if haskey(parsed_args, "path") && parsed_args["path"] != ""
-        path = parsed_args["path"]
-        if !isdir(dirname(path))
-            @warn "Directory for path '$path' does not exist."
-        else
-            controller.ui.state.save_path[] = path
-        end
-    end
-
     # Process kwargs if provided
     if haskey(parsed_args, "kwargs") && parsed_args["kwargs"] != ""
         textbox = controller.ui.main_menu.plot_menu.plot_kw
@@ -556,11 +546,6 @@ function get_export_string(controller::ViewerController)::String
     if !isnothing(text) && !isempty(text)
         exp *= " --saveoptions='$text'"
     end
-    # get the path
-    path = state.save_path[]
-    if !isempty(path)
-        exp *= " --path=$path"
-    end
     
     exp
 end
@@ -573,7 +558,6 @@ function get_figure_kwargs(controller::ViewerController)::Dict{String,Any}
     figwidths = controller.fd.fig.scene.viewport[].widths
     figsize = (figwidths[1], figwidths[2])
     if figsize != Constants.FIGSIZE
-        println("Figsize: ", figsize)
         kwargs["figsize"] = (figwidths[1], figwidths[2])
     end
 

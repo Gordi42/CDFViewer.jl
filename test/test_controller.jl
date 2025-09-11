@@ -567,10 +567,10 @@ NS = Constants.NOT_SELECTED_LABEL
 
         @testset "Change figsize" begin
             # Arrange
-            controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="contour")
+            controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="contour");
 
             # Act
-            resize!(controller.fd.fig, 300, 400)
+            resize!(controller.fd.fig, 300, 400);
 
             # Assert
             assert_export(controller, [r"figsize=\(300, 400\)"])

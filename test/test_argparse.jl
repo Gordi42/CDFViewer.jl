@@ -85,10 +85,10 @@ NS = Constants.NOT_SELECTED_LABEL
             @test args["dims"] == ""
             @test args["ani-dim"] == ""
             @test args["saveoptions"] == ""
-            @test args["path"] == ""
             @test args["savefig"] == false
             @test args["record"] == false
             @test args["no-menu"] == false
+            @test args["use-local"] == false
         end
 
         @testset "Files" begin
@@ -143,20 +143,16 @@ NS = Constants.NOT_SELECTED_LABEL
             @test args["saveoptions"] == "dpi=300, quality=95"
         end
 
-        @testset "Path" begin
-            args = get_args("file.nc", "--path=/path/to/save")
-            @test args["path"] == "/path/to/save"
-        end
-
         @testset "Flags" begin
-            args = get_args("file.nc", "--savefig --record --no-menu")
+            args = get_args("file.nc", "--savefig --record --no-menu --use-local")
             @test args["savefig"] == true
             @test args["record"] == true
             @test args["no-menu"] == true
+            @test args["use-local"] == true
         end
 
         @testset "Combined Arguments" begin
-            args = get_args("file.nc", "--var=temperature -xlon -ylat -pcontour --dims=\"time=5\" --ani-dim=time --savefig --path=/path/to/save")
+            args = get_args("file.nc", "--var=temperature -xlon -ylat -pcontour --dims=\"time=5\" --ani-dim=time --savefig --use-local")
             @test args["files"] == ["file.nc"]
             @test args["var"] == "temperature"
             @test args["x-axis"] == "lon"
@@ -167,10 +163,10 @@ NS = Constants.NOT_SELECTED_LABEL
             @test args["dims"] == "time=5"
             @test args["ani-dim"] == "time"
             @test args["saveoptions"] == ""
-            @test args["path"] == "/path/to/save"
             @test args["savefig"] == true
             @test args["record"] == false
             @test args["no-menu"] == false
+            @test args["use-local"] == true
         end
     end
 
@@ -249,19 +245,6 @@ NS = Constants.NOT_SELECTED_LABEL
             )
         end
 
-        @testset "Path" begin
-            temp_dir = mktempdir()
-
-            controller = arange_controller("-v3d_float -xlon -ylat -pcontour --path=\"$temp_dir\"");
-            assert_controller(controller;
-                variable="3d_float",
-                plot_type="contour",
-                plot_class=Contour,
-                dims=["lon", "lat"],
-                path="$temp_dir",
-            )
-        end
-
         @testset "Keyword Arguments" begin
             controller = arange_controller("-v3d_float -xlon -ylat -pcontour --kwargs=\"labels=true, linewidth=20\"");
             assert_controller(controller;
@@ -288,7 +271,7 @@ NS = Constants.NOT_SELECTED_LABEL
 
     @testset "Complex Arg Parse Case" begin
         # Arrange
-        controller = arange_controller("-v5d_float -xlon -ylat -ztime -pvolume --kwargs=\"labels=true, linewidth=20\"")
+        controller = arange_controller("-v5d_float -xlon -ylat -zfloat_dim -pvolume --kwargs='colormap=:ice, xlabel=\"Longitude\"'")
         main_menu = controller.ui.main_menu
         playback = main_menu.playback_menu
         sliders = main_menu.coord_sliders.sliders
@@ -315,11 +298,10 @@ NS = Constants.NOT_SELECTED_LABEL
             dims=["lon", "lat", "float_dim"],
             play_dim="only_unit",
             dim_idxs=Dict("only_unit" => 2, "only_long" => 3),
-            kwargs="labels=true, linewidth=20, azimuth=30, elevation=20, limits=(1, 4, 2, 8, 1, 3)",
+            kwargs="colormap=:ice, xlabel=\"Longitude\", azimuth=30, elevation=20, limits=(1, 4, 2, 8, 1, 3)",
             path="",
             saveoptions="filename=\"my_volume.png\""
         )
-
     end
 
 

@@ -31,6 +31,12 @@ const PLOT_DEFAULT_2D = "heatmap"
 const PLOT_DEFAULT_3D = "volume"
 
 # ============================================
+#  Available File Formats
+# ============================================
+const IMAGE_FILE_FORMATS = [".png"]
+const VIDEO_FILE_FORMATS = [".mkv", ".mp4", ".webm", ".gif"]
+
+# ============================================
 #  COLORS
 # ============================================
 struct ThemeColors

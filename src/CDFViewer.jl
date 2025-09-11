@@ -8,6 +8,7 @@ include("Parsing.jl")
 include("Data.jl")
 include("UI.jl")
 include("Plotting.jl")
+include("Output.jl")
 include("Controller.jl")
 
 export julia_main
@@ -58,10 +59,6 @@ function get_arg_parser()::ArgParseSettings
             help = "Options for saving the figure (as a Julia expression)"
             arg_type = String
             default = ""
-        "--path"
-            help = "Path to save the figure or animation"
-            arg_type = String
-            default = ""
         # Flags
         "--savefig"
             help = "Only save the figure to file and exit"
@@ -71,6 +68,9 @@ function get_arg_parser()::ArgParseSettings
             action = :store_true
         "--no-menu"
             help = "Disable the menu and only show the plot"
+            action = :store_true
+        "--use-local"
+            help = "Use local directory for temporary operations to improve performance. Set CDFVIEWER_USE_LOCAL=true to make it default. The local directory can be changed with the environment variable CDFVIEWER_LOCAL_DIR."
             action = :store_true
     end
 
