@@ -2,6 +2,7 @@ module Controller
 
 using Colors
 using Printf
+using Logging
 using GLMakie
 using CDFViewer.Constants
 using CDFViewer.Data
@@ -359,8 +360,7 @@ end
 
 function on_export_event(controller::ViewerController)::Nothing
     exp_str = get_export_string(controller)
-    println("Export command arguments:")
-    println(exp_str)
+    @info "Commandline Arguments:\n$exp_str"
     nothing
 end
 
@@ -534,7 +534,7 @@ function get_export_string(controller::ViewerController)::String
     end
     # get the plot kwargs
     text = state.plot_kw[]
-    text = isnothing(text) ? "" : strip(text)
+    text = isnothing(text) ? "" : String(strip(text))
     keywords = Parsing.parse_kwargs(text)
     additional_kwargs = get_figure_kwargs(controller) # Dict of symbol => value
     if !isempty(additional_kwargs)

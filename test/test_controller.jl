@@ -51,7 +51,14 @@ NS = Constants.NOT_SELECTED_LABEL
         (controller, var_name, plot_type, dim_names)
     end
 
-    function assert_controller_state(controller, variable, plot_class, expected_dims, expected_play_dim)
+    function assert_controller_state(
+        controller,
+        variable,
+        plot_class,
+        expected_dims,
+        expected_play_dim;
+        export_string = "",
+        )
         # Test variable selection
         @test controller.ui.state.variable[] == variable
         # Test the plot object type
@@ -71,6 +78,10 @@ NS = Constants.NOT_SELECTED_LABEL
         open_dims = setdiff(get_dims(variable), expected_dims)
         @test setdiff(play_menu.options[], [NS; open_dims...]) == []
         @test play_menu.selection[] == expected_play_dim
+        # Test the export string
+        if export_string isa Regex
+            @test occursin(export_string, Controller.get_export_string(controller))
+        end
     end
 
     @testset "Plot Selection" begin
@@ -82,7 +93,8 @@ NS = Constants.NOT_SELECTED_LABEL
             plot_type[] = "scatter"
 
             # Assert
-            assert_controller_state(controller, "5d_float", Scatter, ["lon"], "only_long")
+            assert_controller_state(controller, "5d_float", Scatter, ["lon"], "only_long",
+                export_string=r"-v5d_float -xlon -pscatter")
         end
 
         @testset "1D → 2D" begin
@@ -93,7 +105,8 @@ NS = Constants.NOT_SELECTED_LABEL
             plot_type[] = "heatmap"
 
             # Assert
-            assert_controller_state(controller, "5d_float", Heatmap, ["lon", "lat"], "only_long")
+            assert_controller_state(controller, "5d_float", Heatmap, ["lon", "lat"], "only_long",
+                export_string=r"-v5d_float -xlon -ylat -pheatmap")
         end
 
         @testset "1D → 3D" begin
@@ -170,7 +183,8 @@ NS = Constants.NOT_SELECTED_LABEL
             plot_type[] = "contour3d"
 
             # Assert
-            assert_controller_state(controller, "5d_float", Contour, ["lon", "lat", "float_dim"], "only_long")
+            assert_controller_state(controller, "5d_float", Contour, ["lon", "lat", "float_dim"], "only_long",
+                export_string=r"-v5d_float -xlon -ylat -zfloat_dim -pcontour3d")
         end
 
         @testset "2D → Select" begin
@@ -198,7 +212,8 @@ NS = Constants.NOT_SELECTED_LABEL
             var_name[] = "only_long_var"
 
             # Assert
-            assert_controller_state(controller, "only_long_var", Lines, ["lat"], NS)
+            assert_controller_state(controller, "only_long_var", Lines, ["lat"], NS,
+                export_string="-vonly_long_var -xlat -pline")
         end
 
         @testset "1D → 2D" begin
@@ -286,7 +301,8 @@ NS = Constants.NOT_SELECTED_LABEL
             dim_names[2][] = "lon"
 
             # Assert
-            assert_controller_state(controller, "5d_float", Heatmap, ["lat", "lon"], "only_long")
+            assert_controller_state(controller, "5d_float", Heatmap, ["lat", "lon"], "only_long",
+                export_string=r"-v5d_float -xlat -ylon -pheatmap")
             @test all(Point2f(xi, yi) in controller.fd.ax[].finallimits[]
                             for xi in controller.fd.plot_data.x[], yi in controller.fd.plot_data.y[])
         end
@@ -448,9 +464,9 @@ NS = Constants.NOT_SELECTED_LABEL
         var_name[] = "5d_float"
 
         # Assert
-        assert_controller_state(controller, "5d_float", Heatmap, ["lon", "lat"], "float_dim")
+        assert_controller_state(controller, "5d_float", Heatmap, ["lon", "lat"], "float_dim",
+            export_string=r"-afloat_dim")
     end
-
     @testset "Keyword Settings" begin
         @testset "levels keyword for contour" begin
             # Arrange
@@ -464,6 +480,8 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert
             @test controller.fd.plot_obj[].levels[] == 10
             @test controller.fd.plot_obj[].labels[] == true
+            exp_str = Controller.get_export_string(controller)
+            @test occursin(r"--kwargs='levels=10, labels=true", exp_str)
         end
 
         @testset "Axis keywords" begin
@@ -521,6 +539,42 @@ NS = Constants.NOT_SELECTED_LABEL
             @test controller.fd.figsize[] == (200, 200)
         end
 
+    end
+
+    @testset "Export String" begin
+        function assert_export(controller, expected_substrs::Vector{Regex})
+            exp_str = Controller.get_export_string(controller)
+            for substr in expected_substrs
+                @test occursin(substr, exp_str)
+            end
+        end
+
+        @testset "2D Axis" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="contour")
+
+            # Assert
+            assert_export(controller, [r"-v2d_float", r"-xlon", r"-ylat", r"-pcontour", r"limits="])
+        end
+
+        @testset "3D Axis" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="3d_float", plot="surface")
+
+            # Assert
+            assert_export(controller, [r"-v3d_float", r"-xlon", r"-ylat", r"-psurface", r"limits=", r"azimuth=", r"elevation="])
+        end
+
+        @testset "Change figsize" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="contour")
+
+            # Act
+            resize!(controller.fd.fig, 300, 400)
+
+            # Assert
+            assert_export(controller, [r"figsize=\(300, 400\)"])
+        end
     end
 
     @testset "Window Closing" begin

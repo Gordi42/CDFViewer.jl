@@ -286,4 +286,41 @@ NS = Constants.NOT_SELECTED_LABEL
 
     end
 
+    @testset "Complex Arg Parse Case" begin
+        # Arrange
+        controller = arange_controller("-v5d_float -xlon -ylat -ztime -pvolume --kwargs=\"labels=true, linewidth=20\"")
+        main_menu = controller.ui.main_menu
+        playback = main_menu.playback_menu
+        sliders = main_menu.coord_sliders.sliders
+        exportmenu = main_menu.export_menu
+        # change the values
+        playback.var.i_selected[] = findfirst(==("only_unit"), playback.var.options[])
+        sliders["only_unit"].value[] = 2
+        sliders["only_long"].value[] = 3
+        exportmenu.options.stored_string[] = "filename=\"my_volume.png\""
+        # change the limits
+        controller.fd.ax[].limits = (1, 4, 2, 8, 1, 3)
+        controller.fd.ax[].azimuth = 30
+        controller.fd.ax[].elevation = 20
+
+        # Act
+        exp_str = Controller.get_export_string(controller)
+        controller2 = arange_controller(exp_str)
+
+        # Assert
+        assert_controller(controller2;
+            variable="5d_float",
+            plot_type="volume",
+            plot_class=Volume,
+            dims=["lon", "lat", "float_dim"],
+            play_dim="only_unit",
+            dim_idxs=Dict("only_unit" => 2, "only_long" => 3),
+            kwargs="labels=true, linewidth=20, azimuth=30, elevation=20, limits=(1, 4, 2, 8, 1, 3)",
+            path="",
+            saveoptions="filename=\"my_volume.png\""
+        )
+
+    end
+
+
 end
