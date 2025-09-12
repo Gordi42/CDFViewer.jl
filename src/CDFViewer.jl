@@ -84,13 +84,6 @@ end
 
 function julia_main(;parsed_args::Union{Nothing,Dict}=nothing)
     println("Running CDFViewer: $(Constants.APP_VERSION)")
-    # wether to use local directory for temporary operations
-    use_local_env = get(ENV, "CDFVIEWER_USE_LOCAL", "false") == "true"
-    use_local_arg = isnothing(parsed_args) ? false : parsed_args["use-local"]
-
-    # get the working directory and local directory
-    work_dir = pwd()
-    local_dir = use_local_env || use_local_arg ? get(ENV, "CDFVIEWER_LOCAL_DIR", mktempdir()) : work_dir
 
     # whether to show the UI or not
     testing = !isnothing(parsed_args)  # if parsed_args are provided, we are testing
@@ -100,6 +93,15 @@ function julia_main(;parsed_args::Union{Nothing,Dict}=nothing)
         parsed_args = parse_args(get_arg_parser())
     end
     file_paths = parsed_args["files"]
+
+    # wether to use local directory for temporary operations
+    use_local_env = get(ENV, "CDFVIEWER_USE_LOCAL", "false") == "true"
+    use_local_arg = isnothing(parsed_args) ? false : parsed_args["use-local"]
+
+    # get the working directory and local directory
+    work_dir = pwd()
+    local_dir = use_local_env || use_local_arg ? get(ENV, "CDFVIEWER_LOCAL_DIR", mktempdir()) : work_dir
+
 
     @info "Loading dataset from file(s): $file_paths"
     dataset = Data.CDFDataset(file_paths)
