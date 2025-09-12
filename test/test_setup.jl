@@ -88,3 +88,73 @@ end
 function make_temp_dataset()
     Data.CDFDataset([init_temp_dataset()])
 end
+
+# ========================================
+#  Unstructured Data
+# ========================================
+
+function init_unstructured_temp_dataset()::String
+    file = tempname() * ".nc"
+
+    ntime = 5
+    ncells = 100
+    nvertices = 120
+    nlevels = 10
+
+    NCDataset(file,"c",attrib = OrderedDict("title" => "this is a test file with unstructured data")) do ds
+        # Coordinates
+        defVar(ds, "time", collect(1:ntime), ("time",), attrib = OrderedDict(
+            "standard_name" => "time",
+            "calendar" => "gregorian",
+            "axis" => "T",
+            "units" => "minutes since 2000-1-1 00:00:00"))
+        defVar(ds, "clon", rand(ncells) * 2π - π, ("ncells",), attrib = OrderedDict(
+            "standard_name" => "longitude",
+            "long_name" => "center longitude",
+            "units" => "radian"))
+        defVar(ds, "clat", rand(ncells) * π - π/2, ("ncells",), attrib = OrderedDict(
+            "standard_name" => "latitude",
+            "long_name" => "center latitude",
+            "units" => "radian"))
+        defVar(ds, "vlon", rand(nvertices) * 2π - π, ("nvertices",), attrib = OrderedDict(
+            "standard_name" => "longitude",
+            "long_name" => "vertex longitude",
+            "units" => "radian"))
+        defVar(ds, "vlat", rand(nvertices) * π - π/2, ("nvertices",), attrib = OrderedDict(
+            "standard_name" => "latitude",
+            "long_name" => "vertex latitude",
+            "units" => "radian"))
+        defVar(ds, "depth", rand(nlevels) * 5000, ("depth",), attrib = OrderedDict(
+            "standard_name" => "depth",
+            "long_name" => "depth_below_sea",
+            "units" => "m",
+            "positive" => "down",
+            "axis" => "Z"))
+        # Variables
+        defVar(ds, "zos", rand(ntime, ncells), ("time", "ncells"), attrib = OrderedDict(
+            "standard_name" => "zos.TL3",
+            "units" => "m",
+            "coordinates" => "clat clon"))
+        defVar(ds, "u", rand(ntime, nlevels, ncells), ("time", "depth", "ncells"), attrib = OrderedDict(
+            "standard_name" => "sea_water_x_velocity",
+            "long_name" => "u zonal velocity component",
+            "units" => "m s-1",
+            "coordinates" => "clat clon"))
+        defVar(ds, "v", rand(ntime, nlevels, ncells), ("time", "depth", "ncells"), attrib = OrderedDict(
+            "standard_name" => "sea_water_y_velocity",
+            "long_name" => "v meridional velocity component",
+            "units" => "m s-1",
+            "coordinates" => "clat clon"))
+        defVar(ds, "vort", rand(ntime, nlevels, nvertices), ("time", "depth", "nvertices"), attrib = OrderedDict(
+            "standard_name" => "vort",
+            "long_name" => "vorticity",
+            "units" => "s-1",
+            "coordinates" => "vlat vlon"))
+    end
+
+    file
+end
+
+function make_unstructured_temp_dataset()
+    Data.CDFDataset([init_unstructured_temp_dataset()])
+end
