@@ -82,8 +82,8 @@ function is_headless(testing::Bool, savefig::Bool, record::Bool)::Bool
     any([testing, savefig, record])
 end
 
-function julia_main(;parsed_args::Union{Nothing,Dict}=nothing)
-    println("Running CDFViewer: $(Constants.APP_VERSION)")
+function julia_main(;parsed_args::Union{Nothing,Dict}=nothing)::Cint
+    @info "CDFViewer: $(Constants.APP_VERSION)"
 
     # whether to show the UI or not
     testing = !isnothing(parsed_args)  # if parsed_args are provided, we are testing
