@@ -353,12 +353,16 @@ function apply_original_property_mappings!(mappings::Vector{PropertyMapping})::N
 end
 
 function wait_for_n_cycles(fig::Figure, n::Int)::Nothing
+    # wait maximum 2 seconds
     tick_count = 0
+    starttime = time()
+    timeout = 2.0
     on(fig.scene.events.tick) do tick
         tick_count += 1
     end
-    while tick_count < n
+    while tick_count < n && (time() - starttime) < timeout
         yield()
+        sleep(0.01)
     end
     nothing
 end
