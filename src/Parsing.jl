@@ -83,6 +83,9 @@ function parse_kwargs(kw_str::String)::Dict{Symbol, Any}
                     val = tuple((parse_tuple_element(v) for v in vals)...)
                 end
             end
+        elseif occursin(r"^\d+:\d*(:\d+)?$", val_str)
+            # Range: e.g. 1:10, 1:2:10, 5:15
+            val = parse_range(val_str)
         elseif occursin(r"^\d+\.?\d*[eE][+-]?\d+$", val_str) || occursin(r"^\d*\.\d+[eE][+-]?\d+$", val_str)
             # Scientific notation: e.g. 1.5e-3, 2E+5, .5e3
             val = parse(Float64, val_str)
@@ -137,6 +140,25 @@ function parse_tuple_element(v::Union{String, SubString})
         return v[2:end-1]  # Remove quotes
     else
         return v
+    end
+end
+
+# Helper function to parse ranges
+function parse_range(range_str::Union{String, SubString{String}})
+    parts = split(range_str, ':')
+    if length(parts) == 2
+        # start:stop format
+        start = parse(Int, parts[1])
+        stop = parse(Int, parts[2])
+        return start:stop
+    elseif length(parts) == 3
+        # start:step:stop format
+        start = parse(Int, parts[1])
+        step = parse(Int, parts[2])
+        stop = parse(Int, parts[3])
+        return start:step:stop
+    else
+        throw(ArgumentError("Invalid range format: $range_str"))
     end
 end
 

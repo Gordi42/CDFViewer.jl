@@ -6,6 +6,7 @@ using Logging
 using GLMakie
 using CDFViewer.Constants
 using CDFViewer.Data
+using CDFViewer.Output
 using CDFViewer.UI
 using CDFViewer.Plotting
 using CDFViewer.Parsing
@@ -23,8 +24,16 @@ struct ViewerController
 end
 
 function ViewerController(dataset::Data.CDFDataset;
-    headless::Bool = true, parsed_args::Union{Nothing,Dict}=nothing)::ViewerController
+    headless::Bool = true,
+    parsed_args::Union{Nothing,Dict} = nothing,
+    work_dir::String = pwd(),
+)::ViewerController
+    # Set up the UI
     ui = UI.UIElements(dataset)
+    # Set the working directory for output settings
+    ui.state.output_settings[].work_dir = work_dir
+    ui.state.output_settings[].filename = get_standard_filename(parsed_args)
+    # Set up the plotting
     plot_data = Plotting.PlotData(ui.state, dataset)
     fig_data = Plotting.FigureData(plot_data, ui.state)
     menu_screen = GLMakie.Screen(visible = false, title = "CDFViewer - Menu") # Start hidden
@@ -337,14 +346,21 @@ function on_fig_window_close(controller::ViewerController)::Nothing
 end
 
 function on_save_event(controller::ViewerController)::Nothing
-    # TODO
-    @warn "Figure saving not implemented yet."
+    controller.ui.state.plot_type_name[] == Constants.NOT_SELECTED_LABEL && return nothing
+    Output.savefig(controller.fd.fig, controller.ui.state.output_settings[])
+    update_plot_window_visibility!(controller)
     nothing
 end
 
 function on_record_event(controller::ViewerController)::Nothing
-    # TODO
-    @warn "Animation recording not implemented yet."
+    controller.ui.state.plot_type_name[] == Constants.NOT_SELECTED_LABEL && return nothing
+    ani_dim = controller.ui.main_menu.playback_menu.var.selection[]
+    slider = controller.ui.main_menu.coord_sliders.sliders[ani_dim]
+    slider_value = slider.value[]
+    Output.record_scene(controller.fd.fig, controller.ui.state.output_settings[], slider)
+    # reset the slider to its original value
+    slider.value[] = slider_value
+    update_plot_window_visibility!(controller)
     nothing
 end
 
@@ -591,5 +607,12 @@ function get_limit_string(controller::Controller.ViewerController)::String
     lim_strings = [@sprintf("%g", value) for value in limits]
     "(" * join(lim_strings, ", ") * ")"
 end
+
+function get_standard_filename(parsed_args::Union{Nothing,Dict})::String
+    isnothing(parsed_args) && return "output"
+    datafile = parsed_args["files"][1]
+    splitext(basename(datafile))[1]
+end
+
 
 end # module

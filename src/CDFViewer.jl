@@ -1,14 +1,15 @@
 module CDFViewer
 
+using Logging
 using ArgParse
 using GLMakie
 
 include("Constants.jl")
 include("Parsing.jl")
+include("Output.jl")
 include("Data.jl")
 include("UI.jl")
 include("Plotting.jl")
-include("Output.jl")
 include("Controller.jl")
 
 export julia_main
@@ -83,6 +84,13 @@ end
 
 function julia_main(;parsed_args::Union{Nothing,Dict}=nothing)
     println("Running CDFViewer: $(Constants.APP_VERSION)")
+    # wether to use local directory for temporary operations
+    use_local_env = get(ENV, "CDFVIEWER_USE_LOCAL", "false") == "true"
+    use_local_arg = isnothing(parsed_args) ? false : parsed_args["use-local"]
+
+    # get the working directory and local directory
+    work_dir = pwd()
+    local_dir = use_local_env || use_local_arg ? get(ENV, "CDFVIEWER_LOCAL_DIR", mktempdir()) : work_dir
 
     # whether to show the UI or not
     testing = !isnothing(parsed_args)  # if parsed_args are provided, we are testing
@@ -93,15 +101,18 @@ function julia_main(;parsed_args::Union{Nothing,Dict}=nothing)
     end
     file_paths = parsed_args["files"]
 
-    println("Loading dataset from file(s): $file_paths")
+    @info "Loading dataset from file(s): $file_paths"
     dataset = Data.CDFDataset(file_paths)
+
+    # After the dataset is loaded, we can cd to the local directory
+    cd(local_dir)
 
     headless = is_headless(testing, parsed_args["savefig"], parsed_args["record"]) 
 
-    println("Setup...")
+    @info "Setup..."
     @time controller = Controller.ViewerController(
-        dataset, headless=headless, parsed_args=parsed_args)
-    println("Ready.")
+        dataset, headless=headless, parsed_args=parsed_args, work_dir=work_dir)
+    !headless && @info "Ready."
 
     # Check if we need to save or record and exit
     parsed_args["savefig"] && notify(controller.ui.main_menu.export_menu.save_button.clicks)

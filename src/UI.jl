@@ -4,6 +4,7 @@ using GLMakie
 
 import ..Constants
 import ..Data
+import ..Output
 
 # ============================================
 #  Plot Menu
@@ -263,13 +264,14 @@ struct State
     z_name::Observable{String}
     dim_obs::Observable{Dict{String, Int}}
     plot_kw::Observable{Union{String, Nothing}}
-    save_path::Observable{String}
+    output_settings::Observable{Output.OutputSettings}
 end
 
 function State(main_menu::MainMenu)::State
     # Create an observable dictionary that tracks the values of all sliders
     slider_values = Dict(dim => slider.value for (dim, slider) in main_menu.coord_sliders.sliders)
     dim_obs = Observable(Dict(dim => value[] for (dim, value) in slider_values))
+    output_settings = Observable(Output.OutputSettings("output"))
 
     # Set up listeners to update the dictionary when any slider changes
     for (dim, value_obs) in slider_values
@@ -279,6 +281,13 @@ function State(main_menu::MainMenu)::State
         end
     end
 
+    # Set up listeners to update the output settings when the export options change
+    on(main_menu.export_menu.options.stored_string) do s
+        Output.apply_settings_string!(output_settings[], s)
+        notify(output_settings)
+    end
+        
+
     State(
         Observable(main_menu.variable_menu.selection[]),
         Observable(main_menu.plot_menu.plot_type.selection[]),
@@ -287,7 +296,7 @@ function State(main_menu::MainMenu)::State
         Observable(main_menu.coord_menu.menus[3].selection[]),
         dim_obs,
         main_menu.plot_menu.plot_kw.stored_string,
-        Observable("")
+        output_settings,
     )
 end
 

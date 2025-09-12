@@ -34,6 +34,8 @@ using CDFViewer.Parsing
         @test Parsing.parse_kwargs("log2_func=log2") == Dict(:log2_func => log2)
         @test Parsing.parse_kwargs("log10_func=log10") == Dict(:log10_func => log10)
         @test Parsing.parse_kwargs("sqrt_func=sqrt") == Dict(:sqrt_func => sqrt)
+        @test Parsing.parse_kwargs("sqrt_func=1:10") == Dict(:sqrt_func => 1:10)
+        @test Parsing.parse_kwargs("sqrt_func=1:3:10") == Dict(:sqrt_func => 1:3:10)
 
         @test Parsing.parse_kwargs("log=\"log\" ") == Dict(:log => "log")
     end

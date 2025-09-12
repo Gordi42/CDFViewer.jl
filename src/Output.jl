@@ -5,32 +5,77 @@ using ProgressMeter
 using GLMakie
 
 using ..Constants
+using ..Parsing
 
 mutable struct OutputSettings
     filename::String
     framerate::Int
     px_per_unit::Int
     range::Union{Nothing, StepRange{Int64}, UnitRange{Int64}}
+    work_dir::String
 end
 
-function OutputSettings(filename::String; framerate::Int=30, px_per_unit::Int=1,
-    range::Union{Nothing, StepRange{Int64}, UnitRange{Int64}}=nothing)
-    OutputSettings(filename, framerate, px_per_unit, range)
+function OutputSettings(filename::String;
+    framerate::Int=30,
+    px_per_unit::Int=1,
+    range::Union{Nothing, StepRange{Int64}, UnitRange{Int64}}=nothing,
+    work_dir::String=pwd(),
+    )
+    OutputSettings(filename, framerate, px_per_unit, range, work_dir)
+end
+
+# ============================================================
+#  Argument Parsing
+# ============================================================
+function apply_settings_string!(settings::OutputSettings, settings_str::String)::OutputSettings
+    isempty(settings_str) && return settings
+
+    kw_dict = Parsing.parse_kwargs(settings_str)
+    for (k, v) in kw_dict
+        if hasproperty(settings, k)
+            try
+                setproperty!(settings, k, v)
+            catch e
+                @warn "Failed to set OutputSettings.$k with value $v: $e"
+            end
+        else
+            fields = fieldnames(typeof(settings))
+            @warn "Unknown OutputSettings property: $k. Available fields: $fields"
+            continue
+        end
+    end
+    settings
+end
+
+# ============================================================
+#  Directory Management
+# ============================================================
+
+macro cd(settings, expr)
+    return quote
+        old_dir = pwd()
+        try
+            cd($(esc(settings)).work_dir)
+            $(esc(expr))
+        finally
+            cd(old_dir)
+        end
+    end
 end
 
 # ============================================================
 #  File Writing
 # ============================================================
 function savefig(fig::Figure, settings::OutputSettings)::Nothing
-    filename, tmp_file = get_filenames(settings, Constants.IMAGE_FILE_FORMATS)
+    filename, tmp_file = @cd settings get_filenames(settings, Constants.IMAGE_FILE_FORMATS)
     save(tmp_file, fig, px_per_unit=settings.px_per_unit)
-    mv(tmp_file, filename)
+    @cd settings mv(tmp_file, filename)
     @info "Saved figure to $filename"
     nothing
 end
 
 function record_scene(fig::Figure, settings::OutputSettings, slider::Slider)::Nothing
-    filename, tmp_file = get_filenames(settings, Constants.VIDEO_FILE_FORMATS)
+    filename, tmp_file = @cd settings get_filenames(settings, Constants.VIDEO_FILE_FORMATS)
 
     # Get the range of the slider
     its = isnothing(settings.range) ? slider.range[] : settings.range
@@ -45,7 +90,7 @@ function record_scene(fig::Figure, settings::OutputSettings, slider::Slider)::No
         next!(p)
     end
     @info "Finished recording. Saving ..."
-    mv(tmp_file, filename)
+    @cd settings mv(tmp_file, filename)
     @info "Saved animation to $filename"
     nothing
 end
