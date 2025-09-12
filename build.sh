@@ -52,12 +52,11 @@ fi
 #  Create the executable script
 # ==============================================
 cat <<EOF >"$build_dir/cdfviewer"
-#!/bin/bash
+#!/usr/bin/env -S julia --project=$project_dir -J$build_dir/CDFViewer.so --threads=auto
 
-cd $project_dir
+using CDFViewer
 
-julia --threads auto --project=. -Jbuild/CDFViewer.so \\
-  -e 'using CDFViewer; julia_main()' "\$@"
+julia_main()
 EOF
 chmod +x "$build_dir/cdfviewer"
 
