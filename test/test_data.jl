@@ -15,6 +15,101 @@ using GLMakie
         @test setdiff(dataset.variables, keys(VAR_DICT))[1] == "untaken_dim"
     end
 
+    @testset "Variable Coordinates" begin
+        @testset "Regular Data" begin
+            # Arange
+            dataset = make_temp_dataset()
+
+            # Assert
+            @test length(dataset.var_coords) == length(dataset.variables)
+            @test dataset.var_coords["1d_float"] == ["lon"]
+            @test dataset.var_coords["2d_float"] == ["lon", "lat"]
+            @test dataset.var_coords["2d_gap"] == ["lon", "float_dim"]
+            @test dataset.var_coords["2d_gap_inv"] == ["float_dim", "lon"]
+            @test dataset.var_coords["5d_float"] == ["lon", "lat", "float_dim", "only_unit", "only_long"]
+            @test dataset.var_coords["string_var"] == ["string_dim"]
+            @test dataset.var_coords["untaken_dim"] == ["untaken"]
+        end
+
+        @testset "Unstructured Data" begin
+            # Arange
+            dataset = make_unstructured_temp_dataset()
+
+            # Assert
+            @test length(dataset.var_coords) == length(dataset.variables)
+            @test issetequal(
+                dataset.coordinates,
+                ["ncells", "nvertices", "time", "clon", "clat", "vlon", "vlat", "depth"])
+            @test issetequal(
+                dataset.var_coords["zos"],
+                ["time", "ncells", "clon", "clat"])
+            @test issetequal(
+                dataset.var_coords["u"],
+                ["time", "depth", "ncells", "clon", "clat"])
+            @test issetequal(
+                dataset.var_coords["vort"],
+                ["time", "depth", "nvertices", "vlon", "vlat"])
+        end
+
+        @testset "Semi Unstructured Data" begin
+            # Arange
+            dataset = make_semi_unstructured_temp_dataset()
+
+            # Assert
+            @test length(dataset.var_coords) == length(dataset.variables)
+            @test issetequal(
+                dataset.coordinates,
+                ["time", "x", "y", "lon", "lat"])
+            @test issetequal(
+                dataset.var_coords["temp"],
+                ["time", "x", "y", "lon", "lat"])
+            @test issetequal(
+                dataset.var_coords["mask"],
+                ["x", "y", "lon", "lat"])
+        end
+    end
+
+    @testset "Paired Coordinates" begin
+        @testset "Regular Data" begin
+            # Arange
+            dataset = make_temp_dataset()
+
+            # Assert: Regular data should have no paired coordinates
+            for p_coords in values(dataset.paired_coords)
+                @test isempty(p_coords)
+            end
+        end
+
+        @testset "Unstructured Data" begin
+            # Arange
+            dataset = make_unstructured_temp_dataset()
+
+            # Assert
+            @test length(dataset.paired_coords) == length(dataset.coordinates)
+            @test issetequal(dataset.paired_coords["clon"], ["clat"])
+            @test issetequal(dataset.paired_coords["clat"], ["clon"])
+            @test issetequal(dataset.paired_coords["vlon"], ["vlat"])
+            @test issetequal(dataset.paired_coords["vlat"], ["vlon"])
+            @test isempty(dataset.paired_coords["ncells"])
+            @test isempty(dataset.paired_coords["nvertices"])
+            @test isempty(dataset.paired_coords["time"])
+            @test isempty(dataset.paired_coords["depth"])
+        end
+
+        @testset "Semi Unstructured Data" begin
+            # Arange
+            dataset = make_semi_unstructured_temp_dataset()
+
+            # Assert
+            @test length(dataset.paired_coords) == length(dataset.coordinates)
+            @test issetequal(dataset.paired_coords["lon"], ["lat"])
+            @test issetequal(dataset.paired_coords["lat"], ["lon"])
+            @test isempty(dataset.paired_coords["x"])
+            @test isempty(dataset.paired_coords["y"])
+            @test isempty(dataset.paired_coords["time"])
+        end
+    end
+
     @testset "Variable Dimensions" begin
         # Arange
         dataset = make_temp_dataset()

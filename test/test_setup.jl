@@ -108,19 +108,19 @@ function init_unstructured_temp_dataset()::String
             "calendar" => "gregorian",
             "axis" => "T",
             "units" => "minutes since 2000-1-1 00:00:00"))
-        defVar(ds, "clon", rand(ncells) * 2π - π, ("ncells",), attrib = OrderedDict(
+        defVar(ds, "clon", LinRange(-π, π, ncells), ("ncells",), attrib = OrderedDict(
             "standard_name" => "longitude",
             "long_name" => "center longitude",
             "units" => "radian"))
-        defVar(ds, "clat", rand(ncells) * π - π/2, ("ncells",), attrib = OrderedDict(
+        defVar(ds, "clat", LinRange(-π/2, π/2, ncells), ("ncells",), attrib = OrderedDict(
             "standard_name" => "latitude",
             "long_name" => "center latitude",
             "units" => "radian"))
-        defVar(ds, "vlon", rand(nvertices) * 2π - π, ("nvertices",), attrib = OrderedDict(
+        defVar(ds, "vlon", LinRange(-π, π, nvertices), ("nvertices",), attrib = OrderedDict(
             "standard_name" => "longitude",
             "long_name" => "vertex longitude",
             "units" => "radian"))
-        defVar(ds, "vlat", rand(nvertices) * π - π/2, ("nvertices",), attrib = OrderedDict(
+        defVar(ds, "vlat", LinRange(-π/2, π/2, nvertices), ("nvertices",), attrib = OrderedDict(
             "standard_name" => "latitude",
             "long_name" => "vertex latitude",
             "units" => "radian"))
@@ -158,3 +158,54 @@ end
 function make_unstructured_temp_dataset()
     Data.CDFDataset([init_unstructured_temp_dataset()])
 end
+
+function init_semi_unstructured_temp_dataset()::String
+    file = tempname() * ".nc"
+
+    nx = 10
+    ny = 15
+    ntime = 5
+
+    x = LinRange(10, 90, nx)  # Radius
+    y = LinRange(0, 2π, ny)  # Angle
+
+    lon = x .* cos.(y')
+    lat = x .* sin.(y')
+
+    NCDataset(file,"c",attrib = OrderedDict("title" => "this is a test file with semi-unstructured data")) do ds
+        # Coordinates
+        defVar(ds, "time", collect(1:ntime), ("time",), attrib = OrderedDict(
+            "standard_name" => "time",
+            "calendar" => "gregorian",
+            "axis" => "T",
+            "units" => "minutes since 2000-1-1 00:00:00"))
+        defVar(ds, "lon", lon, ("x", "y"), attrib = OrderedDict(
+            "standard_name" => "longitude",
+            "long_name" => "longitude",
+            "units" => "degrees"))
+        defVar(ds, "lat", lat, ("x", "y"), attrib = OrderedDict(
+            "standard_name" => "latitude",
+            "long_name" => "latitude",
+            "units" => "degrees"))
+        # Variables
+        defVar(ds, "temp", rand(ntime, nx, ny), ("time", "x", "y"), attrib = OrderedDict(
+            "standard_name" => "sea_water_temperature",
+            "long_name" => "sea water temperature",
+            "units" => "degC",
+            "coordinates" => "lon lat"))
+        defVar(ds, "salt", rand(ntime, nx, ny), ("time", "x", "y"), attrib = OrderedDict(
+            "standard_name" => "sea_water_salinity",
+            "long_name" => "sea water salinity",
+            "units" => "psu",
+            "coordinates" => "lon lat"))
+        defVar(ds, "mask", rand(0:1, nx, ny), ("x", "y"), attrib = OrderedDict(
+            "long_name" => "land-sea mask",
+            "flag_values" => "0, 1",
+            "flag_meanings" => "land sea",
+            "coordinates" => "lon lat"))
+    end
+
+    file
+end
+
+make_semi_unstructured_temp_dataset() = Data.CDFDataset([init_semi_unstructured_temp_dataset()])

@@ -14,7 +14,10 @@ import ..Constants
 struct CDFDataset
     ds::NCDataset
     dimensions::Vector{String}
+    coordinates::Vector{String}
     variables::Vector{String}
+    var_coords::Dict{String, Vector{String}}
+    paired_coords::Dict{String, Vector{String}}
 end
 
 # ---------------------------------------------------
@@ -29,9 +32,72 @@ function CDFDataset(file_paths::Vector{String})::CDFDataset
     end
 
     dimensions = collect(keys(ds.dim))
-    variables = setdiff(collect(keys(ds)), dimensions)
+    var_coords = get_var_coordinates(ds)
+    coordinates = unique(vcat(values(var_coords)...))
+    variables = collect(keys(var_coords))
+    paired_coords = Dict(coord => get_paired_coordinates(coord, var_coords, ds)
+                         for coord in coordinates)
 
-    CDFDataset(ds, dimensions, variables)
+    CDFDataset(ds, dimensions, coordinates, variables, var_coords, paired_coords)
+end
+
+function get_var_coordinates(ds::NCDataset)::Dict{String, Vector{String}}
+    dimensions = collect(keys(ds.dim))
+    variables = setdiff(collect(keys(ds)), dimensions)
+    possible_coords = union(dimensions, variables)
+
+    var_coords = Dict{String, Vector{String}}()
+    for var in variables
+        # First get the dimensions of the variable (They are always coordinates)
+        v_coords = collect(dimnames(ds[var]))
+
+        # Then check the "coordinates" attribute (if it exists)
+        atts = ds[var].attrib
+        if haskey(atts, "coordinates")
+            # Assume space-separated list of coordinates (e.g. "lat lon")
+            att_coords = split(atts["coordinates"])
+            for c in att_coords
+                if c ∈ possible_coords
+                    push!(v_coords, c)
+                else
+                    @warn "Coordinate '$c' listed in 'coordinates' attribute of variable '$var' not found in dataset"
+                end
+            end
+        end
+        var_coords[var] = unique(v_coords)
+    end
+
+    var_coords
+end
+
+function get_paired_coordinates(
+        coord::String,
+        var_coords::Dict{String, Vector{String}},
+        ds::NCDataset,
+        )::Vector{String}
+    # If the coordinate is a dimension of the dataset, it has no paired coordinates
+    coord ∈ keys(ds.dim) && return String[] 
+    # Get the dimensions of the coordinate variable
+    coord_dims = collect(dimnames(ds[coord]))
+    # Check for "hidden" paired coordinates
+    # Consider for example a variable with coords (time, lat, lon)
+    # where both lat and lon share the same dimension (e.g. "ncells")
+    # In this case, lat and lon are "hidden" paired coordinates
+    paired_coords = String[]
+    for v_coords in values(var_coords)
+        coord ∉ v_coords && continue  # This variable does not depend on the coordinate
+        for c in v_coords
+            c ∈ keys(ds.dim) && continue  # Skip dimensions
+            c == coord && continue  # Skip the original coordinate
+            # Check if the variable shares any dimension with the coordinate
+            c_dims = collect(dimnames(ds[c]))
+            if !isempty(intersect(coord_dims, c_dims))
+                push!(paired_coords, c)
+            end
+        end
+    end
+    # We remove duplicates and the original coordinate
+    unique(setdiff(paired_coords, [coord]))
 end
 
 # ---------------------------------------------------
