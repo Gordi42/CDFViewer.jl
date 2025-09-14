@@ -25,6 +25,20 @@ const TITLESIZE = 24
 
 const N_INTERPOLATION_POINTS = 500
 
+const COORDINATE_ORDER_PRIORITY = Dict(
+    "lon" => 1,
+    "longitude" => 1,
+    "x" => 1,
+    "lat" => 2,
+    "latitude" => 2,
+    "y" => 2,
+    "level" => 3,
+    "depth" => 3,
+    "z" => 3,
+    "time" => 4,
+)
+
+
 # ============================================
 #  PLOT TYPES
 # ============================================

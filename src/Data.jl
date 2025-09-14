@@ -38,6 +38,8 @@ function CDFDataset(file_paths::Vector{String})::CDFDataset
     dimensions = collect(keys(ds.dim))
     var_coords = get_var_coordinates(ds)
     coordinates = unique(vcat(values(var_coords)...))
+    # Sort the coordinates
+    coordinates = sort_coordinates(ds, coordinates)
     variables = collect(keys(var_coords))
     paired_coords = Dict(coord => get_paired_coordinates(coord, var_coords, ds)
                          for coord in coordinates)
@@ -83,7 +85,6 @@ function get_var_coordinates(ds::NCDataset)::OrderedDict{String, Vector{String}}
     for coord in coordinates
         haskey(var_coords, coord) && delete!(var_coords, coord)
     end
-
     var_coords
 end
 
@@ -172,13 +173,36 @@ function get_group_ids_of_var_dims(
     group_ids_of_var_dims
 end
 
+function get_coord_order_priority(ds::NCDataset, coord::String)::Int
+    # if COORDINATE_ORDER_PRIORITY has an entry for the name, we return it
+    haskey(Constants.COORDINATE_ORDER_PRIORITY, lowercase(coord)) && 
+        return Constants.COORDINATE_ORDER_PRIORITY[lowercase(coord)]
+
+    # otherwise we look if the coord has a standard_name attribute
+    # and check if that is in the COORDINATE_ORDER_PRIORITY
+    if haskey(ds, coord)
+        atts = ds[coord].attrib
+        if haskey(atts, "standard_name")
+            std_name = atts["standard_name"]
+            haskey(Constants.COORDINATE_ORDER_PRIORITY, lowercase(std_name)) && 
+                return Constants.COORDINATE_ORDER_PRIORITY[lowercase(std_name)]
+        end
+    end
+
+    # If we still didn't find anything, we return a high number
+    return 99
+end
+
+function sort_coordinates(ds::NCDataset, coords::Vector{String})::Vector{String}
+    sort(coords, by = c -> get_coord_order_priority(ds, c))
+end
 
 # ---------------------------------------------------
 #  Methods
 # ---------------------------------------------------
 
 function get_var_dims(dataset::CDFDataset, var::String)::Vector{String}
-    return dataset.var_coords[var]
+    return sort_coordinates(dataset.ds, dataset.var_coords[var])
 end
 
 function get_label(dataset::CDFDataset, var::String)::String

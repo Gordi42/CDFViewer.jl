@@ -15,6 +15,7 @@ using GLMakie
         @test dataset isa Data.CDFDataset
         @test setdiff(dataset.dimensions, keys(DIM_DICT))[1] == "untaken"
         @test setdiff(dataset.variables, keys(VAR_DICT))[1] == "untaken_dim"
+        @test dataset.coordinates[1:3] == ["lon", "lat", "time"]
     end
 
     @testset "Variable Coordinates" begin
@@ -170,7 +171,7 @@ using GLMakie
         @test Data.get_var_dims(dataset, "1d_float") == ["lon"]
         @test Data.get_var_dims(dataset, "2d_float") == ["lon", "lat"]
         @test Data.get_var_dims(dataset, "2d_gap") == ["lon", "float_dim"]
-        @test Data.get_var_dims(dataset, "2d_gap_inv") == ["float_dim", "lon"]
+        @test Data.get_var_dims(dataset, "2d_gap_inv") == ["lon", "float_dim"]
     end
 
     @testset "Labels" begin
