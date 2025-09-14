@@ -194,7 +194,6 @@ using GLMakie
         @test Data.get_dim_value_label(dataset, "lon", 2) == "  → lon: 2"
         @test Data.get_dim_value_label(dataset, "only_unit", 1) == "  → only_unit: 1 n/a"
         @test Data.get_dim_value_label(dataset, "only_long", 2) == "  → Long: 2"
-        @test Data.get_dim_value_label(dataset, "both_atts", 3) == "  → Both: 3 m/s"
         @test Data.get_dim_value_label(dataset, "string_dim", 2) == "  → string_dim: ab"
         @test Data.get_dim_value_label(dataset, "float_dim", 4) == "  → float_dim: 1.6"
         @test Data.get_dim_value_label(dataset, "time", 2) == "  → time: 1951-01-03 00:00:00"

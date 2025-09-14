@@ -3,6 +3,7 @@ module UI
 using GLMakie
 
 import ..Constants
+import ..Interpolate
 import ..Data
 import ..Output
 
@@ -96,14 +97,16 @@ function CoordinateSliders(fig::Figure, dataset::Data.CDFDataset)::CoordinateSli
     # align the toggle to the right
     auto_update = Toggle(fig, active = false, halign = :right)
     coord_sliders = SliderGrid(fig,[
-        (label=dim, range=1:dataset.ds.dim[dim], startvalue=1, update_while_dragging=auto_update.active)
-        for dim in dataset.dimensions]...)
+        (label=dim,
+        range=1:length(Data.get_dim_values(dataset, dim)),
+        startvalue=1, update_while_dragging=auto_update.active)
+        for dim in dataset.coordinates]...)
     labels = Dict(
-        dim => coord_sliders.labels[i] for (i, dim) in enumerate(dataset.dimensions))
+        dim => coord_sliders.labels[i] for (i, dim) in enumerate(dataset.coordinates))
     sliders = Dict(
-        dim => coord_sliders.sliders[i] for (i, dim) in enumerate(dataset.dimensions))
+        dim => coord_sliders.sliders[i] for (i, dim) in enumerate(dataset.coordinates))
     valuelabels = Dict(
-        dim => coord_sliders.valuelabels[i] for (i, dim) in enumerate(dataset.dimensions))
+        dim => coord_sliders.valuelabels[i] for (i, dim) in enumerate(dataset.coordinates))
 
     continuous_slider = Dict(key => @lift(float.($(val.value))) for (key, val) in sliders)
     for key in keys(sliders)
@@ -141,7 +144,7 @@ function PlaybackMenu(fig::Figure, dataset::Data.CDFDataset, coord_sliders::Dict
     toggle = Toggle(fig, active = false)
     speed_slider = Slider(fig, range = -2.0:0.05:1, startvalue = 0.0)
     var_menu = Menu(fig,
-                    options = [Constants.NOT_SELECTED_LABEL; dataset.dimensions],
+                    options = [Constants.NOT_SELECTED_LABEL; dataset.coordinates],
                     tellwidth = false)
     # Create the label that shows the current value of the selected dimension
     label = Label(fig, Constants.NO_DIM_SELECTED_LABEL, halign = :left, tellwidth = false)
@@ -265,6 +268,7 @@ struct State
     dim_obs::Observable{Dict{String, Int}}
     plot_kw::Observable{Union{String, Nothing}}
     output_settings::Observable{Output.OutputSettings}
+    range_control::Observable{Union{Nothing, Interpolate.RangeControl}}
 end
 
 function State(main_menu::MainMenu)::State
@@ -297,6 +301,7 @@ function State(main_menu::MainMenu)::State
         dim_obs,
         main_menu.plot_menu.plot_kw.stored_string,
         output_settings,
+        Observable(nothing),
     )
 end
 
@@ -325,6 +330,7 @@ function UIElements(dataset::Data.CDFDataset)::UIElements
     main_menu = MainMenu(menu, dataset)
     # Initialize the UI state
     state = State(main_menu)
+    state.range_control[] = dataset.interp.rc
     # Put the menus in the figure
     menu[1, 1] = layout(main_menu)
     # Resize the window to fit the content

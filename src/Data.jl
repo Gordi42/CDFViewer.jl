@@ -207,8 +207,8 @@ function get_dim_value_label(dataset::CDFDataset, dim::String, idx::Int)::String
 
     base = base * var_name * ": "
     # TODO: Use interp to get the value
-    idx > length(dataset.ds[dim]) && return base * "Index $(idx) out of bounds"
-    value = dataset.ds[dim][idx]
+    value = Interpolate.get_coord_value(dataset.interp, dim, idx)
+    isnothing(value) && return base * "Index $(idx) out of bounds"
     value isa Dates.DateTime && return base * Dates.format(value, Constants.DATETIME_FORMAT)
     value isa AbstractString && return base * value * unit
     value isa Number && return base * @sprintf("%g", value) * unit

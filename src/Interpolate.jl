@@ -71,15 +71,6 @@ This may take a while to compute the KDTree (required for interpolation)."""
     relevant_coords, KDTree(points)
 end
 
-function convert_to_float64(ds::NCDataset, coord::String)::Vector{Float64}
-    try
-        convert(Vector{Float64}, ds[coord][:])
-    catch
-        dim_len = ds.dim[coord]
-        Float64.(1:dim_len)
-    end
-end
-
 function compute_range(
     ds::NCDataset,
     coord::String,
@@ -334,6 +325,28 @@ end
 # ====================================================
 #  Data collection helpers
 # ====================================================
+
+function convert_to_float64(ds::NCDataset, coord::String)::Vector{Float64}
+    try
+        convert(Vector{Float64}, ds[coord][:])
+    catch
+        dim_len = ds.dim[coord]
+        Float64.(1:dim_len)
+    end
+end
+
+function get_coord_value(
+    interp::Interpolator,
+    coord::String,
+    index::Int,
+)
+    arr = isnothing(interp.ranges[coord]) ? interp.ds[coord] : interp.ranges[coord]
+    index > length(arr) && return nothing
+    arr[index]
+end
+
+
+
 
 
 # ====================================================

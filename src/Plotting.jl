@@ -6,6 +6,7 @@ using GLMakie
 using Suppressor
 
 import ..Constants
+import ..Interpolate
 import ..Data
 import ..UI
 import ..Parsing
@@ -145,6 +146,7 @@ struct FigureData
     data_inspector::Observable{Union{DataInspector, Nothing}}
     tasks::Observable{Vector{Task}}
     figsize::Observable{Tuple{Int, Int}}
+    range_control::Observable{Interpolate.RangeControl}
 end
 
 function FigureData(plot_data::PlotData, ui_state::UI.State)::FigureData
@@ -158,7 +160,7 @@ function FigureData(plot_data::PlotData, ui_state::UI.State)::FigureData
 
     # Construct the FigureData
     fd = FigureData(fig, plot_data, ax, plot_obj, cbar,
-        data_inspector, Observable(Task[]), figsize)
+        data_inspector, Observable(Task[]), figsize, ui_state.range_control)
 
     # Setup a listener to create the plot if the axis changes
     on(ax) do a
@@ -308,7 +310,7 @@ function get_property_mappings(kwargs::Dict{Symbol, Any}, fig_data::FigureData):
     mappings = Vector{PropertyMapping}()
     for (property, intended_value) in kwargs
         found_targets = 0
-        for target_obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[], fig_data)
+        for target_obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[], fig_data, fig_data.range_control[])
             target_obj === nothing && continue
             property ∉ propertynames(target_obj) && continue
             
