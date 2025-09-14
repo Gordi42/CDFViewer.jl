@@ -125,7 +125,7 @@ function interpolate(
     data_dimensions::Vector{Vector{String}},
     output_dimensions::Vector{String},
     dim_selection::Dict{String, Int},
-)
+)::Array
     # Here is a sketch of what the function should do:
     # Let data be an array of size (nx, ny, nz)
     # data_dimensions tells what coordinates are associated to each dimension (can be multiple)
@@ -330,6 +330,11 @@ function compute_nn_indices(
     end
     nn_indices
 end
+
+# ====================================================
+#  Data collection helpers
+# ====================================================
+
 
 # ====================================================
 #  Property overloading for easier access
