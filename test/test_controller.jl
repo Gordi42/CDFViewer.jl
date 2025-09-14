@@ -539,6 +539,57 @@ NS = Constants.NOT_SELECTED_LABEL
             @test controller.fd.figsize[] == (200, 200)
         end
 
+        @testset "Interpolation Ranges" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="heatmap")
+            rc = controller.ui.state.range_control[]
+
+            # Act: set the interpolation ranges to StepRange
+            controller.ui.state.plot_kw[] = "lon=-2:0.5:2"
+            [wait(t) for t in controller.fd.tasks[]]
+
+            # Assert: should update the interpolation ranges
+            @test rc.lon == -2:0.5:2
+            @test controller.fd.plot_data.x[] == collect(-2:0.5:2)
+            @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
+
+            # Act: set the interpolation ranges to Range
+            controller.ui.state.plot_kw[] = "lon=0:4"
+            [wait(t) for t in controller.fd.tasks[]]
+
+            # Assert: should update the interpolation ranges
+            @test rc.lon == 0:4
+            @test controller.fd.plot_data.x[] == collect(0:4)
+            @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
+
+            # Act: set the interpolation ranges to Vector
+            controller.ui.state.plot_kw[] = "lon=[-1, 0, 1]"
+            [wait(t) for t in controller.fd.tasks[]]
+
+            # Assert: should update the interpolation ranges
+            @test rc.lon == [-1, 0, 1]
+            @test controller.fd.plot_data.x[] == [-1, 0, 1]
+            @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
+
+            # Act: set the interpolation ranges to Tuple
+            controller.ui.state.plot_kw[] = "lon=(-1, 0, 10)"
+            [wait(t) for t in controller.fd.tasks[]]
+
+            # Assert: should update the interpolation ranges
+            @test rc.lon == LinRange(-1, 0, 10)
+            @test controller.fd.plot_data.x[] == collect(LinRange(-1, 0, 10))
+            @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
+
+            # Act: set the interpolation ranges to nothing
+            controller.ui.state.plot_kw[] = "lon=nothing"
+            [wait(t) for t in controller.fd.tasks[]]
+
+            # Assert: should update the interpolation ranges
+            @test rc.lon ≈ rc.interp.ds["lon"][:]
+            @test controller.fd.plot_data.x[] == rc.interp.ds["lon"][:]
+            @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
+        end
+
     end
 
     @testset "Export String" begin

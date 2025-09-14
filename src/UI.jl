@@ -348,7 +348,7 @@ end
 function update_coord_ranges!(
     ui::UIElements,
     property::Symbol,
-    new_range::Union{AbstractArray, Tuple{Real, Real, Real}},
+    new_range::Union{AbstractArray, Tuple{Real, Real, Real}, Nothing},
     update_switch::Observable{Bool},
     )::Nothing
     # Disable Updates
@@ -371,6 +371,9 @@ function update_coord_ranges!(
 
         # Update the range control
         setproperty!(rc, property, new_range)
+
+        # Get the updated range (after setting the property)
+        new_range = getproperty(rc, property)
 
         # Update the slider range
         slider.range[] = 1:length(new_range)

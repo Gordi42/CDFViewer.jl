@@ -19,7 +19,8 @@ using NearestNeighbors
 
             # Assert: All trees should be initialized
             for tree in values(interp.trees)
-                @test tree isa KDTree
+                @test tree isa Interpolate.LazyTree
+                @test tree._cache[] === nothing
             end
         end
 
@@ -44,7 +45,8 @@ using NearestNeighbors
 
             # Assert: All trees should be initialized
             for tree in values(interp.trees)
-                @test tree isa KDTree
+                @test tree isa Interpolate.LazyTree
+                @test tree._cache[] === nothing
             end
             # Assert: Paired coordinates should be in the same group
             @test interp.group_map["clon"] == interp.group_map["clat"]
@@ -193,6 +195,10 @@ using NearestNeighbors
             # Assert
             @test size(new_data) == (length(ds["time"]), length(ds["lat"]), length(ds["float_dim"]), length(ds["lon"]))
             @test eltype(new_data) == eltype(ds["4d_float"][:])
+            for tree in values(interp.trees)
+                @test tree isa Interpolate.LazyTree
+                @test tree._cache[] === nothing
+            end
         end
 
         @testset "Regular Data - Interpolation" begin
@@ -209,6 +215,7 @@ using NearestNeighbors
 
                 # Assert
                 @test length(new_data) == length(interp.rc.lon)
+                @test interp.trees[interp.group_map["lon"]]._cache[] !== nothing  # Cache should be computed
             end
 
             @testset "Point in 1D Array" begin

@@ -6,12 +6,26 @@ using NCDatasets
 using ..Constants
 
 
+struct LazyTree
+    compute_func::Function
+    _cache::Ref{Union{Nothing, KDTree}}
+    
+    LazyTree(f::Function) = new(f, Ref{Union{Nothing, KDTree}}(nothing))
+end
+
+function Base.getindex(lt::LazyTree)
+    if isnothing(lt._cache[])
+        lt._cache[] = lt.compute_func()
+    end
+    lt._cache[]
+end
+
 struct Interpolator
     ranges::Dict{String, Union{AbstractArray, Nothing}}
     group_map::Dict{String, Int}  # Map from coordinate to group index
     groups::Dict{Int, Vector{String}}
     index_cache::Dict{Int, Any}
-    trees::Dict{Int, KDTree}  # Map from group index to KDTree
+    trees::Dict{Int, LazyTree}  # Map from group index to KDTree (lazily computed)
     ds::NCDataset  # Store the dataset for range computations
 end
 
@@ -27,19 +41,18 @@ function Interpolator(
     group_map = Dict{String, Int}()
     groups = Dict{Int, Vector{String}}()
     index_cache = Dict{Int, Array{Int}}()
-    trees = Dict{Int, KDTree}()
+    trees = Dict{Int, LazyTree}()
     i = 1
     for coord in keys(paired_coords)
         # Compute the range for this coordinate
         ranges[coord] = length(paired_coords[coord]) == 0 ? nothing : compute_range(ds, coord)
         # Skip if the tree is already computed
         coord ∈ keys(group_map) && continue
-        # Compute the KDTree for this coordinate and its paired coordinates
-        p_coords, tree = compute_tree(ds, coord, paired_coords)
+        # Add a lazy tree computation
+        trees[i] = LazyTree( () -> compute_tree(ds, coord, paired_coords) )
         # Store the tree and the ordered paired coordinates
-        groups[i] = p_coords
-        trees[i] = tree
-        for c in p_coords
+        groups[i] = [coord; paired_coords[coord]]
+        for c in [coord; paired_coords[coord]]
             group_map[c] = i
         end
         i += 1
@@ -52,7 +65,7 @@ function compute_tree(
     ds::NCDataset,
     coord::String,
     paired_coords::Dict{String, Vector{String}},
-    )::Tuple{Vector{String}, KDTree}
+    )::KDTree
     relevant_coords = [coord; paired_coords[coord]]
     coord_values = [convert_to_float64(ds, c) for c in relevant_coords]
 
@@ -68,7 +81,7 @@ This may take a while to compute the KDTree (required for interpolation)."""
     end
 
     # Create and return the KDTree
-    relevant_coords, KDTree(points)
+    KDTree(points)
 end
 
 function compute_range(
@@ -283,7 +296,7 @@ function get_nn_indices(
     index_cache = interp.index_cache
     haskey(index_cache, group_id) && return index_cache[group_id]
     group = interp.groups[group_id]
-    tree = interp.trees[group_id]
+    tree = interp.trees[group_id][]
     coords = [interp.ranges[c] for c in group]
 
     nn_indices = compute_nn_indices(tree, coords)
