@@ -23,6 +23,8 @@ const FIGSIZE = (800, 600)
 const LABELSIZE = 20
 const TITLESIZE = 24
 
+const N_INTERPOLATION_POINTS = 500
+
 # ============================================
 #  PLOT TYPES
 # ============================================

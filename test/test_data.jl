@@ -39,16 +39,16 @@ using GLMakie
             @test length(dataset.var_coords) == length(dataset.variables)
             @test issetequal(
                 dataset.coordinates,
-                ["ncells", "nvertices", "time", "clon", "clat", "vlon", "vlat", "depth"])
+                ["time", "clon", "clat", "vlon", "vlat", "depth"])
             @test issetequal(
                 dataset.var_coords["zos"],
-                ["time", "ncells", "clon", "clat"])
+                ["time", "clon", "clat"])
             @test issetequal(
                 dataset.var_coords["u"],
-                ["time", "depth", "ncells", "clon", "clat"])
+                ["time", "depth", "clon", "clat"])
             @test issetequal(
                 dataset.var_coords["vort"],
-                ["time", "depth", "nvertices", "vlon", "vlat"])
+                ["time", "depth", "vlon", "vlat"])
         end
 
         @testset "Semi Unstructured Data" begin
@@ -59,13 +59,13 @@ using GLMakie
             @test length(dataset.var_coords) == length(dataset.variables)
             @test issetequal(
                 dataset.coordinates,
-                ["time", "x", "y", "lon", "lat"])
+                ["time", "lon", "lat"])
             @test issetequal(
                 dataset.var_coords["temp"],
-                ["time", "x", "y", "lon", "lat"])
+                ["time", "lon", "lat"])
             @test issetequal(
                 dataset.var_coords["mask"],
-                ["x", "y", "lon", "lat"])
+                ["lon", "lat"])
         end
     end
 
@@ -90,8 +90,6 @@ using GLMakie
             @test issetequal(dataset.paired_coords["clat"], ["clon"])
             @test issetequal(dataset.paired_coords["vlon"], ["vlat"])
             @test issetequal(dataset.paired_coords["vlat"], ["vlon"])
-            @test isempty(dataset.paired_coords["ncells"])
-            @test isempty(dataset.paired_coords["nvertices"])
             @test isempty(dataset.paired_coords["time"])
             @test isempty(dataset.paired_coords["depth"])
         end
@@ -104,8 +102,6 @@ using GLMakie
             @test length(dataset.paired_coords) == length(dataset.coordinates)
             @test issetequal(dataset.paired_coords["lon"], ["lat"])
             @test issetequal(dataset.paired_coords["lat"], ["lon"])
-            @test isempty(dataset.paired_coords["x"])
-            @test isempty(dataset.paired_coords["y"])
             @test isempty(dataset.paired_coords["time"])
         end
     end

@@ -58,6 +58,9 @@ function get_var_coordinates(ds::NCDataset)::Dict{String, Vector{String}}
             att_coords = split(atts["coordinates"])
             for c in att_coords
                 if c ∈ possible_coords
+                    c_dims = collect(dimnames(ds[c]))
+                    # remove the dependent dimensions of the coordinate variable
+                    v_coords = setdiff(v_coords, c_dims)
                     push!(v_coords, c)
                 else
                     @warn "Coordinate '$c' listed in 'coordinates' attribute of variable '$var' not found in dataset"
@@ -65,6 +68,12 @@ function get_var_coordinates(ds::NCDataset)::Dict{String, Vector{String}}
             end
         end
         var_coords[var] = unique(v_coords)
+    end
+
+    # remove all variables that are itself coordinates of other variables
+    coordinates = unique(vcat(values(var_coords)...))
+    for coord in coordinates
+        haskey(var_coords, coord) && delete!(var_coords, coord)
     end
 
     var_coords
