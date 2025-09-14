@@ -21,7 +21,8 @@ end
 
 function Interpolator(
     ds::NCDataset,
-    paired_coords::Dict{String, Vector{String}})::Interpolator
+    paired_coords::Dict{String, Vector{String}}
+)::Interpolator
     ranges = Dict{String, Union{AbstractArray, Nothing}}()
     group_map = Dict{String, Int}()
     groups = Dict{Int, Vector{String}}()

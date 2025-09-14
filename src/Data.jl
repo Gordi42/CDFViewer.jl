@@ -2,6 +2,7 @@ module Data
 
 using Dates
 using Printf
+using DataStructures
 using NCDatasets
 using GLMakie
 
@@ -16,7 +17,7 @@ struct CDFDataset
     dimensions::Vector{String}
     coordinates::Vector{String}
     variables::Vector{String}
-    var_coords::Dict{String, Vector{String}}
+    var_coords::OrderedDict{String, Vector{String}}
     paired_coords::Dict{String, Vector{String}}
 end
 
@@ -41,12 +42,12 @@ function CDFDataset(file_paths::Vector{String})::CDFDataset
     CDFDataset(ds, dimensions, coordinates, variables, var_coords, paired_coords)
 end
 
-function get_var_coordinates(ds::NCDataset)::Dict{String, Vector{String}}
+function get_var_coordinates(ds::NCDataset)::OrderedDict{String, Vector{String}}
     dimensions = collect(keys(ds.dim))
     variables = setdiff(collect(keys(ds)), dimensions)
     possible_coords = union(dimensions, variables)
 
-    var_coords = Dict{String, Vector{String}}()
+    var_coords = OrderedDict{String, Vector{String}}()
     for var in variables
         # First get the dimensions of the variable (They are always coordinates)
         v_coords = collect(dimnames(ds[var]))
@@ -81,7 +82,7 @@ end
 
 function get_paired_coordinates(
         coord::String,
-        var_coords::Dict{String, Vector{String}},
+        var_coords::OrderedDict{String, Vector{String}},
         ds::NCDataset,
         )::Vector{String}
     # If the coordinate is a dimension of the dataset, it has no paired coordinates
