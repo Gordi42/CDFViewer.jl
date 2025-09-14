@@ -344,7 +344,7 @@ using CDFViewer.Plotting
             ui = UI.UIElements(dataset)
 
             plot_data = Plotting.PlotData(ui.state, dataset)
-            fig_data = Plotting.FigureData(plot_data, ui.state)
+            fig_data = Plotting.FigureData(plot_data, ui)
             (fig_data, ui.state)
         end
 

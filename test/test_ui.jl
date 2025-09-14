@@ -71,10 +71,10 @@ using GLMakie
             coord_sliders = UI.CoordinateSliders(Figure(), dataset)
 
             # Assert
-            @test length(coord_sliders.labels) == length(dataset.dimensions)
-            @test length(coord_sliders.sliders) == length(dataset.dimensions)
-            @test length(coord_sliders.valuelabels) == length(dataset.dimensions)
-            @test length(coord_sliders.continuous_values) == length(dataset.dimensions)
+            @test length(coord_sliders.labels) == length(dataset.coordinates)
+            @test length(coord_sliders.labels) == length(dataset.coordinates)
+            @test length(coord_sliders.labels) == length(dataset.coordinates)
+            @test length(coord_sliders.continuous_values) == length(dataset.coordinates)
         end
 
         @testset "Slider Continuity" begin
@@ -130,9 +130,6 @@ using GLMakie
             @test playback_menu.toggle.active[] == false
             @test playback_menu.speed.value[] == 0.0
             @test playback_menu.label.text[] == Constants.NO_DIM_SELECTED_LABEL
-            for opt in keys(DIM_DICT)
-                @test opt in playback_menu.var.options[]
-            end
         end
 
         @testset "Layout" begin

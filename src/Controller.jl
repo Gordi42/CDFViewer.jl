@@ -35,7 +35,7 @@ function ViewerController(dataset::Data.CDFDataset;
     ui.state.output_settings[].filename = get_standard_filename(parsed_args)
     # Set up the plotting
     plot_data = Plotting.PlotData(ui.state, dataset)
-    fig_data = Plotting.FigureData(plot_data, ui.state)
+    fig_data = Plotting.FigureData(plot_data, ui)
     menu_screen = GLMakie.Screen(visible = false, title = "CDFViewer - Menu") # Start hidden
     fig_screen = GLMakie.Screen(visible = false, title = "CDFViewer - Figure")  # Start hidden
     display(menu_screen, ui.menu)

@@ -345,4 +345,47 @@ function compute_height(num_vars::Int)::Int
     base_height + num_vars * per_var_height
 end
 
+function update_coord_ranges!(
+    ui::UIElements,
+    property::Symbol,
+    new_range::Union{AbstractArray, Tuple{Real, Real, Real}},
+    update_switch::Observable{Bool},
+    )::Nothing
+    # Disable Updates
+    old_update = update_switch[]
+    update_switch[] = false
+    # Get the name of the property
+    prop_name = String(property)
+    try
+        # If the new_range is a tuple with three elements, convert it to a LinRange
+        if isa(new_range, Tuple) && length(new_range) == 3
+            new_range = LinRange(new_range...)
+        end
+        # Get the range control
+        rc = ui.state.range_control[]
+        # Update the range of the corresponding slider
+        slider = ui.main_menu.coord_sliders.sliders[prop_name]
+        current_index = slider.value[]
+        current_value = getproperty(rc, property)[current_index]
+        slider.value[] = 1
+
+        # Update the range control
+        setproperty!(rc, property, new_range)
+
+        # Update the slider range
+        slider.range[] = 1:length(new_range)
+
+        # Restore the slider value to the closest value
+        closest_index = argmin(abs.(new_range .- current_value))
+        slider.value[] = closest_index
+
+        update_switch[] = old_update
+    catch e
+        # Re-enable Updates
+        update_switch[] = old_update
+        throw(e)
+    end
+    nothing
+end
+
 end # module

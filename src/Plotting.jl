@@ -147,9 +147,11 @@ struct FigureData
     tasks::Observable{Vector{Task}}
     figsize::Observable{Tuple{Int, Int}}
     range_control::Observable{Interpolate.RangeControl}
+    ui::UI.UIElements
 end
 
-function FigureData(plot_data::PlotData, ui_state::UI.State)::FigureData
+function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
+    ui_state = ui.state
     # Create axis, plot object, and colorbar observables
     figsize = Observable(Constants.FIGSIZE)
     fig = create_figure(figsize[])
@@ -160,7 +162,7 @@ function FigureData(plot_data::PlotData, ui_state::UI.State)::FigureData
 
     # Construct the FigureData
     fd = FigureData(fig, plot_data, ax, plot_obj, cbar,
-        data_inspector, Observable(Task[]), figsize, ui_state.range_control)
+        data_inspector, Observable(Task[]), figsize, ui_state.range_control, ui)
 
     # Setup a listener to create the plot if the axis changes
     on(ax) do a
@@ -331,25 +333,36 @@ function get_property_mappings(kwargs::Dict{Symbol, Any}, fig_data::FigureData):
     return mappings
 end
 
-function apply_property_mappings!(mappings::Vector{PropertyMapping})::Nothing
-    for mapping in mappings
-        mapping.current_value == mapping.intended_value && continue
-        try
-            setproperty!(mapping.target_object, mapping.property, mapping.intended_value)
-        catch e
-            @warn("Error setting property $mapping.property to $mapping.intended_value: $e")
+function set_property_mapping(fd::FigureData, target_object::Any, property::Symbol, value::Any)::Nothing
+    try
+        if isa(target_object, Interpolate.RangeControl)
+            # Special handling for range control
+            UI.update_coord_ranges!(
+                fd.ui,
+                property,
+                value,
+                fd.plot_data.update_data_switch,
+            )
+        else
+            setproperty!(target_object, property, value)
         end
+    catch e
+        @warn("Error setting property $property to $value: $e")
     end
     nothing
 end
 
-function apply_original_property_mappings!(mappings::Vector{PropertyMapping})::Nothing
+function apply_property_mappings!(fd::FigureData, mappings::Vector{PropertyMapping})::Nothing
     for mapping in mappings
-        try
-            setproperty!(mapping.target_object, mapping.property, mapping.current_value)
-        catch e
-            @warn("Error setting property $mapping.property to $mapping.current_value: $e")
-        end
+        mapping.current_value == mapping.intended_value && continue
+        set_property_mapping(fd, mapping.target_object, mapping.property, mapping.intended_value)
+    end
+    nothing
+end
+
+function apply_original_property_mappings!(fd::FigureData, mappings::Vector{PropertyMapping})::Nothing
+    for mapping in mappings
+        set_property_mapping(fd, mapping.target_object, mapping.property, mapping.current_value)
     end
     nothing
 end
@@ -383,7 +396,7 @@ function apply_kwargs!(fig_data::FigureData, kw_str::Union{String, Nothing})::No
     task = @async begin
         output = @capture_err begin
             # @warn "Applying keyword arguments: $kw_str"
-            apply_property_mappings!(mappings)
+            apply_property_mappings!(fig_data, mappings)
 
             # Check if the window is open
             if fig_data.fig.scene.events.window_open[]
@@ -399,7 +412,7 @@ function apply_kwargs!(fig_data::FigureData, kw_str::Union{String, Nothing})::No
                 # print the line to stderr
                 println(stderr, line)
             end
-            apply_original_property_mappings!(mappings)
+            apply_original_property_mappings!(fig_data, mappings)
         end
     end
     push!(fig_data.tasks[], task)
