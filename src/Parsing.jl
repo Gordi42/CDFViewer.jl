@@ -53,12 +53,15 @@ function parse_kwargs(kw_str::String)::Dict{Symbol, Any}
         length(parts) == 2 || continue
         key = Symbol(strip(parts[1]))
         val_str = strip(parts[2])
+
         
         # Parse the value
         if (startswith(val_str, '"') && endswith(val_str, '"')) || 
            (startswith(val_str, '\'') && endswith(val_str, '\''))
             # String: remove quotes
             val = val_str[2:end-1]
+        elseif startswith(val_str, ":")
+            val = Symbol(val_str[2:end])
         elseif occursin(r"^\[.*\]$", val_str)
             # Array: e.g. [1, 2, 3] or [1.0, 2.0, 3.0]
             inner = val_str[2:end-1]
@@ -83,9 +86,13 @@ function parse_kwargs(kw_str::String)::Dict{Symbol, Any}
                     val = tuple((parse_tuple_element(v) for v in vals)...)
                 end
             end
-        elseif occursin(r"^\d+:\d*(:\d+)?$", val_str)
+        elseif occursin(':', val_str) && count(':', val_str) ≤ 2
             # Range: e.g. 1:10, 1:2:10, 5:15
-            val = parse_range(val_str)
+            val = try
+                parse_range(val_str)
+            catch
+                val_str
+            end
         elseif occursin(r"^\d+\.?\d*[eE][+-]?\d+$", val_str) || occursin(r"^\d*\.\d+[eE][+-]?\d+$", val_str)
             # Scientific notation: e.g. 1.5e-3, 2E+5, .5e3
             val = parse(Float64, val_str)
@@ -93,8 +100,6 @@ function parse_kwargs(kw_str::String)::Dict{Symbol, Any}
             val = parse(Int, val_str)
         elseif tryparse(Float64, val_str) !== nothing
             val = parse(Float64, val_str)
-        elseif startswith(val_str, ":")
-            val = Symbol(val_str[2:end])
         elseif haskey(special_values, val_str)
             val = special_values[val_str]
         else
@@ -148,18 +153,29 @@ function parse_range(range_str::Union{String, SubString{String}})
     parts = split(range_str, ':')
     if length(parts) == 2
         # start:stop format
-        start = parse(Int, parts[1])
-        stop = parse(Int, parts[2])
+        start = parse_number(parts[1])
+        stop = parse_number(parts[2])
         return start:stop
     elseif length(parts) == 3
         # start:step:stop format
-        start = parse(Int, parts[1])
-        step = parse(Int, parts[2])
-        stop = parse(Int, parts[3])
+        start = parse_number(parts[1])
+        step = parse_number(parts[2])
+        stop = parse_number(parts[3])
         return start:step:stop
     else
         throw(ArgumentError("Invalid range format: $range_str"))
     end
+end
+
+function parse_number(num_str::Union{String, SubString{String}})
+    if tryparse(Int, num_str) !== nothing
+        return parse(Int, num_str)
+    elseif tryparse(Float64, num_str) !== nothing
+        return parse(Float64, num_str)
+    else
+        throw(ArgumentError("Cannot parse number from string: $num_str"))
+    end
+
 end
 
 end

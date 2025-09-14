@@ -40,7 +40,7 @@ using CDFViewer.Parsing
         @test Parsing.parse_kwargs("log=\"log\" ") == Dict(:log => "log")
     end
 
-    @testset "Arrays and Tuples" begin
+    @testset "Arrays, Tuples and Ranges" begin
         # Arrays
         @test Parsing.parse_kwargs("levels=[1, 2, 4]") == Dict(:levels => [1, 2, 4])
         @test Parsing.parse_kwargs("levels=[1, 2, 4]")[:levels] isa Vector{Int}
@@ -55,6 +55,15 @@ using CDFViewer.Parsing
         @test Parsing.parse_kwargs("colorrange=(0, 1)") == Dict(:colorrange => (0, 1))
         @test Parsing.parse_kwargs("range=(-1.0,1.0)") == Dict(:range => (-1.0, 1.0))
         @test Parsing.parse_kwargs("mixed_tuple=(2e-3, :b, \"label\")") == Dict(:mixed_tuple => (2e-3, :b, "label"))
+
+        # Ranges
+        @test Parsing.parse_kwargs("data=1:10") == Dict(:data => 1:10)
+        @test Parsing.parse_kwargs("data=1:2:10") == Dict(:data => 1:2:10)
+        @test Parsing.parse_kwargs("data=-1:10") == Dict(:data => -1:10)
+        @test Parsing.parse_kwargs("data=4:-2:10") == Dict(:data => 4:-2:10)
+        @test Parsing.parse_kwargs("data=-0.1:0.1:1.0") == Dict(:data => -0.1:0.1:1.0)
+        @test Parsing.parse_kwargs("data=1:0.2:10") == Dict(:data => 1:0.2:10)
+
     end
 
     @testset "Complex Cases" begin
