@@ -34,18 +34,6 @@ If you don't want to compile the application, you can run it directly using juli
 
 # TODO
 
-## Command Line Arguments
-
-- [ ] Add possibility to add command line arguments
-- [ ] Dataset distributed over multiple files ?
-- [ ] Print String with current settings (Export Option)
-
-## Recording and Saving
-
-- [ ] Add functionality to save
-- [ ] Add functionality to record
-- [ ] Add functionality to export
-
 ## Plot Options
 
 - [ ] Add scatter2d
@@ -62,7 +50,3 @@ If you don't want to compile the application, you can run it directly using juli
 - [ ] Add support for dark theme
 - [ ] Add possibility for default configs in a .config folder
 - [ ] Unregular grids ?
-
-## Bugs
-
-- [ ] size kwarg of fig collides with colorbar
