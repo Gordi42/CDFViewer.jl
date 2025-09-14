@@ -7,6 +7,7 @@ using NCDatasets
 using GLMakie
 
 import ..Constants
+import ..Interpolate
 
 # ============================================================
 #  CDF Dataset
@@ -19,6 +20,7 @@ struct CDFDataset
     variables::Vector{String}
     var_coords::OrderedDict{String, Vector{String}}
     paired_coords::Dict{String, Vector{String}}
+    interp::Interpolate.Interpolator
 end
 
 # ---------------------------------------------------
@@ -38,8 +40,9 @@ function CDFDataset(file_paths::Vector{String})::CDFDataset
     variables = collect(keys(var_coords))
     paired_coords = Dict(coord => get_paired_coordinates(coord, var_coords, ds)
                          for coord in coordinates)
+    interp = Interpolate.Interpolator(ds, paired_coords)
 
-    CDFDataset(ds, dimensions, coordinates, variables, var_coords, paired_coords)
+    CDFDataset(ds, dimensions, coordinates, variables, var_coords, paired_coords, interp)
 end
 
 function get_var_coordinates(ds::NCDataset)::OrderedDict{String, Vector{String}}
@@ -115,7 +118,7 @@ end
 # ---------------------------------------------------
 
 function get_var_dims(dataset::CDFDataset, var::String)::Vector{String}
-    return collect(dimnames(dataset.ds[var]))
+    return dataset.var_coords[var]
 end
 
 function get_label(dataset::CDFDataset, var::String)::String
@@ -143,6 +146,7 @@ function get_dim_value_label(dataset::CDFDataset, dim::String, idx::Int)::String
     unit = haskey(atts, "units") ? " " * atts["units"] : ""
 
     base = base * var_name * ": "
+    # TODO: Use interp to get the value
     idx > length(dataset.ds[dim]) && return base * "Index $(idx) out of bounds"
     value = dataset.ds[dim][idx]
     value isa Dates.DateTime && return base * Dates.format(value, Constants.DATETIME_FORMAT)
@@ -153,12 +157,7 @@ end
 
 function get_dim_values(dataset::CDFDataset, dim::String)::Vector{Float64}
     dim === Constants.NOT_SELECTED_LABEL && return collect(Float64, 1:1)
-    try
-        return convert(Vector{Float64}, dataset.ds[dim][:])
-    catch
-        dim_len = dataset.ds.dim[dim]
-        return Float64.(1:dim_len)
-    end
+    getproperty(dataset.interp.rc, Symbol(dim))
 end
 
 function get_dim_array(dataset::CDFDataset, dim::Observable{String}, update_switch::Observable{Bool})::Observable{Vector{Float64}}
@@ -205,6 +204,8 @@ function get_data(
     end
     data
 end
+
+
 
 
 end # module

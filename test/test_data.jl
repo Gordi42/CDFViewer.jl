@@ -159,7 +159,7 @@ using GLMakie
 
         # Assert
         @test dim_array isa Observable{Vector{Float64}}
-        for dim in dataset.dimensions
+        for dim in dataset.coordinates
             test_dim[] = dim
             @test dim_array isa Observable{Vector{Float64}}
             @test length(dim_array[]) == dataset.ds.dim[dim]
