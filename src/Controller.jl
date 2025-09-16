@@ -185,9 +185,7 @@ end
 function on_headless_change(controller::ViewerController)::Nothing
     controller.headless[] && return nothing
     # Open the menu window
-    if haskey(controller.parsed_args, "no-menu") && controller.parsed_args["no-menu"]
-        # Do not open the menu
-    else
+    if haskey(controller.parsed_args, "menu") && controller.parsed_args["menu"]
         open_window!(controller, controller.menu_screen, controller.ui.menu, "CDFViewer - Menu")
     end
     # Open the figure window if a plot type is selected

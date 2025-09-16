@@ -12,6 +12,7 @@ include("Data.jl")
 include("UI.jl")
 include("Plotting.jl")
 include("Controller.jl")
+include("ViewerREPL.jl")
 
 export julia_main
 
@@ -68,8 +69,8 @@ function get_arg_parser()::ArgParseSettings
         "--record"
             help = "Only record the animation to a video file and exit"
             action = :store_true
-        "--no-menu"
-            help = "Disable the menu and only show the plot"
+        "--menu"
+            help = "Show the menu directly on start"
             action = :store_true
         "--use-local"
             help = "Use local directory for temporary operations to improve performance. Set CDFVIEWER_USE_LOCAL=true to make it default. The local directory can be changed with the environment variable CDFVIEWER_LOCAL_DIR."
@@ -122,8 +123,7 @@ function julia_main(;parsed_args::Union{Nothing,Dict}=nothing)::Cint
     parsed_args["record"] && notify(controller.ui.main_menu.export_menu.record_button.clicks)
 
     if !headless
-        main_screen = parsed_args["no-menu"] ? controller.fig_screen[] : controller.menu_screen[]
-        wait(main_screen)
+        ViewerREPL.start_repl(controller)
     end
 
     return 0

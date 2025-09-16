@@ -380,7 +380,7 @@ function update_coord_ranges!(
 
         # Restore the slider value to the closest value
         closest_index = argmin(abs.(new_range .- current_value))
-        slider.value[] = closest_index
+        set_close_to!(slider, closest_index)
 
         update_switch[] = old_update
     catch e

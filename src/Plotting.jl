@@ -492,27 +492,27 @@ end
 for plot in [
     # 2D plots
     Plot("heatmap", 2, true,
-        (ax, x, y, z, d) -> heatmap!(ax, x, y, d, colormap = :balance),
+        (ax, x, y, z, d) -> heatmap!(ax, x, y, d, colormap = :balance, inspectable=false),
         create_2d_axis),
     Plot("contour", 2, false,
-        (ax, x, y, z, d) -> contour!(ax, x, y, d, colormap = :balance),
+        (ax, x, y, z, d) -> contour!(ax, x, y, d, colormap = :balance, inspectable=false),
         create_2d_axis),
     Plot("contourf", 2, true,
-        (ax, x, y, z, d) -> contourf!(ax, x, y, d, colormap = :balance),
+        (ax, x, y, z, d) -> contourf!(ax, x, y, d, colormap = :balance, inspectable=false),
         create_2d_axis),
     Plot("surface", 2, true,
-        (ax, x, y, z, d) -> surface!(ax, x, y, d, colormap = :balance),
+        (ax, x, y, z, d) -> surface!(ax, x, y, d, colormap = :balance, inspectable=false),
         create_3d_axis),
     Plot("wireframe", 2, false,
-        (ax, x, y, z, d) -> wireframe!(ax, x, y, d, color = :royalblue3),
+        (ax, x, y, z, d) -> wireframe!(ax, x, y, d, color = :royalblue3, inspectable=false),
         create_3d_axis),
 
     # 1D plots
     Plot("line", 1, false,
-        (ax, x, y, z, d) -> lines!(ax, x, d, color = :royalblue3),
+        (ax, x, y, z, d) -> lines!(ax, x, d, color = :royalblue3, inspectable=false, linestyle = :solid),
         create_2d_axis),
     Plot("scatter", 1, false,
-        (ax, x, y, z, d) -> scatter!(ax, x, d, color = :royalblue3),
+        (ax, x, y, z, d) -> scatter!(ax, x, d, color = :royalblue3, inspectable=false),
         create_2d_axis),
 
     # 3D plots

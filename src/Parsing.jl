@@ -13,7 +13,7 @@ special_values = Dict(
     "sqrt" => sqrt,
 )
 
-function parse_kwargs(kw_str::String)::Dict{Symbol, Any}
+function parse_kwargs(kw_str::AbstractString)::Dict{Symbol, Any}
     kw_dict = Dict{Symbol, Any}()
     isempty(kw_str) && return kw_dict
     

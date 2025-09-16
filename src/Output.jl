@@ -27,7 +27,7 @@ end
 # ============================================================
 #  Argument Parsing
 # ============================================================
-function apply_settings_string!(settings::OutputSettings, settings_str::String)::OutputSettings
+function apply_settings_string!(settings::OutputSettings, settings_str::AbstractString)::OutputSettings
     isempty(settings_str) && return settings
 
     kw_dict = Parsing.parse_kwargs(settings_str)

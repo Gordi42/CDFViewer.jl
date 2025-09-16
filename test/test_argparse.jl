@@ -87,7 +87,7 @@ NS = Constants.NOT_SELECTED_LABEL
             @test args["saveoptions"] == ""
             @test args["savefig"] == false
             @test args["record"] == false
-            @test args["no-menu"] == false
+            @test args["menu"] == false
             @test args["use-local"] == false
         end
 
@@ -144,10 +144,10 @@ NS = Constants.NOT_SELECTED_LABEL
         end
 
         @testset "Flags" begin
-            args = get_args("file.nc", "--savefig --record --no-menu --use-local")
+            args = get_args("file.nc", "--savefig --record --menu --use-local")
             @test args["savefig"] == true
             @test args["record"] == true
-            @test args["no-menu"] == true
+            @test args["menu"] == true
             @test args["use-local"] == true
         end
 
@@ -165,7 +165,7 @@ NS = Constants.NOT_SELECTED_LABEL
             @test args["saveoptions"] == ""
             @test args["savefig"] == true
             @test args["record"] == false
-            @test args["no-menu"] == false
+            @test args["menu"] == false
             @test args["use-local"] == true
         end
     end
