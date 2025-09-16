@@ -89,7 +89,7 @@ function compute_range(
     coord::String,
     )::AbstractRange
 
-    values = ds[coord][:]
+    values = convert_to_float64(ds, coord)
 
     LinRange(minimum(values), maximum(values), Constants.N_INTERPOLATION_POINTS)
 end
@@ -298,6 +298,8 @@ function get_nn_indices(
     group = interp.groups[group_id]
     tree = interp.trees[group_id][]
     coords = [interp.ranges[c] for c in group]
+    println("Computing nearest neighbor indices for group: ", group)
+    println("Using ranges: ", coords)
 
     nn_indices = compute_nn_indices(tree, coords)
     index_cache[group_id] = nn_indices
