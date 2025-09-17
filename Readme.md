@@ -48,5 +48,3 @@ If you don't want to compile the application, you can run it directly using juli
 - [ ] Add test workflow for github
 - [ ] Add online documentation
 - [ ] Add support for dark theme
-- [ ] Add possibility for default configs in a .config folder
-- [ ] Unregular grids ?

@@ -8,6 +8,7 @@ using GLMakie
 
 import ..Constants
 import ..Interpolate
+import ..RescaleUnits
 
 # ============================================================
 #  CDF Dataset
@@ -212,8 +213,9 @@ function get_label(dataset::CDFDataset, var::String)::String
     atts = dataset.ds[var].attrib
     # Get the long name and units
     label = haskey(atts, "long_name") ? atts["long_name"] : var
-    if haskey(atts, "units")
-        label *= " [" * atts["units"] * "]"
+    unit = RescaleUnits.get_remapped_unit(dataset.ds, var)
+    if unit != ""
+        label *= " [" * unit * "]"
     end
     return label
 end
@@ -227,10 +229,10 @@ function get_dim_value_label(dataset::CDFDataset, dim::String, idx::Int)::String
     # get name and unit attributes
     atts = dataset.ds[dim].attrib
     var_name = haskey(atts, "long_name") ? atts["long_name"] : dim
-    unit = haskey(atts, "units") ? " " * atts["units"] : ""
+    unit = RescaleUnits.get_remapped_unit(dataset.ds, dim)
+    unit = unit == "" ? "" : " " * unit
 
     base = base * var_name * ": "
-    # TODO: Use interp to get the value
     value = Interpolate.get_coord_value(dataset.interp, dim, idx)
     isnothing(value) && return base * "Index $(idx) out of bounds"
     value isa Dates.DateTime && return base * Dates.format(value, Constants.DATETIME_FORMAT)

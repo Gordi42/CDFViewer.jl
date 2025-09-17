@@ -4,6 +4,7 @@ using NearestNeighbors
 using NCDatasets
 
 using ..Constants
+using ..RescaleUnits
 
 
 struct LazyTree
@@ -298,8 +299,6 @@ function get_nn_indices(
     group = interp.groups[group_id]
     tree = interp.trees[group_id][]
     coords = [interp.ranges[c] for c in group]
-    println("Computing nearest neighbor indices for group: ", group)
-    println("Using ranges: ", coords)
 
     nn_indices = compute_nn_indices(tree, coords)
     index_cache[group_id] = nn_indices
@@ -343,7 +342,9 @@ end
 
 function convert_to_float64(ds::NCDataset, coord::String)::Vector{Float64}
     try
-        convert(Vector{Float64}, ds[coord][:])
+        values = convert(Vector{Float64}, ds[coord][:])
+        transform = RescaleUnits.get_transformation_function(ds, coord)
+        transform(values)
     catch
         dim_len = ds.dim[coord]
         Float64.(1:dim_len)

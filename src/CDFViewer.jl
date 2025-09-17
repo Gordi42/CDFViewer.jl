@@ -7,6 +7,7 @@ using GLMakie
 include("Constants.jl")
 include("Parsing.jl")
 include("Output.jl")
+include("RescaleUnits.jl")
 include("Interpolate.jl")
 include("Data.jl")
 include("UI.jl")
