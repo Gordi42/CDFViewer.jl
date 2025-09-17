@@ -28,7 +28,7 @@ end
 const PLOT_TYPES = OrderedDict(plot.type => plot for plot in [
     Plot(Constants.NOT_SELECTED_LABEL, 0, false,
         (ax, x, y, z, d) -> nothing,
-        (layout, plot_data) -> nothing),
+        (fd) -> nothing),
 ])
 
 function get_plot_options(ndims::Int)::Vector{String}
@@ -234,7 +234,7 @@ end
 
 function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
     fig_data.ax[] !== nothing && delete!(fig_data.ax[])
-    fig_data.ax[] = fig_data.plot_data.plot_type[].make_axis(fig_data.fig[1, 1], fig_data.plot_data)
+    fig_data.ax[] = fig_data.plot_data.plot_type[].make_axis(fig_data)
     if !isnothing(fig_data.ax[])
         apply_kwargs!(fig_data, ui_state.kwargs[])
         if fig_data.data_inspector[] === nothing
@@ -591,24 +591,27 @@ function compute_aspect(x::Array, y::Array, z::Array,
     Tuple(ratio)
 end
 
-function create_2d_axis(ax_layout::GridPosition, plot_data::PlotData)::Axis
-    aspect = Observable{Any}(compute_aspect(plot_data.x[], plot_data.y[], 1.0))
-    for dim in (plot_data.x, plot_data.y)
+function create_2d_axis(fd::FigureData)::Axis
+    aspect = Observable{Any}(compute_aspect(fd.plot_data.x[], fd.plot_data.y[], 1.0))
+    for dim in (fd.plot_data.x, fd.plot_data.y)
         on(dim) do _
-            aspect[] = compute_aspect(plot_data.x[], plot_data.y[], 1.0)
+            aspect[] = compute_aspect(fd.plot_data.x[], fd.plot_data.y[], 1.0)
         end
     end
 
     Axis(
-        ax_layout,
-        xlabel = plot_data.labels.xlabel,
-        ylabel = plot_data.plot_type[].ndims > 1 ? plot_data.labels.ylabel : "",
-        aspect = plot_data.plot_type[].ndims == 2 ? aspect : nothing,
-        title = plot_data.labels.title,
+        fd.fig[1, 1],
+        xlabel = fd.plot_data.labels.xlabel,
+        ylabel = fd.plot_data.plot_type[].ndims > 1 ? fd.plot_data.labels.ylabel : "",
+        aspect = fd.plot_data.plot_type[].ndims == 2 ? aspect : nothing,
+        title = fd.plot_data.labels.title,
     )
 end
 
-function create_3d_axis(ax_layout::GridPosition, plot_data::PlotData)::Axis3
+function create_3d_axis(fd::FigureData)::Axis3
+    plot_data = fd.plot_data
+    ax_layout = fd.fig[1, 1]
+
     function get_aspect()::Tuple{Float64, Float64, Float64}
         aspect = compute_aspect(
             plot_data.x[], plot_data.y[], plot_data.z[],

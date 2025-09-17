@@ -98,14 +98,15 @@ using CDFViewer.Plotting
             # Arrange - create a temporary figure and dataset
             dataset = make_temp_dataset()
             ui = UI.UIElements(dataset)
-            fig = Figure()
             plot_data = Plotting.PlotData(ui.state, dataset)
+            fd = Plotting.FigureData(plot_data, ui)
+            fig = fd.fig
 
             for (name, plot) in Plotting.PLOT_TYPES
                 # Act
                 empty!(fig)
                 (x, y, z, d) = create_dummy_data(plot.ndims)
-                ax = plot.make_axis(fig[1, 1], plot_data)
+                ax = plot.make_axis(fd)
                 plotobj = plot.func(ax, x, y, z, d)
 
                 # Assert
