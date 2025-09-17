@@ -247,11 +247,11 @@ function get_dim_values(dataset::CDFDataset, dim::String)::Vector{Float64}
 end
 
 function get_dim_array(dataset::CDFDataset, dim::Observable{String}, update_switch::Observable{Bool})::Observable{Vector{Float64}}
-    result = Observable(Data.get_dim_values(dataset, dim[]))
+    result = Observable(get_dim_values(dataset, dim[]))
     for trigger in (dim, update_switch)
         on(trigger) do _
             !(update_switch[]) && return
-            result[] = Data.get_dim_values(dataset, dim[])
+            result[] = get_dim_values(dataset, dim[])
         end
     end
     result

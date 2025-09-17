@@ -141,13 +141,23 @@ end
 
 struct FigureSettings
     figsize::Observable{Tuple{Int, Int}}
-    geo::Observable{Bool}
     cbar::Observable{Bool}
+    moveable::Observable{Union{Bool, Nothing}}  # limits the interactivity of the axis
+    auto_interpolate::Observable{Bool}
+    geographic::Observable{Bool}
+    coastlines::Observable{Bool}
+    watermask::Observable{Bool}
+    landmask::Observable{Bool}
 
     FigureSettings() = new(
         Observable(Constants.FIGSIZE),
-        Observable(false),
-        Observable(true),
+        Observable(true),         # colorbar
+        Observable(nothing),      # moveable
+        Observable(false),        # auto_interpolate
+        Observable(false),        # geographic
+        Observable(true),         # coastlines
+        Observable(false),        # watermask
+        Observable(false),        # landmask
     )
 end
 
@@ -271,8 +281,28 @@ function clear_axis!(fig_data::FigureData)::Nothing
 end
 
 # ============================================================
-#  Apply keyword arguments to figure and plot objects
+#  Apply figure settings
 # ============================================================
+function enable_movable(ax::Makie.AbstractAxis)::Nothing
+    activate_interaction!(ax, :rectanglezoom)
+    activate_interaction!(ax, :dragpan)
+    nothing
+end
+
+function disable_movable(ax::Makie.AbstractAxis)::Nothing
+    deactivate_interaction!(ax, :rectanglezoom)
+    deactivate_interaction!(ax, :dragpan)
+    nothing
+end
+
+function set_movable!(fd::FigureData, moveable::Union{Bool, Nothing})::Nothing
+    ax = fd.ax[]
+    isnothing(ax) && return nothing
+    isnothing(moveable) && return nothing
+    moveable ? enable_movable(ax) : disable_movable(ax)
+    fd.settings.moveable[] = moveable
+    nothing
+end
 
 function resize_figure!(fd::FigureData, new_size::Tuple{Int, Int})::Nothing
     try
@@ -293,19 +323,32 @@ function set_colorbar!(fd::FigureData, show::Bool)::Nothing
     nothing
 end
 
+struct FigureSettingsHandler
+    property::Symbol
+    type::Type
+    handler::Function
+end
+
+const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
+    :figsize => FigureSettingsHandler(:figsize, Tuple{Int, Int}, resize_figure!),
+    :cbar => FigureSettingsHandler(:cbar, Bool, set_colorbar!),
+    :moveable => FigureSettingsHandler(:moveable, Union{Bool, Nothing}, set_movable!),
+    :auto_interpolate => FigureSettingsHandler(:auto_interpolate, Bool, (fd, val) -> @warn("Auto interpolate setting not implemented yet")),
+    :geographic => FigureSettingsHandler(:geographic, Bool, (fd, val) -> @warn("Geographic setting not implemented yet")),
+    :coastlines => FigureSettingsHandler(:coastlines, Bool, (fd, val) -> @warn("Coastlines setting not implemented yet")),
+    :watermask => FigureSettingsHandler(:watermask, Bool, (fd, val) -> @warn("Watermask setting not implemented yet")),
+    :landmask => FigureSettingsHandler(:landmask, Bool, (fd, val) -> @warn("Landmask setting not implemented yet")),
+)
+    
+
 function apply_figure_settings!(fd::FigureData, property::Symbol, value::Any)::Nothing
-    if property == :figsize
-        # check that the value is a tuple of two integers
-        if !isa(value, Tuple{Int, Int})
-            @error "Figsize must be a tuple of two integers"
-            return nothing
+    if haskey(FIGURE_SETTINGS_HANDLERS, property)
+        handler = FIGURE_SETTINGS_HANDLERS[property]
+        if isa(value, handler.type)
+            handler.handler(fd, value)
+        else
+            @error "Value for $property must be of type $(handler.type), got $(typeof(value))"
         end
-        resize_figure!(fd, value)
-    elseif property == :cbar
-        if !isa(value, Bool)
-            return nothing
-        end
-        set_colorbar!(fd, value)
     else
         @error "Property $property not recognized in FigureData"
     end
@@ -335,7 +378,12 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
         defaults = Dict(
             :figsize => Constants.FIGSIZE,
             :cbar => true,
+            :moveable => true,
+            :auto_interpolate => false,
             :geo => false,
+            :coastlines => true,
+            :watermask => false,
+            :landmask => false,
         )
         return haskey(defaults, property) ? defaults[property] : :delete
     elseif isa(target_object, Makie.AbstractAxis)

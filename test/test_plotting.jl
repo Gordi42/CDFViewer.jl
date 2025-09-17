@@ -767,12 +767,12 @@ using CDFViewer.Plotting
             assert_fig_size(fd.fig, new_size)
 
             # resize figure with bad value
-            @test_warn "Figsize must be a tuple of two integers" begin
+            @test_warn "Value for figsize must be of type" begin
                 Plotting.apply_figure_settings!(fd, :figsize, (100.0, 200.0)) # wrong type
                 assert_fig_size(fd.fig, new_size)  # figsize should not have changed
             end
 
-            @test_warn "Figsize must be a tuple of two integers" begin
+            @test_warn "Value for figsize must be of type" begin
                 Plotting.apply_figure_settings!(fd, :figsize, (100, 200, 300))  # wrong length
                 assert_fig_size(fd.fig, new_size)  # figsize should not have changed
             end
@@ -800,8 +800,10 @@ using CDFViewer.Plotting
             @test fd.cbar[] isa Colorbar
 
             # Act - set to non-Bool value
-            kwarg_text[] = "cbar = 123"
-            [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+            @test_warn "Value for cbar must be of type" begin
+                kwarg_text[] = "cbar = 123"
+                [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+            end
             @test fd.cbar[] isa Colorbar  # should not have changed
 
             # Act - change to a plot type that does not support colorbar
@@ -815,6 +817,38 @@ using CDFViewer.Plotting
             # Cleanup
             cleanup(dataset)
         end
+
+        @testset "moveable" begin
+            # Arrange
+            fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
+            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
+
+            # # Assert Check that the axis is moveable by default
+            # @test fd.ax[] isa Axis
+            # @test fd.ax[].movable[]
+
+            # # Act - make axis non-moveable via kwarg
+            # kwarg_text[] = "moveable = false"
+            # [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+            # @test fd.ax[] isa Axis
+            # @test !fd.ax[].movable[]
+
+            # # Act - make axis moveable again via kwarg
+            # kwarg_text[] = "moveable = true"
+            # [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+            # @test fd.ax[] isa Axis
+            # @test fd.ax[].movable[]
+
+            # # Act - set to non-Bool value
+            # kwarg_text[] = "moveable = 123"
+            # [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+            # @test fd.ax[] isa Axis
+            # @test fd.ax[].movable[]  # should not have changed
+
+            # Cleanup
+            cleanup(dataset)
+        end
+
 
     end
 
