@@ -678,11 +678,18 @@ function compute_aspect3d(fd::FigureData, x::AbstractArray, y::AbstractArray, z:
 end
 
 function create_2d_axis(fd::FigureData)::Axis
+    aspect = Observable{Any}(compute_aspect2d(fd, fd.plot_data.x[], fd.plot_data.y[]))
+    for trigger in (fd.plot_data.x, fd.plot_data.y)
+        on(trigger) do _
+            aspect[] = compute_aspect2d(fd, fd.plot_data.x[], fd.plot_data.y[])
+        end
+    end
+
     Axis(
         fd.fig[1, 1],
         xlabel = fd.plot_data.labels.xlabel,
         ylabel = fd.plot_data.plot_type[].ndims > 1 ? fd.plot_data.labels.ylabel : "",
-        aspect = @lift(compute_aspect2d(fd, $(fd.plot_data.x), $(fd.plot_data.y))),
+        aspect = aspect,
         title = fd.plot_data.labels.title,
     )
 end

@@ -823,27 +823,35 @@ using CDFViewer.Plotting
             fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
             kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
-            # # Assert Check that the axis is moveable by default
-            # @test fd.ax[] isa Axis
-            # @test fd.ax[].movable[]
+            # Assert Check that the axis is moveable by default
+            @test fd.ax[] isa Axis
+            @test fd.ax[].interactions[:rectanglezoom][1]
+            @test fd.ax[].interactions[:dragpan][1]
 
-            # # Act - make axis non-moveable via kwarg
-            # kwarg_text[] = "moveable = false"
-            # [wait(t) for t in fd.tasks[]]  # wait until all tasks are
-            # @test fd.ax[] isa Axis
-            # @test !fd.ax[].movable[]
+            # Act - make axis non-moveable via kwarg
+            kwarg_text[] = "moveable = false"
+            [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+            @test !fd.ax[].interactions[:rectanglezoom][1]
+            @test !fd.ax[].interactions[:dragpan][1]
 
-            # # Act - make axis moveable again via kwarg
-            # kwarg_text[] = "moveable = true"
-            # [wait(t) for t in fd.tasks[]]  # wait until all tasks are
-            # @test fd.ax[] isa Axis
-            # @test fd.ax[].movable[]
+            # Act - make axis moveable again via kwarg
+            kwarg_text[] = "moveable = true"
+            [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+            @test fd.ax[].interactions[:rectanglezoom][1]
+            @test fd.ax[].interactions[:dragpan][1]
 
-            # # Act - set to non-Bool value
-            # kwarg_text[] = "moveable = 123"
-            # [wait(t) for t in fd.tasks[]]  # wait until all tasks are
-            # @test fd.ax[] isa Axis
-            # @test fd.ax[].movable[]  # should not have changed
+            # Act - set to non-Bool value
+            @test_warn "Value for moveable must be of type" begin
+                kwarg_text[] = "moveable = 123"
+                [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+            end
+
+            # Act - Disable moveable and then delete kwarg
+            kwarg_text[] = "moveable = false"
+            kwarg_text[] = ""
+            [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+            @test fd.ax[].interactions[:rectanglezoom][1]  # should be moveable again
+            @test fd.ax[].interactions[:dragpan][1]
 
             # Cleanup
             cleanup(dataset)
