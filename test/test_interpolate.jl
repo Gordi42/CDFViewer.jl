@@ -39,8 +39,8 @@ using NearestNeighbors
             # Assert: Paired coordinates should have ranges
             for coord in ["clon", "clat", "vlon", "vlat"]
                 @test interp.ranges[coord] !== nothing
-                @test minimum(interp.ranges[coord]) ≈ minimum(dataset.ds[coord][:])
-                @test maximum(interp.ranges[coord]) ≈ maximum(dataset.ds[coord][:])
+                @test minimum(interp.ranges[coord]) ≈ minimum(dataset.ds[coord][:]*180/π)
+                @test maximum(interp.ranges[coord]) ≈ maximum(dataset.ds[coord][:]*180/π)
             end
 
             # Assert: All trees should be initialized

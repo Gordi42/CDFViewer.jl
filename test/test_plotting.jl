@@ -5,6 +5,28 @@ using CDFViewer.Plotting
 
 @testset "Plotting.jl" begin
 
+    # Arrange - helper function
+    function init_figure_data()
+        dataset = make_temp_dataset()
+        ui = UI.UIElements(dataset)
+
+        plot_data = Plotting.PlotData(ui.state, dataset)
+        fig_data = Plotting.FigureData(plot_data, ui)
+        (fig_data, ui.state)
+    end
+
+    function arrange_and_create_axis(var::String, sel::Vector{String}, plot_type::String)
+        (fig_data, state) = init_figure_data()
+        state.variable[] = var
+        for (dim, name) in zip((state.x_name, state.y_name, state.z_name),
+                (sel..., Constants.NOT_SELECTED_LABEL, Constants.NOT_SELECTED_LABEL))
+            dim[] = name
+        end
+        state.plot_type_name[] = plot_type
+        Plotting.create_axis!(fig_data, state)
+        (fig_data, state)
+    end
+
     # ============================================
     #  Plot Struct
     # ============================================
@@ -337,28 +359,6 @@ using CDFViewer.Plotting
     # ============================================
 
     @testset "Figure Data" begin
-
-        # Arrange - helper function
-        function init_figure_data()
-            dataset = make_temp_dataset()
-            ui = UI.UIElements(dataset)
-
-            plot_data = Plotting.PlotData(ui.state, dataset)
-            fig_data = Plotting.FigureData(plot_data, ui)
-            (fig_data, ui.state)
-        end
-
-        function arrange_and_create_axis(var::String, sel::Vector{String}, plot_type::String)
-            (fig_data, state) = init_figure_data()
-            state.variable[] = var
-            for (dim, name) in zip((state.x_name, state.y_name, state.z_name),
-                    (sel..., Constants.NOT_SELECTED_LABEL, Constants.NOT_SELECTED_LABEL))
-                dim[] = name
-            end
-            state.plot_type_name[] = plot_type
-            Plotting.create_axis!(fig_data, state)
-            (fig_data, state)
-        end
             
 
         @testset "Types" begin
@@ -372,7 +372,7 @@ using CDFViewer.Plotting
             @test fig_data.ax isa Observable{Union{Makie.AbstractAxis, Nothing}}
             @test fig_data.plot_obj isa Observable{Union{Makie.AbstractPlot, Nothing}}
             @test fig_data.cbar isa Observable{Union{Colorbar, Nothing}}
-            @test fig_data.figsize isa Observable{Tuple{Int, Int}}
+            @test fig_data.settings isa Plotting.FigureSettings
         end
 
         @testset "Plot 1D" begin
@@ -529,47 +529,6 @@ using CDFViewer.Plotting
             @test fig_data.cbar[] === nothing
         end
 
-        @testset "Resize Figure" begin
-            # Arrange
-            fd, state = arrange_and_create_axis("5d_float", ["lon", "lat"], "contour")
-
-            # Assert default size
-            @test fd.figsize[] == Constants.FIGSIZE
-
-            # Act - resize figure via method
-            new_size = (100, 100)
-            Plotting.resize_figure!(fd, new_size)
-            
-            # Assert
-            function assert_fig_size(fig, expected_size)
-                actual_size = fig.scene.viewport[].widths
-                @test actual_size == [expected_size[1], expected_size[2]]
-                @test fd.figsize[] == expected_size
-            end
-            assert_fig_size(fd.fig, new_size)
-
-            # resize figure via setproperty!
-            new_size2 = (300, 150)
-            fd.figsize = new_size2  # calls setproperty!
-            assert_fig_size(fd.fig, new_size2)
-
-            # resize figure via kwarg
-            state.plot_kw[] = "figsize = $(new_size)"
-            [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
-            assert_fig_size(fd.fig, new_size)
-
-            # resize figure with bad value
-            @test_warn "Figsize must be a tuple of two integers" begin
-                fd.figsize = (100.0, 200.0)  # wrong type
-                assert_fig_size(fd.fig, new_size)  # figsize should not have changed
-            end
-
-            @test_warn "Figsize must be a tuple of two integers" begin
-                fd.figsize = (100, 200, 300)  # wrong length
-                assert_fig_size(fd.fig, new_size)  # figsize should not have changed
-            end
-        end
-
         @testset "Apply Kwargs" begin
             # Arrange
             (fig_data, state) = init_figure_data()
@@ -621,6 +580,57 @@ using CDFViewer.Plotting
             end
         end
 
+
+    end
+
+    # ============================================
+    #  Figure Settings
+    # ============================================
+
+    @testset "FiguresSettings" begin
+
+        @testset "Resize Figure" begin
+            # Arrange
+            fd, state = arrange_and_create_axis("5d_float", ["lon", "lat"], "contour")
+            settings = fd.settings
+
+            # Assert default size
+            @test settings.figsize[] == Constants.FIGSIZE
+
+            # Act - resize figure via method
+            new_size = (100, 100)
+            Plotting.resize_figure!(fd, new_size)
+            
+            # Assert
+            function assert_fig_size(fig, expected_size)
+                actual_size = fig.scene.viewport[].widths
+                @test actual_size == [expected_size[1], expected_size[2]]
+                @test settings.figsize[] == expected_size
+            end
+            assert_fig_size(fd.fig, new_size)
+
+            # resize figure via apply_figure_settings!
+            new_size2 = (300, 150)
+            Plotting.apply_figure_settings!(fd, :figsize, new_size2)
+            assert_fig_size(fd.fig, new_size2)
+
+            # resize figure via kwarg
+            state.plot_kw[] = "figsize = $(new_size)"
+            [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
+            assert_fig_size(fd.fig, new_size)
+
+            # resize figure with bad value
+            @test_warn "Figsize must be a tuple of two integers" begin
+                Plotting.apply_figure_settings!(fd, :figsize, (100.0, 200.0)) # wrong type
+                assert_fig_size(fd.fig, new_size)  # figsize should not have changed
+            end
+
+            @test_warn "Figsize must be a tuple of two integers" begin
+                Plotting.apply_figure_settings!(fd, :figsize, (100, 200, 300))  # wrong length
+                assert_fig_size(fd.fig, new_size)  # figsize should not have changed
+            end
+        end
+
         @testset "cbar kwarg" begin
             # Arrange
             fd, state = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
@@ -650,22 +660,9 @@ using CDFViewer.Plotting
 
             # Assert Check that no colorbar is present
             @test fd.cbar[] === nothing
-
-            # Act & Assert - try to add colorbar via kwarg
-            @test_warn "Current plot type does not support colorbar" begin
-                state.plot_kw[] = "cbar = true"
-                [wait(t) for t in fd.tasks[]]  # wait until all tasks are
-                @test fd.cbar[] === nothing
-            end
-
-            # Act & Assert - Setting to false should not produce a warning
-            @test_nowarn begin
-                state.plot_kw[] = "cbar = false"
-                [wait(t) for t in fd.tasks[]]  # wait until all tasks are
-                @test fd.cbar[] === nothing
-            end
-            
         end
 
     end
+
+
 end

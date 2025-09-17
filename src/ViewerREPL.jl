@@ -290,7 +290,7 @@ end
 
 function get_figure_kwargs(state:: REPLState, command:: String)::String
     fd = state.controller.fd
-    @bold("Figure keywords:\n  ") * join(propertynames(fd), "\n  ")
+    @bold("Figure keywords:\n  ") * join(propertynames(fd.settings), "\n  ")
 end
 
 function get_axis_kwargs(state:: REPLState, command:: String)::String

@@ -3,6 +3,7 @@ module Plotting
 using DataStructures: OrderedDict
 using Makie
 using GLMakie
+using GeoMakie
 using Suppressor
 
 import ..Constants
@@ -133,6 +134,22 @@ function PlotData(ui_state::UI.State, dataset::Data.CDFDataset)::PlotData
 end
 
 
+# ======================================================
+#  Figure Settings
+# ======================================================
+
+struct FigureSettings
+    figsize::Observable{Tuple{Int, Int}}
+    geo::Observable{Bool}
+    cbar::Observable{Bool}
+
+    FigureSettings() = new(
+        Observable(Constants.FIGSIZE),
+        Observable(false),
+        Observable(true),
+    )
+end
+
 # ============================================================
 #  Figure data structure
 # ============================================================
@@ -145,7 +162,7 @@ struct FigureData
     cbar::Observable{Union{Colorbar, Nothing}}
     data_inspector::Observable{Union{DataInspector, Nothing}}
     tasks::Observable{Vector{Task}}
-    figsize::Observable{Tuple{Int, Int}}
+    settings::FigureSettings
     range_control::Observable{Interpolate.RangeControl}
     ui::UI.UIElements
 end
@@ -162,7 +179,7 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
 
     # Construct the FigureData
     fd = FigureData(fig, plot_data, ax, plot_obj, cbar,
-        data_inspector, Observable(Task[]), figsize, ui_state.range_control, ui)
+        data_inspector, Observable(Task[]), FigureSettings(), ui_state.range_control, ui)
 
     # Setup a listener to create the plot if the axis changes
     on(ax) do a
@@ -226,15 +243,15 @@ function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
     nothing
 end
 
-function add_colorbar!(fig_data::FigureData)::Nothing
-    if fig_data.cbar[] !== nothing
-        delete!(fig_data.cbar[])
-        fig_data.cbar[] = nothing
+function add_colorbar!(fd::FigureData)::Nothing
+    if fd.cbar[] !== nothing
+        delete!(fd.cbar[])
+        fd.cbar[] = nothing
     end
-    if fig_data.plot_data.plot_type[].colorbar && fig_data.plot_obj[] !== nothing
-        fig_data.cbar[] = Colorbar(fig_data.fig[1, 2], fig_data.plot_obj[],
+    if fd.plot_data.plot_type[].colorbar && fd.plot_obj[] !== nothing && fd.settings.cbar[]
+        fd.cbar[] = Colorbar(fd.fig[1, 2], fd.plot_obj[],
             width = 30, tellwidth = false, tellheight = false)
-        colsize!(fig_data.fig.layout, 2, Relative(0.05))
+        colsize!(fd.fig.layout, 2, Relative(0.05))
     end
     nothing
 end
@@ -252,10 +269,14 @@ function clear_axis!(fig_data::FigureData)::Nothing
     nothing
 end
 
+# ============================================================
+#  Apply keyword arguments to figure and plot objects
+# ============================================================
+
 function resize_figure!(fd::FigureData, new_size::Tuple{Int, Int})::Nothing
     try
         resize!(fd.fig, new_size[1], new_size[2])
-        fd.figsize[] = new_size
+        fd.settings.figsize[] = new_size
     catch e
         @error "Error resizing figure: $e"
     end
@@ -263,22 +284,15 @@ function resize_figure!(fd::FigureData, new_size::Tuple{Int, Int})::Nothing
 end
 
 function set_colorbar!(fd::FigureData, show::Bool)::Nothing
-    if show
-        if !fd.plot_data.plot_type[].colorbar
-            @warn "Current plot type does not support colorbar"
-            return nothing
-        end
-        add_colorbar!(fd)
-        return nothing
+    if show && !fd.plot_data.plot_type[].colorbar
+        @warn "Current plot type does not support colorbar"
     end
-    if fd.cbar[] !== nothing
-        delete!(fd.cbar[])
-        fd.cbar[] = nothing
-    end
+    fd.settings.cbar[] = show
+    add_colorbar!(fd)
     nothing
 end
 
-function Base.setproperty!(fd::FigureData, property::Symbol, value::Any)::Nothing
+function apply_figure_settings!(fd::FigureData, property::Symbol, value::Any)::Nothing
     if property == :figsize
         # check that the value is a tuple of two integers
         if !isa(value, Tuple{Int, Int})
@@ -312,7 +326,7 @@ function get_property_mappings(kwargs::Dict{Symbol, Any}, fig_data::FigureData):
     mappings = Vector{PropertyMapping}()
     for (property, intended_value) in kwargs
         found_targets = 0
-        for target_obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[], fig_data, fig_data.range_control[])
+        for target_obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[], fig_data.settings, fig_data.range_control[])
             target_obj === nothing && continue
             property ∉ propertynames(target_obj) && continue
             
@@ -343,6 +357,8 @@ function set_property_mapping(fd::FigureData, target_object::Any, property::Symb
                 value,
                 fd.plot_data.update_data_switch,
             )
+        elseif isa(target_object, FigureSettings)
+            apply_figure_settings!(fd, property, value)
         else
             setproperty!(target_object, property, value)
         end

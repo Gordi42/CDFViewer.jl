@@ -387,7 +387,7 @@ using CDFViewer.ViewerREPL
 
             for f in (f1, f2, f3, f4, f5)
                 output = f()
-                for (i, kw) in enumerate(propertynames(state.controller.fd))
+                for (i, kw) in enumerate(propertynames(state.controller.fd.settings))
                     @test occursin(string(kw), output)
                     if i > 5  # Limit to first 5 to speed up tests
                         break

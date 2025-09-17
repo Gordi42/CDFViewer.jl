@@ -536,7 +536,7 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert: should update the figure size
             actual_size = controller.fd.fig.scene.viewport[].widths
             @test actual_size == [200, 200]
-            @test controller.fd.figsize[] == (200, 200)
+            @test controller.fd.settings.figsize[] == (200, 200)
         end
 
         @testset "Interpolation Ranges" begin
