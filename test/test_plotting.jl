@@ -121,37 +121,114 @@ using CDFViewer.Plotting
 
         @testset "Compute Aspect Ratio" begin
             @testset "2D Aspect Ratio" begin
-                default = 1234.0
-                function assert_aspect_2d(x, y, expected; atol = 0.01)
-                    aspect = Plotting.compute_aspect(x, y, default)
+                # Arrange - helper function
+                function assert_aspect_2d(x, y, expected;
+                    atol = 0.01, kwargs = OrderedDict{Symbol, Any}(), fig_widths = Vec{2, Int}(800, 600))
+                    aspect = Plotting.compute_aspect(kwargs, x, y, fig_widths)
                     @test aspect ≈ expected atol=atol
                 end
 
+                # Act & Assert: Reasonable aspect ratios
                 assert_aspect_2d(collect(1:5), collect(1:5), 1.0)
                 assert_aspect_2d(collect(1:5), collect(1:0.2:3.2), 4/2.2)
                 assert_aspect_2d(rand(1000), rand(1000), 1.0, atol=0.1)  # should fail 1 in ~10^500 times
-                assert_aspect_2d([0.2, -0.1, 0.4], [3.1, 0.1, 0.7], 0.5/3.0)
-                assert_aspect_2d([0.1, 100.0, 32], [0.2, 0.3, 0.4], default)
-                assert_aspect_2d([0.1, 0.2, 0.3], [0.1, 100.0, 32], default)
+                assert_aspect_2d([0.2, -0.4, 0.4], [3.1, 0.1, 0.7], 0.8/3.0)
+
+                # Act & Assert: Extreme aspect ratios should fall back to figure aspect
+                assert_aspect_2d([0.1, 100.0, 32], [0.2, 0.3, 0.4], 800/600)
+                assert_aspect_2d([0.1, 0.2, 0.3], [0.1, 100.0, 32], 800/600)
+
+                # Act & Assert: User-defined aspect ratio should override everything
+                assert_aspect_2d(collect(1:5), collect(1:5), 2.0,
+                    kwargs=OrderedDict{Symbol, Any}(:aspect => 2.0))
             end
 
             @testset "3D Aspect Ratio" begin
-                default = 1234.0
-                function assert_aspect_3d(x, y, z, expected; atol = 0.01)
-                    aspect = Plotting.compute_aspect(x, y, z, (default, default, default))
+                # Arrange - helper function
+                function assert_aspect_3d(x, y, z, expected;
+                    atol = 0.01, kwargs = OrderedDict{Symbol, Any}(), ndims = 3)
+                    aspect = Plotting.compute_aspect(kwargs, ndims, x, y, z)
                     for (a, b) in zip(aspect, expected)
                         @test a ≈ b atol=atol
                     end
                 end
 
+                # Act & Assert: Reasonable aspect ratios
                 assert_aspect_3d(collect(1:5), collect(1:5), collect(1:5), (1.0, 1.0, 1.0))
                 assert_aspect_3d(collect(1:4), collect(1:5), collect(1:6), (3/4, 1.0, 5/4))
                 assert_aspect_3d(collect(1:5), collect(1:0.2:3.2), collect(1:0.1:4.1), (4/2.2, 2.2/2.2, 3.1/2.2))
                 assert_aspect_3d(rand(1000), rand(1000), rand(1000), (1.0, 1.0, 1.0), atol=0.1)
-                assert_aspect_3d([0.2, -0.1, 0.4], [3.1, 0.1, 0.7], [0.5, 0.6, -0.2], (0.5/3.0, 3.0/3.0, 0.8/3.0))
-                assert_aspect_3d([0.1, 100.0, 32], [0.2, 0.3, 0.4], [0.5, 0.6, -0.2], (default, 1.0, 0.8/0.2))
-                assert_aspect_3d([0.1, 0.2, 0.3], [0.1, 100.0, 32], [0.5, 0.6, -0.2], (default, 1.0, default))
-                assert_aspect_3d([0.1, 0.2, 0.3], [0.1, 0.2, 0.3], [0.5, 100.0, -0.2], (1.0, 1.0, default))
+                assert_aspect_3d([0.2, -0.4, 0.4], [3.1, 0.1, 0.7], [0.5, 0.6, -0.2], (0.8/3.0, 3.0/3.0, 0.8/3.0))
+
+                # Act & Assert: Extreme aspect ratios should fall back to default
+                assert_aspect_3d([0.1, 100.0, 32], [0.2, 0.3, 0.4], [0.5, 0.6, -0.2], (1.0, 1.0, 0.8/0.2))
+                assert_aspect_3d([0.1, 0.2, 0.3], [0.1, 100.0, 32], [0.5, 0.6, -0.2], (1.0, 1.0, 1.0))
+                assert_aspect_3d([0.1, 0.2, 0.3], [0.1, 0.2, 0.3], [0.5, 100.0, -0.2], (1.0, 1.0, 1.0))
+
+                # Act & Assert: For 2D data, z aspect should be fixed to 0.4
+                assert_aspect_3d(collect(1:5), collect(1:5), collect(1:5), (1.0, 1.0, 0.4), ndims=2)
+                assert_aspect_3d(collect(1:4), collect(1:5), collect(1:6), (3/4, 1.0, 0.4), ndims=2)
+
+                # Act & Assert: User-defined aspect ratio should override everything
+                assert_aspect_3d(collect(1:5), collect(1:5), collect(1:5), (2.0, 1.0, 0.5),
+                    kwargs=OrderedDict{Symbol, Any}(:aspect => (2.0, 1.0, 0.5)))
+                assert_aspect_3d(collect(1:5), collect(1:5), collect(1:5), (1.0, 1.0, 0.2),
+                    kwargs=OrderedDict{Symbol, Any}(:aspect => (0.2)), ndims=2)
+            end
+
+            @testset "Aspect Ratio in Axis Creation" begin
+                @testset "2D axis with 2D data" begin
+                    # Arrange
+                    (fig_data, state, dataset) = arrange_and_create_axis("5d_float", ["lon"], "line")
+
+                    # Assert
+                    @test fig_data.ax[] isa Axis
+                    @test isnothing(fig_data.ax[].aspect[])  # should be nothing for 1D plots
+
+                    # Cleanup
+                    cleanup(dataset)
+                end
+
+                @testset "2D axis with 2D data" begin
+                    # Arrange
+                    (fig_data, state, dataset) = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
+
+                    # Assert
+                    @test fig_data.ax[] isa Axis
+                    @test fig_data.ax[].aspect[] ≈ 4 / 6
+
+                    # Cleanup
+                    cleanup(dataset)
+                end
+
+                @testset "3D axis with 2D data" begin
+                    # Arrange
+                    (fig_data, state, dataset) = arrange_and_create_axis("5d_float", ["lon", "lat"], "surface")
+
+                    # Assert
+                    @test fig_data.ax[] isa Axis3
+                    for (a, b) in zip(fig_data.ax[].aspect[], (4 / 6, 1.0, 0.4))
+                        @test a ≈ b atol=0.1  # should be close to default 3D aspect ratio
+                    end
+
+                    # Cleanup
+                    cleanup(dataset)
+                end
+
+                @testset "3D axis with 3D data" begin
+                    # Arrange
+                    (fig_data, state, dataset) = arrange_and_create_axis("5d_float", ["lon", "lat", "only_long"], "volume")
+
+                    # Assert
+                    @test fig_data.ax[] isa Axis3
+                    for (a, b) in zip(fig_data.ax[].aspect[], (4 / 6, 1.0, 3 / 6))
+                        @test a ≈ b atol=0.1  # should be close to default 3D aspect ratio
+                    end
+
+                    # Cleanup
+                    cleanup(dataset)
+                end
+
             end
         end
     end

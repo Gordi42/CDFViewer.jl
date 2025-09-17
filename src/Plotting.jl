@@ -570,40 +570,71 @@ end
 # ============================================================
 #  Fill up plot functions
 # ============================================================
-function compute_aspect(x::Array, y::Array, default::Float64)::Float64
+function compute_aspect(
+    kwargs::OrderedDict{Symbol, Any},
+    x::AbstractArray,
+    y::AbstractArray,
+    figwidths::Vec{2, Int},
+)::Float64
+    # check if aspect is set in kwargs
+    if haskey(kwargs, :aspect)
+        val = kwargs[:aspect]
+        if isa(val, Number) && isfinite(val) && val > 0
+            return val
+        end
+    end
+    # compute aspect from data
     x_ext = maximum(x) - minimum(x)
     y_ext = maximum(y) - minimum(y)
     ratio = x_ext / y_ext
-    isfinite(ratio) || return default
-    if ratio > 20 || ratio < 0.05
-        default
-    else
-        ratio
-    end
+    ratio > 0.25 && ratio < 5 && return ratio
+    # compute default aspect from figure size
+    figwidths[1] / figwidths[2]
 end
 
-function compute_aspect(x::Array, y::Array, z::Array,
-        default::Tuple{Float64, Float64, Float64})::Tuple{Float64, Float64, Float64}
+function compute_aspect2d(fd::FigureData, x::AbstractArray, y::AbstractArray)::Union{Float64, Nothing}
+    fd.plot_data.plot_type[].ndims != 2 && return nothing
+    # check if aspect is set in kwargs
+    kwargs = fd.ui.state.kwargs[]
+    figwidths = fd.fig.scene.viewport[].widths
+    compute_aspect(kwargs, x, y, figwidths)
+end
+
+function compute_aspect(
+    kwargs::OrderedDict{Symbol, Any},
+    ndims::Int,
+    x::AbstractArray,
+    y::AbstractArray,
+    z::AbstractArray
+)::Tuple{Float64, Float64, Float64}
+    if haskey(kwargs, :aspect)
+        val = kwargs[:aspect]
+        if isa(val, Tuple{<:Number, <:Number, <:Number})
+            return (Float64(val[1]), Float64(val[2]), Float64(val[3]))
+        elseif isa(val, Number) && isfinite(val) && val > 0
+            return (1, 1, Float64(val))
+        end
+    end
     exts = [maximum(xi) - minimum(xi) for xi in (x, y, z)]
     exts = [ext == 0 ? 1.0 : ext for ext in exts]
     ratio = [exts[1] / exts[2], exts[2] / exts[2], exts[3] / exts[2]]
-    ratio = [r > 20 || r < 0.05 ? default[i] : r for (i, r) in enumerate(ratio)]
+    ratio = [r > 5 || r < 0.25 ? 1 : r for (i, r) in enumerate(ratio)]
+    if ndims == 2
+        ratio[3] = 0.4
+    end
     Tuple(ratio)
 end
 
-function create_2d_axis(fd::FigureData)::Axis
-    aspect = Observable{Any}(compute_aspect(fd.plot_data.x[], fd.plot_data.y[], 1.0))
-    for dim in (fd.plot_data.x, fd.plot_data.y)
-        on(dim) do _
-            aspect[] = compute_aspect(fd.plot_data.x[], fd.plot_data.y[], 1.0)
-        end
-    end
+function compute_aspect3d(fd::FigureData, x::AbstractArray, y::AbstractArray, z::AbstractArray)::Tuple{Float64, Float64, Float64}
+    compute_aspect(fd.ui.state.kwargs[], fd.plot_data.plot_type[].ndims, x, y, z)
+end
 
+function create_2d_axis(fd::FigureData)::Axis
     Axis(
         fd.fig[1, 1],
         xlabel = fd.plot_data.labels.xlabel,
         ylabel = fd.plot_data.plot_type[].ndims > 1 ? fd.plot_data.labels.ylabel : "",
-        aspect = fd.plot_data.plot_type[].ndims == 2 ? aspect : nothing,
+        aspect = @lift(compute_aspect2d(fd, $(fd.plot_data.x), $(fd.plot_data.y))),
         title = fd.plot_data.labels.title,
     )
 end
@@ -612,31 +643,16 @@ function create_3d_axis(fd::FigureData)::Axis3
     plot_data = fd.plot_data
     ax_layout = fd.fig[1, 1]
 
-    function get_aspect()::Tuple{Float64, Float64, Float64}
-        aspect = compute_aspect(
-            plot_data.x[], plot_data.y[], plot_data.z[],
-            (1.0, 1.0, 1.0))
-        if plot_data.plot_type[].ndims == 2
-            aspect = (aspect[1], aspect[2], 0.4)
-        end
-        aspect
-    end
-
-    ax = Axis3(
+    Axis3(
         ax_layout,
         xlabel = plot_data.labels.xlabel,
         ylabel = plot_data.labels.ylabel,
         zlabel = plot_data.plot_type[].ndims > 2 ? plot_data.labels.zlabel : "",
-        aspect = get_aspect(),
+        aspect = @lift(compute_aspect3d(
+            fd, $(fd.plot_data.x), $(fd.plot_data.y), $(fd.plot_data.z))
+        ),
         title = plot_data.labels.title,
     )
-
-    for dim in (plot_data.x, plot_data.y, plot_data.z)
-        on(dim) do _
-            setproperty!(ax, :aspect, get_aspect())
-        end
-    end
-    ax
 end
 
 
