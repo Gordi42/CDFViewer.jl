@@ -84,6 +84,11 @@ NS = Constants.NOT_SELECTED_LABEL
         end
     end
 
+    function cleanup(controller)
+        GLMakie.closeall()
+        close(controller.dataset.ds)
+    end
+
     @testset "Plot Selection" begin
         @testset "1D → 1D" begin
             # Arrange
@@ -95,6 +100,9 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert
             assert_controller_state(controller, "5d_float", Scatter, ["lon"], "only_long",
                 export_string=r"-v5d_float -xlon -pscatter")
+            
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "1D → 2D" begin
@@ -107,6 +115,9 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert
             assert_controller_state(controller, "5d_float", Heatmap, ["lon", "lat"], "only_long",
                 export_string=r"-v5d_float -xlon -ylat -pheatmap")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "1D → 3D" begin
@@ -118,6 +129,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Volume, ["lon", "lat", "float_dim"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "2D → 1D" begin
@@ -129,6 +143,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Lines, ["lon"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "2D → 2D" begin
@@ -140,6 +157,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Contourf, ["lon", "lat"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "2D → 3D" begin
@@ -151,6 +171,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Volume, ["lon", "lat", "float_dim"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "3D → 1D" begin
@@ -162,6 +185,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Lines, ["lon"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "3D → 2D" begin
@@ -173,6 +199,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Heatmap, ["lon", "lat"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "3D → 3D" begin
@@ -185,6 +214,9 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert
             assert_controller_state(controller, "5d_float", Contour, ["lon", "lat", "float_dim"], "only_long",
                 export_string=r"-v5d_float -xlon -ylat -zfloat_dim -pcontour3d")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "2D → Select" begin
@@ -198,6 +230,9 @@ NS = Constants.NOT_SELECTED_LABEL
             assert_controller_state(controller, "5d_float", Nothing, String[], "only_long")
             @test controller.fd.ax[] === nothing
             @test controller.fd.cbar[] === nothing
+
+            # Cleanup
+            cleanup(controller)
         end
 
     end
@@ -214,6 +249,9 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert
             assert_controller_state(controller, "only_long_var", Lines, ["lat"], NS,
                 export_string="-vonly_long_var -xlat -pline")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "1D → 2D" begin
@@ -226,6 +264,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "2d_float", Heatmap, ["lon", "lat"], NS)
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "2D → 5D" begin
@@ -237,6 +278,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Heatmap, ["lon", "float_dim"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "5D → 1D" begin
@@ -248,6 +292,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "only_long_var", Lines, ["lat"], NS)
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "String Variable" begin
@@ -261,6 +308,9 @@ NS = Constants.NOT_SELECTED_LABEL
             assert_controller_state(controller, "string_var", Nothing, String[], "string_dim")
             @test controller.fd.plot_obj[] === nothing
             @test controller.ui.state.plot_type_name[] == Constants.NOT_SELECTED_LABEL
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "2D → 2D [Different Dims]" begin
@@ -272,6 +322,9 @@ NS = Constants.NOT_SELECTED_LABEL
             
             # Assert
             assert_controller_state(controller, "2d_gap", Heatmap, ["lon", "float_dim"], NS)
+
+            # Cleanup
+            cleanup(controller)
         end
 
     end
@@ -290,6 +343,9 @@ NS = Constants.NOT_SELECTED_LABEL
             assert_controller_state(controller, "5d_float", Heatmap, ["float_dim", "only_long"], "only_unit")
             @test all(Point2f(xi, yi) in controller.fd.ax[].finallimits[]
                             for xi in controller.fd.plot_data.x[], yi in controller.fd.plot_data.y[])
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Switch Dimensions" begin
@@ -305,6 +361,9 @@ NS = Constants.NOT_SELECTED_LABEL
                 export_string=r"-v5d_float -xlat -ylon -pheatmap")
             @test all(Point2f(xi, yi) in controller.fd.ax[].finallimits[]
                             for xi in controller.fd.plot_data.x[], yi in controller.fd.plot_data.y[])
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Remove x from 1D" begin
@@ -316,6 +375,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Nothing, String[], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Remove x from 2D" begin
@@ -327,6 +389,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Lines, ["lat"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Remove y from 2D" begin
@@ -338,6 +403,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Lines, ["lon"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Remove x from 3D" begin
@@ -349,6 +417,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Heatmap, ["lat", "float_dim"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Remove y from 3D" begin
@@ -360,6 +431,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Heatmap, ["lon", "float_dim"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Remove z from 3D" begin
@@ -371,6 +445,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Heatmap, ["lon", "lat"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Select dimension doubled" begin
@@ -382,6 +459,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Lines, ["lon"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Add x to 0D" begin
@@ -394,6 +474,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "1d_float", Nothing, ["lon"], NS)
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Add y to 0D" begin
@@ -406,6 +489,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "1d_float", Nothing, ["lon"], NS)
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Add y to 1D" begin
@@ -417,6 +503,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "2d_float", Heatmap, ["lon", "lat"], NS)
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Add z to 2D" begin
@@ -428,6 +517,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "5d_float", Volume, ["lon", "lat", "float_dim"], "only_long")
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Check Auto Limits" begin
@@ -447,6 +539,9 @@ NS = Constants.NOT_SELECTED_LABEL
             dim_names[1][] = "lat"
             @test all(Point2f(xi, yi) in controller.fd.ax[].finallimits[]
                             for xi in controller.fd.plot_data.x[], yi in controller.fd.plot_data.d[1][])
+
+            # Cleanup
+            cleanup(controller)
         end
 
     end
@@ -466,13 +561,17 @@ NS = Constants.NOT_SELECTED_LABEL
         # Assert
         assert_controller_state(controller, "5d_float", Heatmap, ["lon", "lat"], "float_dim",
             export_string=r"-afloat_dim")
+
+        # Cleanup
+        cleanup(controller)
     end
     @testset "Keyword Settings" begin
         @testset "levels keyword for contour" begin
             # Arrange
             controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="contour")
+            kwarg_text = controller.fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
-            controller.ui.state.plot_kw[] = "levels=10, labels=true"
+            kwarg_text[] = "levels=10, labels=true"
 
             # wait until all tasks are finished
             [wait(t) for t in controller.fd.tasks[]]
@@ -482,13 +581,17 @@ NS = Constants.NOT_SELECTED_LABEL
             @test controller.fd.plot_obj[].labels[] == true
             exp_str = Controller.get_export_string(controller)
             @test occursin(r"--kwargs='levels=10, labels=true", exp_str)
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Axis keywords" begin
             # Arrange
             controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="heatmap")
+            kwarg_text = controller.fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
-            controller.ui.state.plot_kw[] = "limits=(nothing, nothing, 1, 3), xscale=log10"
+            kwarg_text[] = "limits=(nothing, nothing, 1, 3), xscale=log10"
 
             # wait until all tasks are finished
             [wait(t) for t in controller.fd.tasks[]]
@@ -496,15 +599,19 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert
             @test controller.fd.ax[].limits[] == (nothing, nothing, 1, 3)
             @test controller.fd.ax[].xscale[] == log10
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Invalid keyword" begin
             # Arrange
             controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="contour")
+            kwarg_text = controller.fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
             # Act & Assert: should issue a warning about the invalid keyword
             @test_warn "Property invalid_kw not found in any plot object" begin
-                controller.ui.state.plot_kw[] = "invalid_kw=123, levels=5, colormap=:balance"
+                kwarg_text[] = "invalid_kw=123, levels=5, colormap=:balance"
 
                 # wait until all tasks are finished
                 [wait(t) for t in controller.fd.tasks[]]
@@ -515,7 +622,7 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Act & Assert: should issue a warning about the invalid value
             @test_warn "An error occurred while applying keyword arguments" begin
-                controller.ui.state.plot_kw[] = "levels=not_a_number, colormap=:viridis"
+                kwarg_text[] = "levels=not_a_number, colormap=:viridis"
                 # wait until all tasks are finished
                 [wait(t) for t in controller.fd.tasks[]]
             end
@@ -523,13 +630,17 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert: should revert to original settings
             @test controller.fd.plot_obj[].levels[] == 5
             @test controller.fd.plot_obj[].colormap[] == :balance
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Figsize and Colorbar" begin
             controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="heatmap")
+            kwarg_text = controller.fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
             # Act: change the figure size
-            controller.ui.state.plot_kw[] = "figsize=(200, 200)"
+            kwarg_text[] = "figsize=(200, 200)"
             # wait until all tasks are finished
             [wait(t) for t in controller.fd.tasks[]]
 
@@ -537,15 +648,19 @@ NS = Constants.NOT_SELECTED_LABEL
             actual_size = controller.fd.fig.scene.viewport[].widths
             @test actual_size == [200, 200]
             @test controller.fd.settings.figsize[] == (200, 200)
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Interpolation Ranges" begin
             # Arrange
             controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="heatmap")
             rc = controller.ui.state.range_control[]
+            kwarg_text = controller.fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
             # Act: set the interpolation ranges to StepRange
-            controller.ui.state.plot_kw[] = "lon=-2:0.5:2"
+            kwarg_text[] = "lon=-2:0.5:2"
             [wait(t) for t in controller.fd.tasks[]]
 
             # Assert: should update the interpolation ranges
@@ -554,7 +669,7 @@ NS = Constants.NOT_SELECTED_LABEL
             @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to Range
-            controller.ui.state.plot_kw[] = "lon=0:4"
+            kwarg_text[] = "lon=0:4"
             [wait(t) for t in controller.fd.tasks[]]
 
             # Assert: should update the interpolation ranges
@@ -563,7 +678,7 @@ NS = Constants.NOT_SELECTED_LABEL
             @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to Vector
-            controller.ui.state.plot_kw[] = "lon=[-1, 0, 1]"
+            kwarg_text[] = "lon=[-1, 0, 1]"
             [wait(t) for t in controller.fd.tasks[]]
 
             # Assert: should update the interpolation ranges
@@ -572,7 +687,7 @@ NS = Constants.NOT_SELECTED_LABEL
             @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to Tuple
-            controller.ui.state.plot_kw[] = "lon=(-1, 0, 10)"
+            kwarg_text[] = "lon=(-1, 0, 10)"
             [wait(t) for t in controller.fd.tasks[]]
 
             # Assert: should update the interpolation ranges
@@ -581,13 +696,16 @@ NS = Constants.NOT_SELECTED_LABEL
             @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to nothing
-            controller.ui.state.plot_kw[] = "lon=nothing"
+            kwarg_text[] = "lon=nothing"
             [wait(t) for t in controller.fd.tasks[]]
 
             # Assert: should update the interpolation ranges
             @test rc.lon ≈ rc.interp.ds["lon"][:]
             @test controller.fd.plot_data.x[] == rc.interp.ds["lon"][:]
             @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
+
+            # Cleanup
+            cleanup(controller)
         end
 
     end
@@ -600,12 +718,26 @@ NS = Constants.NOT_SELECTED_LABEL
             end
         end
 
+        @testset "No Axis" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="1d_float", plot=Constants.NOT_SELECTED_LABEL)
+
+            # Assert
+            assert_export(controller, [r"-v1d_float"])
+
+            # Cleanup
+            cleanup(controller)
+        end
+
         @testset "2D Axis" begin
             # Arrange
             controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="contour")
 
             # Assert
             assert_export(controller, [r"-v2d_float", r"-xlon", r"-ylat", r"-pcontour", r"limits="])
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "3D Axis" begin
@@ -614,6 +746,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_export(controller, [r"-v3d_float", r"-xlon", r"-ylat", r"-psurface", r"limits=", r"azimuth=", r"elevation="])
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Change figsize" begin
@@ -625,6 +760,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_export(controller, [r"figsize=\(300, 400\)"])
+
+            # Cleanup
+            cleanup(controller)
         end
     end
 
@@ -656,5 +794,8 @@ NS = Constants.NOT_SELECTED_LABEL
         # Assert: check if the figure is disconnected again
         @test fig_screen[].scene !== fig.scene
         @test controller.ui.state.plot_type_name[] === Constants.NOT_SELECTED_LABEL
+
+        # Cleanup
+        cleanup(controller)
     end
 end

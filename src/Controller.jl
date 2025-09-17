@@ -537,21 +537,9 @@ function get_export_string(controller::ViewerController)::String
         exp *= " -a$ani_dim"
     end
     # get the plot kwargs
-    text = state.plot_kw[]
-    text = isnothing(text) ? "" : String(strip(text))
-    keywords = Parsing.parse_kwargs(text)
-    additional_kwargs = get_figure_kwargs(controller) # Dict of symbol => value
-    if !isempty(additional_kwargs)
-        for (k,v) in additional_kwargs
-            # check if k already exists in keywords
-            if !haskey(keywords, Symbol(k))
-                if !isempty(text)
-                    text *= ", "
-                end
-                text *= "$k=$v"
-            end
-        end
-    end
+    Plotting.fix_figure_kwargs!(controller.fd) # make sure to save figsize and limits
+    kwargs = state.kwargs[]
+    text = Plotting.kwarg_dict_to_string(kwargs)
     if !isempty(text)
         exp *= " --kwargs='$text'"
     end
@@ -562,48 +550,6 @@ function get_export_string(controller::ViewerController)::String
     end
     
     exp
-end
-
-function get_figure_kwargs(controller::ViewerController)::Dict{String,Any}
-    controller.ui.state.plot_type_name[] == Constants.NOT_SELECTED_LABEL && return Dict{String,Any}()
-    kwargs = Dict{String,Any}()
-
-    # figsize
-    figwidths = controller.fd.fig.scene.viewport[].widths
-    figsize = (figwidths[1], figwidths[2])
-    if figsize != Constants.FIGSIZE
-        kwargs["figsize"] = (figwidths[1], figwidths[2])
-    end
-
-    # axis limits
-    ax = controller.fd.ax[]
-    if !isnothing(ax)
-        kwargs["limits"] = get_limit_string(controller)
-    end
-
-    # 3D axis orientation
-    if ax isa Axis3
-        kwargs["azimuth"] = @sprintf("%g", ax.azimuth[])
-        kwargs["elevation"] = @sprintf("%g", ax.elevation[])
-    end
-    kwargs
-end
-
-function get_limit_string(controller::Controller.ViewerController)::String
-    ax = controller.fd.ax[]
-
-    lim_rect = ax.finallimits[]
-    limits = Float64[]
-    # Loop through each dimension
-    for dim in 1:length(lim_rect.origin)
-        # Add min limit (origin)
-        push!(limits, lim_rect.origin[dim])
-        # Add max limit (origin + width)
-        push!(limits, lim_rect.origin[dim] + lim_rect.widths[dim])
-    end
-
-    lim_strings = [@sprintf("%g", value) for value in limits]
-    "(" * join(lim_strings, ", ") * ")"
 end
 
 function get_standard_filename(parsed_args::Union{Nothing,Dict})::String

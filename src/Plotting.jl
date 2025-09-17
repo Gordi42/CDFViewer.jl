@@ -1,6 +1,7 @@
 module Plotting
 
-using DataStructures: OrderedDict
+using DataStructures
+using Printf
 using Makie
 using GLMakie
 using GeoMakie
@@ -195,12 +196,12 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
             plot_data.d[plot_data.plot_type[].ndims])
         # and add a colorbar if needed
         add_colorbar!(fd)
-        apply_kwargs!(fd, ui_state.plot_kw[])
+        apply_kwargs!(fd, ui_state.kwargs[])
     end
 
     # Setup listeners to apply axis and plot keyword arguments
-    on(ui_state.plot_kw) do kw_str
-        plot_obj[] !== nothing && apply_kwargs!(fd, kw_str)
+    on(ui.main_menu.plot_menu.plot_kw.stored_string) do kw_str
+        on_kwarg_string_update(fd, kw_str)
     end
     
     # return the FigureData
@@ -235,7 +236,7 @@ function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
     fig_data.ax[] !== nothing && delete!(fig_data.ax[])
     fig_data.ax[] = fig_data.plot_data.plot_type[].make_axis(fig_data.fig[1, 1], fig_data.plot_data)
     if !isnothing(fig_data.ax[])
-        apply_kwargs!(fig_data, ui_state.plot_kw[])
+        apply_kwargs!(fig_data, ui_state.kwargs[])
         if fig_data.data_inspector[] === nothing
             fig_data.data_inspector[] = DataInspector(fig_data.ax[])
         end
@@ -322,7 +323,36 @@ struct PropertyMapping
     intended_value::Any
 end
 
-function get_property_mappings(kwargs::Dict{Symbol, Any}, fig_data::FigureData)::Vector{PropertyMapping}
+function get_default_value(fd::FigureData, target_object::Any, property::Symbol)::Any
+    if isa(target_object, Interpolate.RangeControl)
+        interp = fd.ui.state.range_control[].interp
+        try
+            return Interpolate.get_default_range(interp, String(property))
+        catch
+            return :delete
+        end
+    elseif isa(target_object, FigureSettings)
+        defaults = Dict(
+            :figsize => Constants.FIGSIZE,
+            :cbar => true,
+            :geo => false,
+        )
+        return haskey(defaults, property) ? defaults[property] : :delete
+    elseif isa(target_object, Makie.AbstractAxis)
+        defaults = Dict(
+            :title => fd.plot_data.labels.title[],
+            :xlabel => fd.plot_data.labels.xlabel[],
+            :ylabel => fd.plot_data.labels.ylabel[],
+            :zlabel => fd.plot_data.labels.zlabel[],
+        )
+        return haskey(defaults, property) ? defaults[property] : :delete
+    end
+    
+    :delete
+end
+    
+
+function get_property_mappings(kwargs::OrderedDict{Symbol, Any}, fig_data::FigureData)::Vector{PropertyMapping}
     mappings = Vector{PropertyMapping}()
     for (property, intended_value) in kwargs
         found_targets = 0
@@ -338,7 +368,11 @@ function get_property_mappings(kwargs::Dict{Symbol, Any}, fig_data::FigureData):
             catch
                 current_value  # not an observable
             end
-            
+
+            if intended_value === :delete
+                intended_value = get_default_value(fig_data, target_obj, property)
+            end
+
             push!(mappings, PropertyMapping(property, target_obj, current_value, intended_value))
             found_targets += 1
         end
@@ -348,6 +382,7 @@ function get_property_mappings(kwargs::Dict{Symbol, Any}, fig_data::FigureData):
 end
 
 function set_property_mapping(fd::FigureData, target_object::Any, property::Symbol, value::Any)::Nothing
+    value === :delete && return nothing
     try
         if isa(target_object, Interpolate.RangeControl)
             # Special handling for range control
@@ -398,18 +433,60 @@ function wait_for_n_cycles(fig::Figure, n::Int)::Nothing
     nothing
 end
 
-function apply_kwargs!(fig_data::FigureData, kw_str::Union{String, Nothing})::Nothing
-    kw_str === nothing && return
+function kwarg_dict_to_string(kwargs::OrderedDict{Symbol, Any})::String
+    isempty(kwargs) && return ""
+    parts = String[]
+    for (k,v) in kwargs
+        if isa(v, AbstractString)
+            push!(parts, "$k=\"$v\"")
+        elseif isa(v, Symbol)
+            push!(parts, "$k=:$v")
+        else
+            push!(parts, "$k=$v")
+        end
+    end
+    join(parts, ", ")
+end
+
+function update_kwargs!(fd::FigureData, new_kwargs::OrderedDict{Symbol, Any})::Nothing
+    old_kwargs = fd.ui.state.kwargs[]
+
+    diff_kwargs = OrderedDict{Symbol, Any}()
+    # Loop over new_kwargs and filter out those that are the same in old_kwargs
+    for (k, v) in new_kwargs
+        if haskey(old_kwargs, k) && haskey(new_kwargs, k) && old_kwargs[k] == new_kwargs[k]
+            continue
+        end
+        diff_kwargs[k] = v
+    end
+    # We store kwargs that were removed as well, with value :delete
+    for (k, v) in old_kwargs
+        if !haskey(new_kwargs, k)
+            diff_kwargs[k] = :delete
+        end
+    end
+    # Update the stored kwargs
+    fd.ui.state.kwargs[] = new_kwargs
+    apply_kwargs!(fd, diff_kwargs)
+end
+
+function on_kwarg_string_update(fd::FigureData, kw_str::Union{String, Nothing})::Nothing
+    kw_str = isnothing(kw_str) ? "" : kw_str
+    new_kwargs = Parsing.parse_kwargs(kw_str)
+    update_kwargs!(fd, new_kwargs)
+end
+
+function apply_kwargs!(fig_data::FigureData, kwargs::OrderedDict{Symbol, Any})::Nothing
+    isempty(kwargs) && return nothing
     # Wait for all previous tasks to complete
     while !all(istaskdone, fig_data.tasks[])
         yield()
     end
     fig_data.tasks[] = Task[]
 
-    kwargs = Parsing.parse_kwargs(kw_str)
     mappings = get_property_mappings(kwargs, fig_data)
 
-    task = @async begin
+    # task = @async begin
         output = @capture_err begin
             # @warn "Applying keyword arguments: $kw_str"
             apply_property_mappings!(fig_data, mappings)
@@ -430,8 +507,63 @@ function apply_kwargs!(fig_data::FigureData, kw_str::Union{String, Nothing})::No
             end
             apply_original_property_mappings!(fig_data, mappings)
         end
+    # end
+    # push!(fig_data.tasks[], task)
+    nothing
+end
+
+function shorten_float(value::Number)::Number
+    parse(Float64, @sprintf("%g", value))
+end
+
+function get_limit_string(ax::Makie.AbstractAxis)::Tuple
+    lim_rect = ax.finallimits[]
+    limits = Float64[]
+    # Loop through each dimension
+    for dim in 1:length(lim_rect.origin)
+        # Add min limit (origin)
+        push!(limits, lim_rect.origin[dim])
+        # Add max limit (origin + width)
+        push!(limits, lim_rect.origin[dim] + lim_rect.widths[dim])
     end
-    push!(fig_data.tasks[], task)
+
+    Tuple(shorten_float(value) for value in limits)
+end
+
+function fix_figure_kwargs!(fd::FigureData)::Nothing
+    textbox = fd.ui.main_menu.plot_menu.plot_kw
+    kwargs = copy(fd.ui.state.kwargs[])
+
+    # figsize
+    figwidths = fd.fig.scene.viewport[].widths
+    figsize = (figwidths[1], figwidths[2])
+    if figsize != Constants.FIGSIZE
+        kwargs[:figsize] = (figwidths[1], figwidths[2])
+    end
+
+    # axis limits
+    ax = fd.ax[]
+    if !isnothing(ax)
+        kwargs[:limits] = get_limit_string(ax)
+    end
+
+    # 3D axis orientation
+    if ax isa Axis3
+        kwargs[:azimuth] = shorten_float(ax.azimuth[])
+        kwargs[:elevation] = shorten_float(ax.elevation[])
+    end
+
+    new_kw_string = kwarg_dict_to_string(kwargs)
+    new_display_string = isempty(new_kw_string) ? " " : new_kw_string
+
+    try
+        textbox.displayed_string = new_display_string
+        textbox.stored_string = new_kw_string
+    catch e
+        @warn "Error parsing additional arguments: $e"
+        return nothing
+    end
+
     nothing
 end
 

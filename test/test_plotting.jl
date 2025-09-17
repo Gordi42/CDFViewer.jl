@@ -1,4 +1,5 @@
 using Test
+using DataStructures
 using GLMakie
 using CDFViewer.Constants
 using CDFViewer.Plotting
@@ -12,11 +13,11 @@ using CDFViewer.Plotting
 
         plot_data = Plotting.PlotData(ui.state, dataset)
         fig_data = Plotting.FigureData(plot_data, ui)
-        (fig_data, ui.state)
+        (fig_data, ui.state, dataset)
     end
 
     function arrange_and_create_axis(var::String, sel::Vector{String}, plot_type::String)
-        (fig_data, state) = init_figure_data()
+        (fig_data, state, dataset) = init_figure_data()
         state.variable[] = var
         for (dim, name) in zip((state.x_name, state.y_name, state.z_name),
                 (sel..., Constants.NOT_SELECTED_LABEL, Constants.NOT_SELECTED_LABEL))
@@ -24,7 +25,12 @@ using CDFViewer.Plotting
         end
         state.plot_type_name[] = plot_type
         Plotting.create_axis!(fig_data, state)
-        (fig_data, state)
+        (fig_data, state, dataset)
+    end
+
+    function cleanup(dataset)
+        GLMakie.closeall()
+        close(dataset.ds)
     end
 
     # ============================================
@@ -107,6 +113,9 @@ using CDFViewer.Plotting
                 @test !isempty(fig.content)  # Ensure something was plotted
                 @test plotobj isa Makie.AbstractPlot
             end
+
+            # Cleanup
+            GLMakie.closeall()
         end
 
         @testset "Compute Aspect Ratio" begin
@@ -157,23 +166,26 @@ using CDFViewer.Plotting
             dataset = make_temp_dataset()
             ui = UI.UIElements(dataset)
             labels = Plotting.FigureLabels(ui.state, dataset)
-            (labels, ui.state)
+            (labels, ui.state, dataset)
         end
 
         @testset "Default Labels" begin
             # Arrange
-            (labels, state) = init_figure_labels()
+            (labels, state, dataset) = init_figure_labels()
 
             # Assert
             @test labels.title[] == "1d_float"
             @test labels.xlabel[] == Constants.NOT_SELECTED_LABEL
             @test labels.ylabel[] == Constants.NOT_SELECTED_LABEL
             @test labels.zlabel[] == Constants.NOT_SELECTED_LABEL
+
+            # Cleanup
+            cleanup(dataset)
         end
 
         @testset "Updated Labels" begin
             # Arrange
-            (labels, state) = init_figure_labels()
+            (labels, state, dataset) = init_figure_labels()
 
             # Act: change variable to something with long_name and units
             state.variable[] = "both_atts_var"
@@ -189,6 +201,9 @@ using CDFViewer.Plotting
             state.y_name[] = "untaken"
             # Assert
             @test labels.ylabel[] == "untaken"
+
+            # Cleanup
+            cleanup(dataset)
         end
     end
 
@@ -203,12 +218,12 @@ using CDFViewer.Plotting
             ui = UI.UIElements(dataset)
 
             plot_data = Plotting.PlotData(ui.state, dataset)
-            (plot_data, ui.state)
+            (plot_data, ui.state, dataset)
         end
 
         @testset "Types" begin
             # Arrange
-            (plot_data, state) = init_plot_data()
+            (plot_data, state, dataset) = init_plot_data()
 
             # Assert
             @test plot_data isa Plotting.PlotData
@@ -219,11 +234,14 @@ using CDFViewer.Plotting
             @test plot_data.z isa Observable
             @test plot_data.d isa Vector
             @test plot_data.labels isa Plotting.FigureLabels
+
+            # Cleanup
+            cleanup(dataset)
         end
 
         @testset "Initial Values" begin
             # Arrange
-            (plot_data, state) = init_plot_data()
+            (plot_data, state, dataset) = init_plot_data()
 
             # Assert
             @test plot_data.plot_type[] == Plotting.PLOT_TYPES[Constants.NOT_SELECTED_LABEL]
@@ -235,11 +253,14 @@ using CDFViewer.Plotting
                 @test plot_data.d[i] isa Observable
                 @test plot_data.d[i][] === nothing
             end
+
+            # cleanup
+            cleanup(dataset)
         end
 
         @testset "Selected Dimensions" begin
             # Arrange
-            (plot_data, state) = init_plot_data()
+            (plot_data, state, dataset) = init_plot_data()
             state.variable[] = "5d_float"
 
             # Act: select x and y dimensions
@@ -258,11 +279,14 @@ using CDFViewer.Plotting
             @test length(plot_data.x[]) == 5
             @test length(plot_data.y[]) == 1
             @test length(plot_data.z[]) == 1
+
+            # cleanup
+            cleanup(dataset)
         end
 
         @testset "Data Arrays 1D" begin
             # Arrange
-            (plot_data, state) = init_plot_data()
+            (plot_data, state, dataset) = init_plot_data()
             state.variable[] = "5d_float"
             state.x_name[] = "lon"
             state.plot_type_name[] = "line"
@@ -273,11 +297,14 @@ using CDFViewer.Plotting
             @test plot_data.d[1][].size == (5,)
             @test plot_data.d[2][] === nothing
             @test plot_data.d[3][] === nothing
+
+            # cleanup
+            cleanup(dataset)
         end
 
         @testset "Data Arrays 2D" begin
             # Arrange
-            (plot_data, state) = init_plot_data()
+            (plot_data, state, dataset) = init_plot_data()
             state.variable[] = "5d_float"
             state.x_name[] = "lon"
             state.y_name[] = "lat"
@@ -289,11 +316,14 @@ using CDFViewer.Plotting
             @test plot_data.d[1][] === nothing
             @test plot_data.d[2][].size == (5, 7)
             @test plot_data.d[3][] === nothing
+
+            # cleanup
+            cleanup(dataset)
         end
             
         @testset "Data Arrays 3D" begin
             # Arrange
-            (plot_data, state) = init_plot_data()
+            (plot_data, state, dataset) = init_plot_data()
             state.variable[] = "5d_float"
             state.x_name[] = "lon"
             state.y_name[] = "lat"
@@ -306,11 +336,14 @@ using CDFViewer.Plotting
             @test plot_data.d[1][] === nothing
             @test plot_data.d[2][] === nothing
             @test plot_data.d[3][].size == (5, 7, 4)
+
+            # cleanup
+            cleanup(dataset)
         end
 
         @testset "Data at Dimension Change" begin
             # Arrange
-            (plot_data, state) = init_plot_data()
+            (plot_data, state, dataset) = init_plot_data()
             state.variable[] = "5d_float"
             state.x_name[] = "lon"
             state.y_name[] = "lat"
@@ -322,11 +355,14 @@ using CDFViewer.Plotting
             # Assert
             @test plot_data.sel_dims[] == ["only_unit", "lat"]
             @test plot_data.d[2][].size == (3, 7)
+
+            # cleanup
+            cleanup(dataset)
         end
 
         @testset "Data Update Switch" begin
             # Arrange
-            (plot_data, state) = init_plot_data()
+            (plot_data, state, dataset) = init_plot_data()
             state.variable[] = "5d_float"
             state.x_name[] = "lon"
             state.y_name[] = "lat"
@@ -350,6 +386,9 @@ using CDFViewer.Plotting
             # Assert: data should now reflect the changes
             @test length(plot_data.x[]) == 7
             @test plot_data.d[1][].size == (7,)
+
+            # cleanup
+            cleanup(dataset)
         end
 
     end
@@ -363,7 +402,7 @@ using CDFViewer.Plotting
 
         @testset "Types" begin
             # Arrange
-            (fig_data, state) = init_figure_data()
+            (fig_data, state, dataset) = init_figure_data()
 
             # Assert
             @test fig_data isa Plotting.FigureData
@@ -373,11 +412,14 @@ using CDFViewer.Plotting
             @test fig_data.plot_obj isa Observable{Union{Makie.AbstractPlot, Nothing}}
             @test fig_data.cbar isa Observable{Union{Colorbar, Nothing}}
             @test fig_data.settings isa Plotting.FigureSettings
+
+            # Cleanup
+            cleanup(dataset)
         end
 
         @testset "Plot 1D" begin
             # Arrange
-            (fig_data, state) = init_figure_data()
+            (fig_data, state, dataset) = init_figure_data()
             state.variable[] = "5d_float"
             state.x_name[] = "lat"
             state.plot_type_name[] = "line"
@@ -400,11 +442,14 @@ using CDFViewer.Plotting
             # Assert
             @test fig_data.ax[].title[] == "Both [m/s]"
             @test fig_data.ax[].xlabel[] == "lon"
+
+            # Cleanup
+            cleanup(dataset)
         end
 
         @testset "Plot 2D" begin
             # Arrange
-            (fig_data, state) = init_figure_data()
+            (fig_data, state, dataset) = init_figure_data()
             state.variable[] = "5d_float"
             state.x_name[] = "lon"
             state.y_name[] = "lat"
@@ -430,11 +475,14 @@ using CDFViewer.Plotting
             @test fig_data.ax[].title[] == "2d_gap"
             @test fig_data.ax[].xlabel[] == "lon"
             @test fig_data.ax[].ylabel[] == "float_dim"
+
+            # Cleanup
+            cleanup(dataset)
         end
 
         @testset "Plot 2D with 3D Axis" begin
             # Arrange
-            (fig_data, state) = init_figure_data()
+            (fig_data, state, dataset) = init_figure_data()
             state.variable[] = "2d_gap"
             state.x_name[] = "lon"
             state.y_name[] = "float_dim"
@@ -451,11 +499,14 @@ using CDFViewer.Plotting
             @test fig_data.ax[].title[] == "2d_gap"
             @test fig_data.plot_obj[] isa Surface
             @test fig_data.cbar[] isa Colorbar
+
+            # Cleanup
+            cleanup(dataset)
         end
 
         @testset "Plot 3D" begin
             # Arrange
-            (fig_data, state) = init_figure_data()
+            (fig_data, state, dataset) = init_figure_data()
             state.variable[] = "5d_float"
             state.x_name[] = "lon"
             state.y_name[] = "lat"
@@ -479,11 +530,14 @@ using CDFViewer.Plotting
 
             # Assert
             @test fig_data.ax[].xlabel[] == "float_dim"
+
+            # Cleanup
+            cleanup(dataset)
         end
 
         @testset "Change Plot Type" begin
             # Arrange
-            (fig_data, state) = init_figure_data()
+            (fig_data, state, dataset) = init_figure_data()
             state.variable[] = "5d_float"
             state.x_name[] = "lon"
             state.y_name[] = "lat"
@@ -498,11 +552,14 @@ using CDFViewer.Plotting
             @test fig_data.ax[] isa Axis3
             @test fig_data.plot_obj[] isa Surface
             @test fig_data.cbar[] isa Colorbar
+
+            # Cleanup
+            cleanup(dataset)
         end
 
         @testset "Change Plot Dimension" begin
             # Arrange
-            (fig_data, state) = init_figure_data()
+            (fig_data, state, dataset) = init_figure_data()
             state.variable[] = "5d_float"
             state.x_name[] = "lon"
             state.y_name[] = "lat"
@@ -527,19 +584,23 @@ using CDFViewer.Plotting
             @test fig_data.ax[] isa Axis
             @test fig_data.plot_obj[] isa Lines
             @test fig_data.cbar[] === nothing
+
+            # Cleanup
+            cleanup(dataset)
         end
 
         @testset "Apply Kwargs" begin
             # Arrange
-            (fig_data, state) = init_figure_data()
+            (fig_data, state, dataset) = init_figure_data()
             state.variable[] = "5d_float"
             state.x_name[] = "lon"
             state.y_name[] = "lat"
             state.plot_type_name[] = "heatmap"
             Plotting.create_axis!(fig_data, state)
+            kwarg_text = fig_data.ui.main_menu.plot_menu.plot_kw.stored_string
 
             # Act - set some kwargs
-            state.plot_kw[] = "colorrange = (0.2, 0.8), colormap=:ice, titlevisible = false, label=\"My Label\"";
+            kwarg_text[] = "colorrange = (0.2, 0.8), colormap=:ice, titlevisible = false, label=\"My Label\"";
 
             # wait until all tasks are finished
             [wait(t) for t in fig_data.tasks[]]
@@ -563,21 +624,28 @@ using CDFViewer.Plotting
             @test fig_data.plot_obj[].colormap.parent.value == :ice
             @test fig_data.ax[].titlevisible[] == false
             @test fig_data.cbar[].label[] == "My Label"
+
+            # Cleanup
+            cleanup(dataset)
         end
         @testset "Apply Bad Kwargs" begin
             # Arrange
-            (fig_data, state) = init_figure_data()
+            (fig_data, state, dataset) = init_figure_data()
             state.variable[] = "5d_float"
             state.x_name[] = "lon"
             state.y_name[] = "lat"
             state.plot_type_name[] = "contour"
+            kwarg_text = fig_data.ui.main_menu.plot_menu.plot_kw.stored_string
             Plotting.create_axis!(fig_data, state)
 
             # Act & Assert - set nonexistent kwarg
             @test_logs (:warn, r"Property nonexistent not found in any plot object") begin
-                state.plot_kw[] = "nonexistent = 123, colormap = :ice"
+                kwarg_text[] = "nonexistent = 123, colormap = :ice"
                 [wait(t) for t in fig_data.tasks[]]
             end
+
+            # Cleanup
+            cleanup(dataset)
         end
 
 
@@ -591,7 +659,8 @@ using CDFViewer.Plotting
 
         @testset "Resize Figure" begin
             # Arrange
-            fd, state = arrange_and_create_axis("5d_float", ["lon", "lat"], "contour")
+            fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "contour")
+            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
             settings = fd.settings
 
             # Assert default size
@@ -615,7 +684,7 @@ using CDFViewer.Plotting
             assert_fig_size(fd.fig, new_size2)
 
             # resize figure via kwarg
-            state.plot_kw[] = "figsize = $(new_size)"
+            kwarg_text[] = "figsize = $(new_size)"
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
             assert_fig_size(fd.fig, new_size)
 
@@ -629,40 +698,79 @@ using CDFViewer.Plotting
                 Plotting.apply_figure_settings!(fd, :figsize, (100, 200, 300))  # wrong length
                 assert_fig_size(fd.fig, new_size)  # figsize should not have changed
             end
+
+            # Cleanup
+            cleanup(dataset)
         end
 
         @testset "cbar kwarg" begin
             # Arrange
-            fd, state = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
+            fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
+            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
             # Assert Check that a colorbar is present
             @test fd.cbar[] isa Colorbar
 
             # Act - remove colorbar via kwarg
-            state.plot_kw[] = "cbar = false"
+            kwarg_text[] = "cbar = false"
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are
             @test fd.cbar[] === nothing
 
             # Act - add colorbar via kwarg
-            state.plot_kw[] = "cbar = true"
+            kwarg_text[] = "cbar = true"
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are
             @test fd.cbar[] isa Colorbar
 
             # Act - set to non-Bool value
-            state.plot_kw[] = "cbar = 123"
+            kwarg_text[] = "cbar = 123"
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are
             @test fd.cbar[] isa Colorbar  # should not have changed
 
             # Act - change to a plot type that does not support colorbar
-            state.plot_kw[] = ""
+            kwarg_text[] = ""
             state.plot_type_name[] = "line"
             Plotting.create_axis!(fd, state)
 
             # Assert Check that no colorbar is present
             @test fd.cbar[] === nothing
+
+            # Cleanup
+            cleanup(dataset)
         end
 
     end
 
+    # ============================================
+    #  Unit Tests
+    # ============================================
+
+    @testset "Unit Tests" begin
+        @testset "kwarg_dict_to_string" begin
+            # Arrange
+            d = OrderedDict(:a => 1,
+                     :b => 2.5,
+                     :c => "test",
+                     :d => :symbol,
+                     :e => [1, 2, 3],
+                     :f => (1, 2),
+                     :g => 1:5,
+                     :h => nothing,
+                     )
+
+            # Act
+            s = Plotting.kwarg_dict_to_string(d)
+
+            # Assert
+            @test occursin("a=1", s)
+            @test occursin("b=2.5", s)
+            @test occursin("c=\"test\"", s)
+            @test occursin("d=:symbol", s)
+            @test occursin("e=[1, 2, 3]", s)
+            @test occursin("f=(1, 2)", s)
+            @test occursin("g=1:5", s)
+            @test occursin("h=nothing", s)
+            @test Plotting.kwarg_dict_to_string(OrderedDict{Symbol, Any}()) == ""
+        end
+    end
 
 end

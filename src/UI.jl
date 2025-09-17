@@ -1,5 +1,6 @@
 module UI
 
+using DataStructures
 using GLMakie
 
 import ..Constants
@@ -266,7 +267,7 @@ struct State
     y_name::Observable{String}
     z_name::Observable{String}
     dim_obs::Observable{Dict{String, Int}}
-    plot_kw::Observable{Union{String, Nothing}}
+    kwargs::Observable{OrderedDict{Symbol, Any}}
     output_settings::Observable{Output.OutputSettings}
     range_control::Observable{Union{Nothing, Interpolate.RangeControl}}
 end
@@ -299,7 +300,7 @@ function State(main_menu::MainMenu)::State
         Observable(main_menu.coord_menu.menus[2].selection[]),
         Observable(main_menu.coord_menu.menus[3].selection[]),
         dim_obs,
-        main_menu.plot_menu.plot_kw.stored_string,
+        Observable(OrderedDict{Symbol, Any}()),
         output_settings,
         Observable(nothing),
     )

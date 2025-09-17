@@ -819,6 +819,25 @@ using NearestNeighbors
             @test Interpolate.get_this_dim_selection(dim_selection, ["untaken"]) == Dict("untaken" => 2)
             @test Interpolate.get_this_dim_selection(dim_selection, ["not_in_dict"]) == Dict{String, Int}()
         end
+
+        @testset "get_default_range" begin
+            # Arrange: Unstructured Data
+            dataset = make_unstructured_temp_dataset()
+            interp = Interpolate.Interpolator(dataset.ds, dataset.paired_coords)
+
+            # Act & Assert: Non-paired coordinates should have no default range
+            for coord in ["time", "depth"]
+                @test Interpolate.get_default_range(interp, coord) === nothing
+            end
+
+            # Act & Assert: Paired coordinates should have default ranges
+            for coord in ["clon", "clat", "vlon", "vlat"]
+                @test Interpolate.get_default_range(interp, coord) !== nothing
+                @test minimum(Interpolate.get_default_range(interp, coord)) ≈ minimum(dataset.ds[coord][:]*180/π)
+                @test maximum(Interpolate.get_default_range(interp, coord)) ≈ maximum(dataset.ds[coord][:]*180/π)
+            end
+        end
+
     end
 
 end

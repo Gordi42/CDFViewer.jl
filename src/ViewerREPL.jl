@@ -67,21 +67,6 @@ function select_menu_option!(menu:: Menu, command:: String)::String
     "Selected: $selection"
 end
 
-function convert_dict_to_string(d::Dict{Symbol,Any})::String
-    isempty(d) && return ""
-    parts = String[]
-    for (k,v) in d
-        if isa(v, AbstractString)
-            push!(parts, "$k=\"$v\"")
-        elseif isa(v, Symbol)
-            push!(parts, "$k=:$v")
-        else
-            push!(parts, "$k=$v")
-        end
-    end
-    join(parts, ", ")
-end
-
 # ============================================================ 
 #  Command Implementations
 # ============================================================ 
@@ -357,7 +342,7 @@ function get_kwarg_value(state:: REPLState, command:: String)::String
     end
     key = parts[2]
     fd = state.controller.fd
-    kwargs = Dict{Symbol, Any}()
+    kwargs = OrderedDict{Symbol, Any}()
     kwargs[Symbol(key)] = nothing
     mappings = Plotting.get_property_mappings(kwargs, fd)
     if isempty(mappings)
@@ -385,53 +370,43 @@ function refresh_plot(state:: REPLState, command:: String)::String
     "Plot refreshed."
 end
 
-function apply_kwargs(state:: REPLState, command:: String)::String
-    # Get the current additional arguments string
+function update_kwargs(state:: REPLState, new_kwargs::OrderedDict{Symbol, Any})::Nothing
     textbox = state.controller.ui.main_menu.plot_menu.plot_kw
-    current_string = textbox.stored_string[]
-    current_string = isnothing(current_string) ? "" : current_string
-    current_kwargs = Parsing.parse_kwargs(current_string)
-    new_kwargs = Parsing.parse_kwargs(command)
-    merged_kwargs = merge(current_kwargs, new_kwargs)
-    # Convert back to string
-    new_kw_string = convert_dict_to_string(merged_kwargs)
+    new_kw_string = Plotting.kwarg_dict_to_string(new_kwargs)
     new_display_string = isempty(new_kw_string) ? " " : new_kw_string
     try
         textbox.displayed_string = new_display_string
         textbox.stored_string = new_kw_string
     catch e
         @warn "Error parsing additional arguments: $e"
-        return ""
     end
+    nothing
+end
+
+function apply_kwargs(state:: REPLState, command:: String)::String
+    # Get the current additional arguments string
+    current_kwargs = state.controller.ui.state.kwargs[]
+    new_kwargs = Parsing.parse_kwargs(command)
+    merged_kwargs = merge(current_kwargs, new_kwargs)
+    update_kwargs(state, merged_kwargs)
     get_plot_settings(state, "")
 end
 
 function delete_kwarg(state:: REPLState, command:: String)::String
-    parts = split(command, ' ', limit=2)
+    parts = split(command, ' ')
     if length(parts) < 2
         @warn "Usage: del <key>"
         return ""
     end
-    key = parts[2]
-    textbox = state.controller.ui.main_menu.plot_menu.plot_kw
-    current_string = textbox.stored_string[]
-    current_string = isnothing(current_string) ? "" : current_string
-    current_kwargs = Parsing.parse_kwargs(current_string)
-    if !haskey(current_kwargs, Symbol(key))
-        @warn "Key '$key' not found in current kwargs."
-        return get_plot_settings(state, "")
+    kwargs = copy(state.controller.ui.state.kwargs[])
+    for key in parts[2:end]
+        if !haskey(kwargs, Symbol(key))
+            @warn "Key '$key' not found in current kwargs."
+            continue
+        end
+        delete!(kwargs, Symbol(key))
     end
-    delete!(current_kwargs, Symbol(key))
-    # Convert back to string
-    new_kw_string = convert_dict_to_string(current_kwargs)
-    new_display_string = isempty(new_kw_string) ? " " : new_kw_string
-    try
-        textbox.displayed_string = new_display_string
-        textbox.stored_string = new_kw_string
-    catch e
-        @warn "Error parsing additional arguments: $e"
-        return ""
-    end
+    update_kwargs(state, kwargs)
     get_plot_settings(state, "")
 end
 
@@ -506,9 +481,8 @@ function get_plot_settings(state:: REPLState, command:: String)::String
 end
 
 function reset_plot_settings(state:: REPLState, command:: String)::String
-    textbox = state.controller.ui.main_menu.plot_menu.plot_kw
-    textbox.displayed_string = " "
-    textbox.stored_string = ""
+    new_kwargs = OrderedDict{Symbol, Any}()
+    update_kwargs(state, new_kwargs)
     refresh_plot(state, "")
     "Reset plot settings to default."
 end

@@ -1,5 +1,6 @@
 module Parsing
 
+using DataStructures
 using GLMakie
 
 special_values = Dict(
@@ -13,8 +14,8 @@ special_values = Dict(
     "sqrt" => sqrt,
 )
 
-function parse_kwargs(kw_str::AbstractString)::Dict{Symbol, Any}
-    kw_dict = Dict{Symbol, Any}()
+function parse_kwargs(kw_str::AbstractString)::OrderedDict{Symbol, Any}
+    kw_dict = OrderedDict{Symbol, Any}()
     isempty(kw_str) && return kw_dict
     
     # Split by commas, but be careful not to split inside parentheses, brackets, or quotes

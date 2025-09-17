@@ -60,7 +60,7 @@ NS = Constants.NOT_SELECTED_LABEL
             @test sliders[dim].value[] == idx
         end
         if kwargs != ""
-            @test controller.ui.state.plot_kw[] == kwargs
+            @test controller.ui.main_menu.plot_menu.plot_kw.stored_string[] == kwargs
         end
         if path != ""
             @test controller.ui.state.save_path[] == path
@@ -69,6 +69,11 @@ NS = Constants.NOT_SELECTED_LABEL
             @test controller.ui.main_menu.export_menu.options.stored_string[] == saveoptions
         end
         nothing
+    end
+
+    function cleanup(controller::Controller.ViewerController)
+        GLMakie.closeall()
+        close(controller.dataset.ds)
     end
 
     @testset "Argument Parsing" begin
@@ -178,6 +183,9 @@ NS = Constants.NOT_SELECTED_LABEL
                 variable="1d_float",
                 plot_type=NS,
             )
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Variable Selection" begin
@@ -186,6 +194,9 @@ NS = Constants.NOT_SELECTED_LABEL
                 variable="3d_float",
                 plot_type=NS,
             )
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Axis Selection (1D)" begin
@@ -195,6 +206,9 @@ NS = Constants.NOT_SELECTED_LABEL
                 plot_type=NS,
                 dims=["lat"],
             )
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Axis Selection (2D)" begin
@@ -204,6 +218,9 @@ NS = Constants.NOT_SELECTED_LABEL
                 plot_type=NS,
                 dims=["lon", "lat"],
             )
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Axis Selection (3D)" begin
@@ -213,6 +230,9 @@ NS = Constants.NOT_SELECTED_LABEL
                 plot_type=NS,
                 dims=["lon", "lat", "time"],
             )
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Plot Type Selection" begin
@@ -223,6 +243,9 @@ NS = Constants.NOT_SELECTED_LABEL
                 plot_class=Heatmap,
                 dims=["lon", "lat"],
             )
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Dimension Indices" begin
@@ -233,6 +256,9 @@ NS = Constants.NOT_SELECTED_LABEL
                 dims=["lon", "lat"],
                 dim_idxs=Dict("float_dim" => 3, "only_unit" => 2, "only_long" => 1),
             )
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Animation Dimension" begin
@@ -243,6 +269,9 @@ NS = Constants.NOT_SELECTED_LABEL
                 dims=["lon", "lat"],
                 play_dim="float_dim",
             )
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Keyword Arguments" begin
@@ -254,6 +283,9 @@ NS = Constants.NOT_SELECTED_LABEL
                 dims=["lon", "lat"],
                 kwargs="labels=true, linewidth=20",
             )
+
+            # Cleanup
+            cleanup(controller)
         end
 
         @testset "Save Options" begin
@@ -265,6 +297,9 @@ NS = Constants.NOT_SELECTED_LABEL
                 dims=["lon", "lat"],
                 saveoptions="filename=my_file.png",
             )
+
+            # Cleanup
+            cleanup(controller)
         end
 
     end
@@ -298,10 +333,13 @@ NS = Constants.NOT_SELECTED_LABEL
             dims=["lon", "lat", "float_dim"],
             play_dim="only_unit",
             dim_idxs=Dict("only_unit" => 2, "only_long" => 3),
-            kwargs="colormap=:ice, xlabel=\"Longitude\", azimuth=30, elevation=20, limits=(1, 4, 2, 8, 1, 3)",
+            kwargs="colormap=:ice, xlabel=\"Longitude\", limits=(1.0, 4.0, 2.0, 8.0, 1.0, 3.0), azimuth=30.0, elevation=20.0",
             path="",
             saveoptions="filename=\"my_volume.png\""
         )
+
+        # Cleanup
+        cleanup(controller)
     end
 
 

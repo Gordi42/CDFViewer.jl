@@ -95,6 +95,12 @@ function compute_range(
     LinRange(minimum(values), maximum(values), Constants.N_INTERPOLATION_POINTS)
 end
 
+function get_default_range(interp::Interpolator, coord::String)::Union{AbstractRange, Nothing}
+    group_id = interp.group_map[coord]
+    group = interp.groups[group_id]
+    length(group) > 1 ? compute_range(interp.ds, coord) : nothing
+end
+
 # ====================================================
 #  Control Properties
 # ====================================================

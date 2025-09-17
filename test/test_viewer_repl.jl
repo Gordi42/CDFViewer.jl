@@ -16,6 +16,11 @@ using CDFViewer.ViewerREPL
         ViewerREPL.REPLState(controller)
     end
 
+    function cleanup(state)
+        GLMakie.closeall()
+        close(state.controller.dataset.ds)
+    end
+
     @testset "Helpers" begin
         @testset "select_menu_option" begin
             # Arrange
@@ -29,34 +34,11 @@ using CDFViewer.ViewerREPL
             @test_warn "Invalid selection:" begin
                 @test ViewerREPL.select_menu_option!(menu, "cmd d") == "Available options: \na, b, c"
             end
+
+            # Cleanup
+            cleanup(state)
         end
 
-        @testset "convert_dict_to_string" begin
-            # Arrange
-            d = Dict(:a => 1,
-                     :b => 2.5,
-                     :c => "test",
-                     :d => :symbol,
-                     :e => [1, 2, 3],
-                     :f => (1, 2),
-                     :g => 1:5,
-                     :h => nothing,
-                     )
-
-            # Act
-            s = ViewerREPL.convert_dict_to_string(d)
-
-            # Assert
-            @test occursin("a=1", s)
-            @test occursin("b=2.5", s)
-            @test occursin("c=\"test\"", s)
-            @test occursin("d=:symbol", s)
-            @test occursin("e=[1, 2, 3]", s)
-            @test occursin("f=(1, 2)", s)
-            @test occursin("g=1:5", s)
-            @test occursin("h=nothing", s)
-            @test ViewerREPL.convert_dict_to_string(Dict{Symbol, Any}()) == ""
-        end
     end
 
     @testset "Command Implementations" begin
@@ -76,6 +58,9 @@ using CDFViewer.ViewerREPL
             # Act & Assert: Select via evaluate_command
             @test ViewerREPL.evaluate_command(state, "v 4d_float") == "Selected: 4d_float"
             @test state.controller.ui.state.variable[] == "4d_float"
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Select Plot Type" begin
@@ -94,6 +79,9 @@ using CDFViewer.ViewerREPL
             # Act & Assert: Select via evaluate_command
             @test ViewerREPL.evaluate_command(state, "p scatter") == "Selected: scatter"
             @test state.controller.ui.state.plot_type_name[] == "scatter"
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Select x axis" begin
@@ -113,6 +101,9 @@ using CDFViewer.ViewerREPL
             # Act & Assert: Select via evaluate_command
             @test ViewerREPL.evaluate_command(state, "x lat") == "Selected: lat"
             @test state.controller.ui.state.x_name[] == "lat"
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Select y axis" begin
@@ -132,6 +123,9 @@ using CDFViewer.ViewerREPL
             # Act & Assert: Select via evaluate_command
             @test ViewerREPL.evaluate_command(state, "y lon") == "Selected: lon"
             @test state.controller.ui.state.y_name[] == "lon"
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Select z axis" begin
@@ -153,6 +147,9 @@ using CDFViewer.ViewerREPL
             # Act & Assert: Select via evaluate_command
             @test ViewerREPL.evaluate_command(state, "z float_dim") == "Selected: float_dim"
             @test state.controller.ui.state.z_name[] == "float_dim"
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Select index" begin
@@ -199,6 +196,9 @@ using CDFViewer.ViewerREPL
             # Act & Assert: Select via evaluate_command
             ViewerREPL.evaluate_command(state, "isel float_dim 3")
             @test slider.value[] == 3
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Select Value" begin
@@ -237,6 +237,9 @@ using CDFViewer.ViewerREPL
 
             ViewerREPL.evaluate_command(state, "sel float_dim -10.0")
             @test slider.value[] == 1  # first value is 1.0
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Toggle Play" begin
@@ -256,6 +259,9 @@ using CDFViewer.ViewerREPL
             @test ViewerREPL.toggle_play(state, "play float_dim") == "Playing."
             @test state.controller.ui.main_menu.playback_menu.toggle.active[] == true
             @test state.controller.ui.main_menu.playback_menu.var.selection[] == "float_dim"
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Set Play Speed" begin
@@ -281,6 +287,9 @@ using CDFViewer.ViewerREPL
             # Act & Assert: Set Speed via evaluate_command
             ViewerREPL.evaluate_command(state, "speed 2.0")
             @test isapprox(slider.value[], log10(2.0), atol=0.1)
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Set Play Dimension" begin
@@ -304,6 +313,9 @@ using CDFViewer.ViewerREPL
             # Act & Assert: Set Dimension via evaluate_command
             @test ViewerREPL.evaluate_command(state, "pdim only_unit") == "Selected: only_unit"
             @test menu.selection[] == "only_unit"
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Save Figure" begin
@@ -327,6 +339,9 @@ using CDFViewer.ViewerREPL
             end
             @test isfile(temp_filepath)
             rm(temp_filepath)
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Record Movie" begin
@@ -351,6 +366,9 @@ using CDFViewer.ViewerREPL
             rm(temp_filepath)
             @test output.filename == temp_filepath
             @test output.framerate == 10
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Show / Hide UI" begin
@@ -372,6 +390,9 @@ using CDFViewer.ViewerREPL
             # Act & Assert: Hide Menu
             @test ViewerREPL.hide_menu(state, "hidemenu") == "Closed menu window."
             @test ViewerREPL.evaluate_command(state, "hidemenu") == "Closed menu window."
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Get Figure Keywords" begin
@@ -394,6 +415,9 @@ using CDFViewer.ViewerREPL
                     end
                 end
             end
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Get Axis Keywords" begin
@@ -424,6 +448,9 @@ using CDFViewer.ViewerREPL
                     end
                 end
             end
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Get Plot Keywords" begin
@@ -454,6 +481,9 @@ using CDFViewer.ViewerREPL
                     end
                 end
             end
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Get Colorbar Keywords" begin
@@ -485,6 +515,9 @@ using CDFViewer.ViewerREPL
                     end
                 end
             end
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Get Range Keywords" begin
@@ -506,6 +539,9 @@ using CDFViewer.ViewerREPL
                     end
                 end
             end
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Get Kwarg Value" begin
@@ -536,6 +572,9 @@ using CDFViewer.ViewerREPL
                     @test f(state, "get") == ""
                 end
             end
+
+            # Cleanup
+            cleanup(state)
         end
 
 
@@ -571,6 +610,9 @@ using CDFViewer.ViewerREPL
             @test occursin("color => :red", output)
             @test occursin("linewidth => 2", output)
             @test plot_obj.linewidth[] == 2
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Delete Kwarg" begin
@@ -619,6 +661,9 @@ using CDFViewer.ViewerREPL
             @test ax.xlabel[] == "lon"  # Should be reset to default
             @test ax.ylabel[] == ""
             @test plot_obj.linewidth[] == 2.0
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Get Variable List" begin
@@ -642,6 +687,9 @@ using CDFViewer.ViewerREPL
             for var in keys(VAR_DICT)
                 @test occursin(var, output)
             end
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Get Plot Types" begin
@@ -666,6 +714,9 @@ using CDFViewer.ViewerREPL
             for plot_type in keys(Plotting.PLOT_TYPES)
                 @test occursin(plot_type, output)
             end
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Get Var Info" begin
@@ -686,6 +737,9 @@ using CDFViewer.ViewerREPL
             @test_warn "Variable 'invalid_var' not found." begin
                 @test ViewerREPL.get_var_info(state, "varinfo invalid_var") == ""
             end
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Get Dim List" begin
@@ -717,6 +771,9 @@ using CDFViewer.ViewerREPL
             @test_warn "Variable 'invalid_var' not found." begin
                 @test ViewerREPL.evaluate_command(state, "dims invalid_var") == ""
             end
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Get Plot Settings" begin
@@ -752,6 +809,9 @@ using CDFViewer.ViewerREPL
                 @test !occursin("color", output)
                 @test !occursin("linewidth", output)
             end
+
+            # Cleanup
+            cleanup(state)
         end
 
         @testset "Get Help" begin
@@ -770,6 +830,9 @@ using CDFViewer.ViewerREPL
                 @test occursin("key=value", output)
                 @test occursin("For a list of available keyword arguments, type", output)
             end
+
+            # Cleanup
+            cleanup(state)
         end
 
     end
