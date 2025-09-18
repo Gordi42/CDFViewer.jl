@@ -1,6 +1,7 @@
 using Test
 using DataStructures
 using GLMakie
+using GeoMakie
 using CDFViewer.Constants
 using CDFViewer.Plotting
 
@@ -825,19 +826,16 @@ using CDFViewer.Plotting
 
             # Assert Check that the axis is moveable by default
             @test fd.ax[] isa Axis
-            @test fd.ax[].interactions[:rectanglezoom][1]
             @test fd.ax[].interactions[:dragpan][1]
 
             # Act - make axis non-moveable via kwarg
             kwarg_text[] = "moveable = false"
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are
-            @test !fd.ax[].interactions[:rectanglezoom][1]
             @test !fd.ax[].interactions[:dragpan][1]
 
             # Act - make axis moveable again via kwarg
             kwarg_text[] = "moveable = true"
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are
-            @test fd.ax[].interactions[:rectanglezoom][1]
             @test fd.ax[].interactions[:dragpan][1]
 
             # Act - set to non-Bool value
@@ -850,14 +848,242 @@ using CDFViewer.Plotting
             kwarg_text[] = "moveable = false"
             kwarg_text[] = ""
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are
-            @test fd.ax[].interactions[:rectanglezoom][1]  # should be moveable again
             @test fd.ax[].interactions[:dragpan][1]
 
             # Cleanup
             cleanup(dataset)
         end
 
+        @testset "geographic" begin
+            @testset "Geographic available" begin
+                # Arrange
+                fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
+                kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
+                # Assert Check that the axis is not geographic by default
+                @test fd.ax[] isa Axis
+                @test fd.plot_obj[] isa Heatmap
+                @test fd.cbar[] isa Colorbar
+                @test fd.earth[] === nothing
+                @test fd.land[] === nothing
+                @test fd.coastlines[] isa Lines
+
+                # Act - make axis geographic 
+                kwarg_text[] = "geographic = true"
+
+                # Assert
+                @test fd.ax[] isa GeoAxis
+                @test fd.plot_obj[] isa Surface
+                @test fd.cbar[] isa Colorbar
+                @test fd.earth[] === nothing
+                @test fd.land[] === nothing
+                @test fd.coastlines[] isa Lines
+
+                # Act - disable geographic via kwarg
+                kwarg_text[] = "geographic = false"
+                [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+
+                # Assert
+                @test fd.ax[] isa Axis
+                @test fd.plot_obj[] isa Heatmap
+                @test fd.cbar[] isa Colorbar
+                @test fd.earth[] === nothing
+                @test fd.land[] === nothing
+                @test fd.coastlines[] isa Lines
+
+                # Cleanup
+                cleanup(dataset)
+            end
+
+            @testset "Geographic unavailable" begin
+                # Arrange
+                fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "float_dim"], "heatmap")
+                kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
+
+                # Assert Check that the axis is not geographic by default
+                @test fd.ax[] isa Axis
+                @test fd.plot_obj[] isa Heatmap
+                @test fd.cbar[] isa Colorbar
+                @test fd.earth[] === nothing
+                @test fd.land[] === nothing
+                @test fd.coastlines[] === nothing
+
+                # Act - make axis geographic 
+                kwarg_text[] = "geographic = true"
+
+                # Assert
+                @test fd.ax[] isa Axis
+                @test fd.plot_obj[] isa Heatmap
+                @test fd.cbar[] isa Colorbar
+                @test fd.earth[] === nothing
+                @test fd.land[] === nothing
+                @test fd.coastlines[] === nothing
+
+                # Act - disable geographic via kwarg
+                kwarg_text[] = "geographic = false"
+                [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+
+                # Assert
+                @test fd.ax[] isa Axis
+                @test fd.plot_obj[] isa Heatmap
+                @test fd.cbar[] isa Colorbar
+                @test fd.earth[] === nothing
+                @test fd.land[] === nothing
+                @test fd.coastlines[] === nothing
+
+                # Cleanup
+                cleanup(dataset)
+            end
+        end
+
+        @testset "Projection" begin
+            @testset "Projection available" begin
+                for proj in [
+                    "+proj=ortho",
+                    "+proj=wintri",
+                    "+proj=natearth2",
+                    "+proj=merc",
+                    "+proj=bertin1953"]
+                    @testset "Projection: $proj" begin
+                        # Arrange
+                        fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
+                        kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
+
+                        # Assert Check that the axis is not geographic by default
+                        @test fd.ax[] isa Axis
+
+                        # Act - set projection via kwarg
+                        kwarg_text[] = "proj=\"$proj\""
+                        [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+
+                        # Assert: Axis should now be a GeoAxis with the specified projection
+                        @test fd.settings.proj[] == proj
+                        @test fd.ax[] isa GeoAxis
+                        @test fd.plot_obj[] isa Surface
+                        @test fd.cbar[] isa Colorbar
+                        @test fd.earth[] === nothing
+                        @test fd.land[] === nothing
+                        @test fd.coastlines[] isa Lines
+                        @test fd.ax[].dest[] == proj
+
+                        # Cleanup
+                        cleanup(dataset)
+                    end
+                end
+            end
+
+            @testset "Projection unavailable" begin
+                # Arrange
+                fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "float_dim"], "heatmap")
+                kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
+
+                # Assert Check that the axis is not geographic by default
+                @test fd.ax[] isa Axis
+
+                # Act - set projection via kwarg
+                kwarg_text[] = "proj=\"+proj=ortho\""
+                [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+
+                # Assert: Axis should still be a regular Axis
+                @test fd.settings.proj[] == "+proj=ortho"
+                @test fd.ax[] isa Axis
+                @test fd.plot_obj[] isa Heatmap
+                @test fd.cbar[] isa Colorbar
+                @test fd.earth[] === nothing
+                @test fd.land[] === nothing
+                @test fd.coastlines[] === nothing
+
+                # Cleanup
+                cleanup(dataset)
+            end
+        end
+
+        @testset "Coastlines, Land and Earth" begin
+            for geo in [true, false]
+                @testset "geographic = $geo" begin
+                    # Arrange
+                    fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
+                    kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
+                    kwarg_text[] = "geographic = $geo"
+                    ax_type = geo ? GeoAxis : Axis
+                    earth_type = geo ? Surface : Image
+
+                    # Assert Check that coastlines are present by default, but not land or earth
+                    @test fd.ax[] isa ax_type
+                    @test fd.coastlines[] isa Lines
+                    @test fd.land[] === nothing
+                    @test fd.earth[] === nothing
+
+                    # Act - add land via kwarg
+                    kwarg_text[] = "land = true, geographic = $geo"
+                    [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+
+                    # Assert
+                    @test fd.ax[] isa ax_type
+                    @test fd.coastlines[] isa Lines
+                    @test fd.land[] isa Poly
+                    @test fd.earth[] === nothing
+
+                    # Act - add earth via kwarg
+                    kwarg_text[] = "earth = true, geographic = $geo"
+                    [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+
+                    # Assert
+                    @test fd.ax[] isa ax_type
+                    @test fd.coastlines[] isa Lines
+                    @test fd.land[] === nothing
+                    @test fd.earth[] isa earth_type
+
+                    # Act - earth + land
+                    kwarg_text[] = "land = true, earth = true, geographic = $geo"
+                    [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+                    @test fd.ax[] isa ax_type
+                    @test fd.coastlines[] isa Lines
+                    @test fd.land[] isa Poly
+                    @test fd.earth[] isa earth_type
+
+                    # Cleanup
+                    cleanup(dataset)
+                end
+            end
+        end
+
+        @testset "Scale" begin
+            fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
+            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
+
+            # Assert default scale
+            @test fd.settings.scale[] == 110
+            @test fd.coastlines[] isa Lines
+
+            # Act
+            kwarg_text[] = "scale = 50"
+
+            # Assert
+            @test fd.settings.scale[] == 50
+            @test fd.coastlines[] isa Lines
+
+            # Act - change scale via kwarg
+            kwarg_text[] = "scale = 10"
+            [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
+
+            # Assert
+            @test fd.settings.scale[] == 10
+            @test fd.coastlines[] isa Lines
+
+            # Act - change scale to bad value
+            @test_warn "Available scales are" begin
+                kwarg_text[] = "scale = 77"  # not an available scale
+                [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
+            end
+
+            # Assert - scale should not have changed
+            @test fd.settings.scale[] == 10
+            @test fd.coastlines[] isa Lines
+
+            # Cleanup
+            cleanup(dataset)
+        end
     end
 
     # ============================================

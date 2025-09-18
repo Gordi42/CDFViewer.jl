@@ -463,10 +463,7 @@ function get_dim_list(state:: REPLState, command:: String)::String
 end
 
 function get_plot_settings(state:: REPLState, command:: String)::String
-    textbox = state.controller.ui.main_menu.plot_menu.plot_kw
-    current_string = textbox.stored_string[]
-    current_string = isnothing(current_string) ? "" : current_string
-    current_kwargs = Parsing.parse_kwargs(current_string)
+    current_kwargs = state.controller.ui.state.kwargs[]
     entries = String[]
     for (k,v) in current_kwargs
         if isa(v, AbstractString)

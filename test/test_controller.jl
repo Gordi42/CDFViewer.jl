@@ -588,7 +588,7 @@ NS = Constants.NOT_SELECTED_LABEL
 
         @testset "Axis keywords" begin
             # Arrange
-            controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="heatmap")
+            controller, var_name, plot_type, dim_names = setup_controller(var="2d_gap", plot="heatmap")
             kwarg_text = controller.fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
             kwarg_text[] = "limits=(nothing, nothing, 1, 3), xscale=log10"

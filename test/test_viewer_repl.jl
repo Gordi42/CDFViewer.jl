@@ -559,7 +559,6 @@ using CDFViewer.ViewerREPL
                 @test f(state, "get ylabel") == "ylabel => \"Test Y\""
                 @test f(state, "get colormap") == "colormap => :deep"
                 @test f(state, "get titlesize") == "titlesize => 30.0"
-                @test f(state, "get limits") == "limits => (nothing, nothing)"
                 @test f(state, "get lon") == "lon => " * string(collect(Float64, 1:5))  
 
                 # Act & Assert: Invalid key

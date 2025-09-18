@@ -392,4 +392,45 @@ function update_coord_ranges!(
     nothing
 end
 
+# ===========================================
+#  Utility Functions to change UI elements
+# ===========================================
+function select_menu_option!(menu:: Menu, selection::String)::Nothing
+    avail_opt = menu.options[]
+    if !(selection in avail_opt)
+        throw(ArgumentError("Selection '$selection' not in available options: $avail_opt"))
+    end
+    menu.i_selected[] = findfirst(==(selection), menu.options[])
+    nothing
+end
+
+function select_variable!(ui::UIElements, var_name::String)::Nothing
+    var_menu = ui.main_menu.variable_menu
+    select_menu_option!(var_menu, var_name)
+end
+
+function select_plot_type!(ui::UIElements, plot_type::String)::Nothing
+    plot_menu = ui.main_menu.plot_menu.plot_type
+    select_menu_option!(plot_menu, plot_type)
+end
+
+function select_x_axis!(ui::UIElements, dim_name::String)::Nothing
+    x_menu = ui.main_menu.coord_menu.menus[1]
+    select_menu_option!(x_menu, dim_name)
+    sync_dim_selections!(ui.state, ui.main_menu.coord_menu)
+end
+
+function select_y_axis!(ui::UIElements, dim_name::String)::Nothing
+    y_menu = ui.main_menu.coord_menu.menus[2]
+    select_menu_option!(y_menu, dim_name)
+    sync_dim_selections!(ui.state, ui.main_menu.coord_menu)
+end
+
+function select_z_axis!(ui::UIElements, dim_name::String)::Nothing
+    z_menu = ui.main_menu.coord_menu.menus[3]
+    select_menu_option!(z_menu, dim_name)
+    sync_dim_selections!(ui.state, ui.main_menu.coord_menu)
+end
+
+
 end # module

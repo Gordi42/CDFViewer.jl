@@ -8,6 +8,7 @@ using GeoMakie
 using Suppressor
 
 import ..Constants
+import ..RescaleUnits
 import ..Interpolate
 import ..Data
 import ..UI
@@ -145,9 +146,11 @@ struct FigureSettings
     moveable::Observable{Union{Bool, Nothing}}  # limits the interactivity of the axis
     auto_interpolate::Observable{Bool}
     geographic::Observable{Bool}
+    proj::Observable{Union{String, Nothing}}
     coastlines::Observable{Bool}
-    watermask::Observable{Bool}
-    landmask::Observable{Bool}
+    land::Observable{Bool}
+    earth::Observable{Bool}
+    scale::Observable{Int}
 
     FigureSettings() = new(
         Observable(Constants.FIGSIZE),
@@ -155,9 +158,11 @@ struct FigureSettings
         Observable(nothing),      # moveable
         Observable(false),        # auto_interpolate
         Observable(false),        # geographic
+        Observable(nothing),      # projection
         Observable(true),         # coastlines
-        Observable(false),        # watermask
-        Observable(false),        # landmask
+        Observable(false),        # land
+        Observable(false),        # earth
+        Observable(110),          # scale
     )
 end
 
@@ -171,6 +176,9 @@ struct FigureData
     ax::Observable{Union{Makie.AbstractAxis, Nothing}}
     plot_obj::Observable{Union{Makie.AbstractPlot, Nothing}}
     cbar::Observable{Union{Colorbar, Nothing}}
+    land::Observable{Union{Makie.AbstractPlot, Nothing}}
+    coastlines::Observable{Union{Makie.AbstractPlot, Nothing}}
+    earth::Observable{Union{Makie.AbstractPlot, Nothing}}
     data_inspector::Observable{Union{DataInspector, Nothing}}
     tasks::Observable{Vector{Task}}
     settings::FigureSettings
@@ -186,11 +194,27 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
     ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
     plot_obj = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
     cbar = Observable{Union{Colorbar, Nothing}}(nothing)
+    land = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
+    coastlines = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
+    earth = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
     data_inspector = Observable{Union{DataInspector, Nothing}}(nothing)
 
     # Construct the FigureData
-    fd = FigureData(fig, plot_data, ax, plot_obj, cbar,
-        data_inspector, Observable(Task[]), FigureSettings(), ui_state.range_control, ui)
+    fd = FigureData(
+        fig,
+        plot_data,
+        ax,
+        plot_obj,
+        cbar,
+        data_inspector,
+        land,
+        coastlines,
+        earth,
+        Observable(Task[]),
+        FigureSettings(),
+        ui_state.range_control,
+        ui
+    )
 
     # Setup a listener to create the plot if the axis changes
     on(ax) do a
@@ -206,6 +230,9 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
             plot_data.d[plot_data.plot_type[].ndims])
         # and add a colorbar if needed
         add_colorbar!(fd)
+        add_earth!(fd)
+        add_land!(fd)
+        add_coastlines!(fd)
         apply_kwargs!(fd, ui_state.kwargs[])
     end
 
@@ -234,6 +261,7 @@ function create_figure(figsize::Tuple{Int, Int})::Figure
             zlabelsize = Constants.LABELSIZE,
             titlesize = Constants.TITLESIZE,
         ),
+        Lines = (inspectable = false,)
     )
     theme = merge(theme_latexfonts(), theme_minimal())
     theme = merge(theme, cust_theme)
@@ -254,6 +282,52 @@ function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
     nothing
 end
 
+function add_earth!(fd::FigureData)::Nothing
+    if fd.settings.earth[] && support_geographic(fd)
+        # earth should be below the data
+        if fd.ax[] isa GeoAxis
+            fd.earth[] = surface!(fd.ax[],
+                -180..180, -90..90,
+                zeros(axes(rotr90(GeoMakie.earth())));
+                shading = NoShading, color = rotr90(GeoMakie.earth()),
+                transformation = (; translation = (0, 0, -10)),
+                inspectable = false,
+            )
+        elseif fd.ax[] isa Axis
+            fd.earth[] = image!(
+                fd.ax[], -180..180, -90..90, GeoMakie.earth() |> rotr90;
+                interpolate = false, transformation = (; translation = (0, 0, -10)),
+                inspectable = false,
+            )
+        end
+    end
+    nothing
+end
+
+function add_land!(fd::FigureData)::Nothing
+    if fd.settings.land[] && support_geographic(fd)
+        land = GeoMakie.land()
+        # land mask should be above the data but below coastlines
+        fd.land[] = poly!(
+            fd.ax[], land, color = :lightgray,
+            transformation = (; translation = (0, 0, 40)),
+            inspectable = false,
+        )
+    end
+    nothing
+end
+
+function add_coastlines!(fd::FigureData)::Nothing
+    if fd.settings.coastlines[] && support_geographic(fd)
+        c = GeoMakie.coastlines(fd.settings.scale[])
+        fd.coastlines[] = lines!(
+            fd.ax[], c, color = :black,
+            transformation = (; translation = (0, 0, 50)),
+        )
+    end
+    nothing
+end
+
 function add_colorbar!(fd::FigureData)::Nothing
     if fd.cbar[] !== nothing
         delete!(fd.cbar[])
@@ -267,16 +341,19 @@ function add_colorbar!(fd::FigureData)::Nothing
     nothing
 end
 
-function clear_axis!(fig_data::FigureData)::Nothing
-    if fig_data.cbar[] !== nothing
-        delete!(fig_data.cbar[])
-        fig_data.cbar[] = nothing
+function clear_axis!(fd::FigureData)::Nothing
+    if fd.cbar[] !== nothing
+        delete!(fd.cbar[])
+        fd.cbar[] = nothing
     end
-    if fig_data.ax[] !== nothing
-        delete!(fig_data.ax[])
-        fig_data.ax[] = nothing
+    if fd.ax[] !== nothing
+        delete!(fd.ax[])
+        fd.ax[] = nothing
     end
-    fig_data.plot_obj[] = nothing
+    fd.plot_obj[] = nothing
+    fd.earth[] = nothing
+    fd.land[] = nothing
+    fd.coastlines[] = nothing
     nothing
 end
 
@@ -284,43 +361,84 @@ end
 #  Apply figure settings
 # ============================================================
 function enable_movable(ax::Makie.AbstractAxis)::Nothing
-    activate_interaction!(ax, :rectanglezoom)
     activate_interaction!(ax, :dragpan)
     nothing
 end
 
 function disable_movable(ax::Makie.AbstractAxis)::Nothing
-    deactivate_interaction!(ax, :rectanglezoom)
     deactivate_interaction!(ax, :dragpan)
     nothing
 end
 
-function set_movable!(fd::FigureData, moveable::Union{Bool, Nothing})::Nothing
+function set_movable!(fd::FigureData, moveable::Union{Bool, Nothing})::Bool
     ax = fd.ax[]
-    isnothing(ax) && return nothing
-    isnothing(moveable) && return nothing
+    isnothing(ax) && return false
+    isnothing(moveable) && return false
     moveable ? enable_movable(ax) : disable_movable(ax)
     fd.settings.moveable[] = moveable
+    false
+end
+
+function redraw!(fd::FigureData)::Nothing
+    if !isnothing(fd.ax[])
+        clear_axis!(fd)
+        create_axis!(fd, fd.ui.state)
+    end
     nothing
 end
 
-function resize_figure!(fd::FigureData, new_size::Tuple{Int, Int})::Nothing
+function set_geographic!(fd::FigureData, geographic::Bool)::Bool
+    fd.settings.geographic[] = geographic
+    true
+end
+
+function set_projection!(fd::FigureData, proj::Union{AbstractString, Nothing})::Bool
+    fd.settings.proj[] = proj
+    set_geographic!(fd, !isnothing(proj))
+end
+
+function resize_figure!(fd::FigureData, new_size::Tuple{Int, Int})::Bool
     try
         resize!(fd.fig, new_size[1], new_size[2])
         fd.settings.figsize[] = new_size
     catch e
         @error "Error resizing figure: $e"
     end
-    nothing
+    false
 end
 
-function set_colorbar!(fd::FigureData, show::Bool)::Nothing
+function set_colorbar!(fd::FigureData, show::Bool)::Bool
     if show && !fd.plot_data.plot_type[].colorbar
         @warn "Current plot type does not support colorbar"
     end
     fd.settings.cbar[] = show
     add_colorbar!(fd)
-    nothing
+    false
+end
+
+function set_earth!(fd::FigureData, show::Bool)::Bool
+    fd.settings.earth[] = show
+    true
+end
+
+function set_land!(fd::FigureData, show::Bool)::Bool
+    fd.settings.land[] = show
+    true
+end
+
+function set_coastlines!(fd::FigureData, show::Bool)::Bool
+    fd.settings.coastlines[] = show
+    true
+end
+
+function set_scale!(fd::FigureData, scale::Int)::Bool
+    avail = Constants.GEOGRAPHIC_DATA_SCALES
+    if scale ∉ avail
+        @warn "Scale $scale not available. Available scales are: $avail"
+        return false
+    end
+    fd.settings.scale[] = scale
+    true
 end
 
 struct FigureSettingsHandler
@@ -334,25 +452,29 @@ const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
     :cbar => FigureSettingsHandler(:cbar, Bool, set_colorbar!),
     :moveable => FigureSettingsHandler(:moveable, Union{Bool, Nothing}, set_movable!),
     :auto_interpolate => FigureSettingsHandler(:auto_interpolate, Bool, (fd, val) -> @warn("Auto interpolate setting not implemented yet")),
-    :geographic => FigureSettingsHandler(:geographic, Bool, (fd, val) -> @warn("Geographic setting not implemented yet")),
-    :coastlines => FigureSettingsHandler(:coastlines, Bool, (fd, val) -> @warn("Coastlines setting not implemented yet")),
-    :watermask => FigureSettingsHandler(:watermask, Bool, (fd, val) -> @warn("Watermask setting not implemented yet")),
-    :landmask => FigureSettingsHandler(:landmask, Bool, (fd, val) -> @warn("Landmask setting not implemented yet")),
+    :geographic => FigureSettingsHandler(:geographic, Bool, set_geographic!),
+    :proj => FigureSettingsHandler(:proj, Union{AbstractString, Nothing}, set_projection!),
+    :scale => FigureSettingsHandler(:scale, Int, set_scale!),
+    :earth => FigureSettingsHandler(:earth, Bool, set_earth!),
+    :land => FigureSettingsHandler(:land, Bool, set_land!),
+    :coastlines => FigureSettingsHandler(:coastlines, Bool, set_coastlines!),
 )
     
 
-function apply_figure_settings!(fd::FigureData, property::Symbol, value::Any)::Nothing
+function apply_figure_settings!(fd::FigureData, property::Symbol, value::Any)::Bool
+    redraw = false
     if haskey(FIGURE_SETTINGS_HANDLERS, property)
         handler = FIGURE_SETTINGS_HANDLERS[property]
         if isa(value, handler.type)
-            handler.handler(fd, value)
+            res = handler.handler(fd, value)
+            redraw = res ? true : redraw
         else
             @error "Value for $property must be of type $(handler.type), got $(typeof(value))"
         end
     else
         @error "Property $property not recognized in FigureData"
     end
-    nothing
+    redraw
 end
 
 # ============================================================
@@ -380,10 +502,12 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
             :cbar => true,
             :moveable => true,
             :auto_interpolate => false,
-            :geo => false,
+            :geographic => false,
+            :proj => nothing,
+            :scale => 110,
+            :earth => false,
+            :land => false,
             :coastlines => true,
-            :watermask => false,
-            :landmask => false,
         )
         return haskey(defaults, property) ? defaults[property] : :delete
     elseif isa(target_object, Makie.AbstractAxis)
@@ -429,8 +553,9 @@ function get_property_mappings(kwargs::OrderedDict{Symbol, Any}, fig_data::Figur
     return mappings
 end
 
-function set_property_mapping(fd::FigureData, target_object::Any, property::Symbol, value::Any)::Nothing
-    value === :delete && return nothing
+function set_property_mapping(fd::FigureData, target_object::Any, property::Symbol, value::Any)::Bool
+    value === :delete && return false
+    redraw = false
     try
         if isa(target_object, Interpolate.RangeControl)
             # Special handling for range control
@@ -441,29 +566,33 @@ function set_property_mapping(fd::FigureData, target_object::Any, property::Symb
                 fd.plot_data.update_data_switch,
             )
         elseif isa(target_object, FigureSettings)
-            apply_figure_settings!(fd, property, value)
+            redraw = apply_figure_settings!(fd, property, value)
         else
             setproperty!(target_object, property, value)
         end
     catch e
         @warn("Error setting property $property to $value: $e")
     end
-    nothing
+    redraw
 end
 
-function apply_property_mappings!(fd::FigureData, mappings::Vector{PropertyMapping})::Nothing
+function apply_property_mappings!(fd::FigureData, mappings::Vector{PropertyMapping})::Bool
+    redraw = false
     for mapping in mappings
         mapping.current_value == mapping.intended_value && continue
-        set_property_mapping(fd, mapping.target_object, mapping.property, mapping.intended_value)
+        res = set_property_mapping(fd, mapping.target_object, mapping.property, mapping.intended_value)
+        redraw = res ? true : redraw
     end
-    nothing
+    redraw
 end
 
-function apply_original_property_mappings!(fd::FigureData, mappings::Vector{PropertyMapping})::Nothing
+function apply_original_property_mappings!(fd::FigureData, mappings::Vector{PropertyMapping})::Bool
+    redraw = false
     for mapping in mappings
-        set_property_mapping(fd, mapping.target_object, mapping.property, mapping.current_value)
+        res = set_property_mapping(fd, mapping.target_object, mapping.property, mapping.current_value)
+        redraw = res ? true : redraw
     end
-    nothing
+    redraw
 end
 
 function wait_for_n_cycles(fig::Figure, n::Int)::Nothing
@@ -537,7 +666,8 @@ function apply_kwargs!(fig_data::FigureData, kwargs::OrderedDict{Symbol, Any})::
     # task = @async begin
         output = @capture_err begin
             # @warn "Applying keyword arguments: $kw_str"
-            apply_property_mappings!(fig_data, mappings)
+            redraw = apply_property_mappings!(fig_data, mappings)
+            redraw && redraw!(fig_data)
 
             # Check if the window is open
             if fig_data.fig.scene.events.window_open[]
@@ -553,7 +683,13 @@ function apply_kwargs!(fig_data::FigureData, kwargs::OrderedDict{Symbol, Any})::
                 # print the line to stderr
                 println(stderr, line)
             end
-            apply_original_property_mappings!(fig_data, mappings)
+            # revert to original properties
+            for mapping in mappings
+                fig_data.ui.state.kwargs[][mapping.property] = mapping.current_value
+            end
+
+            redraw = apply_original_property_mappings!(fig_data, mappings)
+            redraw && redraw!(fig_data)
         end
     # end
     # push!(fig_data.tasks[], task)
@@ -677,7 +813,47 @@ function compute_aspect3d(fd::FigureData, x::AbstractArray, y::AbstractArray, z:
     compute_aspect(fd.ui.state.kwargs[], fd.plot_data.plot_type[].ndims, x, y, z)
 end
 
-function create_2d_axis(fd::FigureData)::Axis
+const OPT_FLOAT = Union{Float64, Nothing}
+
+function compute_2d_limits_from_data(
+    kwargs::OrderedDict{Symbol, Any},
+    x::AbstractArray,
+    y::AbstractArray,
+)::Tuple{OPT_FLOAT, OPT_FLOAT, OPT_FLOAT, OPT_FLOAT}
+    if haskey(kwargs, :limits)
+        val = kwargs[:limits]
+        length(val) == 4 && return val
+    end
+    x_min = minimum(x)
+    x_max = maximum(x)
+    if x_min == x_max
+        x_min = nothing
+        x_max = nothing
+    end
+    y_min = minimum(y)
+    y_max = maximum(y)
+    if y_min == y_max
+        y_min = nothing
+        y_max = nothing
+    end
+    (x_min, x_max, y_min, y_max)
+end
+
+function compute_2d_limits(fd::FigureData)::Observable{Tuple{OPT_FLOAT, OPT_FLOAT, OPT_FLOAT, OPT_FLOAT}}
+    limits = Observable{Tuple{OPT_FLOAT, OPT_FLOAT, OPT_FLOAT, OPT_FLOAT}}(
+        compute_2d_limits_from_data(fd.ui.state.kwargs[], fd.plot_data.x[], fd.plot_data.y[]))
+    # The updater caused an error, so we disable it for now
+    # for trigger in (fd.plot_data.x, fd.plot_data.y)
+    #     on(trigger) do _
+    #         new_limits = compute_2d_limits_from_data(fd.ui.state.kwargs[], fd.plot_data.x[], fd.plot_data.y[])
+    #         limits[] = new_limits
+    #     end
+    # end
+    limits
+end
+
+
+function create_regular_2d_axis(fd::FigureData)::Axis
     aspect = Observable{Any}(compute_aspect2d(fd, fd.plot_data.x[], fd.plot_data.y[]))
     for trigger in (fd.plot_data.x, fd.plot_data.y)
         on(trigger) do _
@@ -685,13 +861,64 @@ function create_2d_axis(fd::FigureData)::Axis
         end
     end
 
-    Axis(
+    ax = Axis(
         fd.fig[1, 1],
         xlabel = fd.plot_data.labels.xlabel,
         ylabel = fd.plot_data.plot_type[].ndims > 1 ? fd.plot_data.labels.ylabel : "",
         aspect = aspect,
         title = fd.plot_data.labels.title,
+        limits = compute_2d_limits(fd),
     )
+
+    # Enable moveable by default except if explicitly disabled
+    if fd.settings.moveable[] !== false
+        enable_movable(ax)
+    end
+    ax
+end
+
+function create_geographic_2d_axis(fd::FigureData)::GeoAxis
+
+    ax = if fd.settings.proj[] === nothing
+        GeoAxis(
+            fd.fig[1, 1],
+            xlabel = fd.plot_data.labels.xlabel,
+            ylabel = fd.plot_data.labels.ylabel,
+            title = fd.plot_data.labels.title,
+            limits = compute_2d_limits(fd),
+        )
+    else
+        GeoAxis(
+            fd.fig[1, 1],
+            xlabel = fd.plot_data.labels.xlabel,
+            ylabel = fd.plot_data.labels.ylabel,
+            title = fd.plot_data.labels.title,
+            dest = fd.settings.proj[],
+            limits = compute_2d_limits(fd),
+        )
+    end
+
+    # Disable moveable by default except if explicitly enabled
+    if fd.settings.moveable[] !== true
+        disable_movable(ax)
+    end
+    ax
+end
+
+function support_geographic(fd::FigureData)::Bool
+    # First we check if the plot type allows for geographic plotting
+    fd.plot_data.plot_type[].type ∉ Constants.GEOGRAPHIC_PLOT_TYPES && return false
+    # Then we check if the selected x and y dimensions are longitude and latitude
+    dataset = fd.range_control[].interp.ds
+    x_name = RescaleUnits.get_standard_name(fd.ui.state.x_name[], dataset)
+    y_name = RescaleUnits.get_standard_name(fd.ui.state.y_name[], dataset)
+    x_name == "longitude" && y_name == "latitude" && return true
+    false
+end
+
+function create_2d_axis(fd::FigureData)::Union{Axis, GeoAxis}
+    is_geo = fd.settings.geographic[] && support_geographic(fd)
+    is_geo ? create_geographic_2d_axis(fd) : create_regular_2d_axis(fd)
 end
 
 function create_3d_axis(fd::FigureData)::Axis3
@@ -710,11 +937,19 @@ function create_3d_axis(fd::FigureData)::Axis3
     )
 end
 
+function custom_heatmap!(ax, x, y, z, d)
+    if ax isa GeoAxis
+        surface!(ax, x, y, d; colormap = :balance, inspectable=false, shading = NoShading)
+    else
+        heatmap!(ax, x, y, d; colormap = :balance, inspectable=false)
+    end
+end
+
 
 for plot in [
     # 2D plots
     Plot("heatmap", 2, true,
-        (ax, x, y, z, d) -> heatmap!(ax, x, y, d, colormap = :balance, inspectable=false),
+        (ax, x, y, z, d) -> custom_heatmap!(ax, x, y, z, d),
         create_2d_axis),
     Plot("contour", 2, false,
         (ax, x, y, z, d) -> contour!(ax, x, y, d, colormap = :balance, inspectable=false),

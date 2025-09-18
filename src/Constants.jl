@@ -46,6 +46,9 @@ const PLOT_DEFAULT_1D = "line"
 const PLOT_DEFAULT_2D = "heatmap"
 const PLOT_DEFAULT_3D = "volume"
 
+const GEOGRAPHIC_PLOT_TYPES = ["heatmap", "contour", "contourf"]
+const GEOGRAPHIC_DATA_SCALES = [10, 50, 110]  # available map scales in meters
+
 # ============================================
 #  Available File Formats
 # ============================================

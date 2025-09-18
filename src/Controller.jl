@@ -321,12 +321,14 @@ function on_dim_sel_change(controller::ViewerController)::Nothing
         plot_type_menu.i_selected[] = findfirst(==(new_plot), plot_type_menu.options[])
     end
 
+    # Delete the old axis and colorbar
+    Plotting.clear_axis!(controller.fd)
 
     # Set the update switch back
     controller.fd.plot_data.update_data_switch[] = true
 
-    # Update the axis limits to fit the new data
-    isnothing(controller.fd.ax[]) || autolimits!(controller.fd.ax[])
+    # Recreate the axis
+    Plotting.create_axis!(controller.fd, controller.ui.state)
     nothing
 end
 
