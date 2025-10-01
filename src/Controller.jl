@@ -76,6 +76,7 @@ function setup!(controller::ViewerController)::ViewerController
     on(conv(on_record_event), controller.ui.main_menu.export_menu.record_button.clicks)
     on(conv(on_export_event), controller.ui.main_menu.export_menu.export_button.clicks)
     on(conv(on_headless_change), controller.headless)
+    on(conv(on_keyboard_event), controller.fd.fig.scene.events.keyboardbutton)
 
     # This will set everything up for the initial variable
     notify(controller.ui.main_menu.variable_menu.selection)
@@ -367,6 +368,21 @@ end
 function on_export_event(controller::ViewerController)::Nothing
     exp_str = get_export_string(controller)
     @info "Commandline Arguments:\n$exp_str"
+    nothing
+end
+
+function on_keyboard_event(controller::ViewerController)::Nothing
+    fig = controller.fd.fig
+    K = Makie.Keyboard
+    keyevent = fig.scene.events.keyboardbutton[]
+
+    # Control Modifier
+    if K.left_control ∈ fig.scene.events.keyboardstate
+        # i for interpolation
+        if keyevent == Makie.KeyEvent(K.i, K.release)
+            Plotting.update_interpolate!(controller.fd)
+        end
+    end
     nothing
 end
 

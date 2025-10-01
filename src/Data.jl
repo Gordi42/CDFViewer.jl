@@ -23,6 +23,7 @@ struct CDFDataset
     paired_coords::Dict{String, Vector{String}}
     group_ids_of_var_dims::Dict{String, Vector{Int}}
     interp::Interpolate.Interpolator
+    data_limits::Dict{String, Tuple{Float64, Float64}}
 end
 
 # ---------------------------------------------------
@@ -49,7 +50,8 @@ function CDFDataset(file_paths::Vector{String})::CDFDataset
 
     CDFDataset(
         ds, dimensions, coordinates, variables, var_coords, paired_coords,
-        group_ids_of_var_dims, interp)
+        group_ids_of_var_dims, interp, Dict{String, Tuple{Float64, Float64}}()
+    )
 end
 
 function get_var_coordinates(ds::NCDataset)::OrderedDict{String, Vector{String}}
@@ -244,6 +246,13 @@ end
 function get_dim_values(dataset::CDFDataset, dim::String)::Vector{Float64}
     dim === Constants.NOT_SELECTED_LABEL && return collect(Float64, 1:1)
     getproperty(dataset.interp.rc, Symbol(dim))
+end
+
+function get_data_limits(dataset::CDFDataset, name::String)::Tuple{Float64, Float64}
+    haskey(dataset.data_limits, name) && return dataset.data_limits[name]
+    values = Interpolate.convert_to_float64(dataset.ds, name)
+    dataset.data_limits[name] = (minimum(values), maximum(values))
+    dataset.data_limits[name]
 end
 
 function get_dim_array(dataset::CDFDataset, dim::Observable{String}, update_switch::Observable{Bool})::Observable{Vector{Float64}}

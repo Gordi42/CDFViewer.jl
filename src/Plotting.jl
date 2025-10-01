@@ -98,6 +98,7 @@ struct PlotData
     d::Vector{Observable{Union{Array, Nothing}}}
     update_data_switch::Observable{Bool}
     labels::FigureLabels
+    dataset::Data.CDFDataset
 end
 
 function PlotData(ui_state::UI.State, dataset::Data.CDFDataset)::PlotData
@@ -132,7 +133,7 @@ function PlotData(ui_state::UI.State, dataset::Data.CDFDataset)::PlotData
     labels = FigureLabels(ui_state, dataset)
 
     # Construct and return the PlotData
-    PlotData(plot_type, sel_dims, x, y, z, d, update_switch, labels)
+    PlotData(plot_type, sel_dims, x, y, z, d, update_switch, labels, dataset)
 end
 
 
@@ -144,7 +145,6 @@ struct FigureSettings
     figsize::Observable{Tuple{Int, Int}}
     cbar::Observable{Bool}
     moveable::Observable{Union{Bool, Nothing}}  # limits the interactivity of the axis
-    auto_interpolate::Observable{Bool}
     geographic::Observable{Bool}
     proj::Observable{Union{String, Nothing}}
     coastlines::Observable{Bool}
@@ -156,7 +156,6 @@ struct FigureSettings
         Observable(Constants.FIGSIZE),
         Observable(true),         # colorbar
         Observable(nothing),      # moveable
-        Observable(false),        # auto_interpolate
         Observable(false),        # geographic
         Observable(nothing),      # projection
         Observable(true),         # coastlines
@@ -451,7 +450,6 @@ const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
     :figsize => FigureSettingsHandler(:figsize, Tuple{Int, Int}, resize_figure!),
     :cbar => FigureSettingsHandler(:cbar, Bool, set_colorbar!),
     :moveable => FigureSettingsHandler(:moveable, Union{Bool, Nothing}, set_movable!),
-    :auto_interpolate => FigureSettingsHandler(:auto_interpolate, Bool, (fd, val) -> @warn("Auto interpolate setting not implemented yet")),
     :geographic => FigureSettingsHandler(:geographic, Bool, set_geographic!),
     :proj => FigureSettingsHandler(:proj, Union{AbstractString, Nothing}, set_projection!),
     :scale => FigureSettingsHandler(:scale, Int, set_scale!),
@@ -501,7 +499,6 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
             :figsize => Constants.FIGSIZE,
             :cbar => true,
             :moveable => true,
-            :auto_interpolate => false,
             :geographic => false,
             :proj => nothing,
             :scale => 110,
@@ -748,6 +745,52 @@ function fix_figure_kwargs!(fd::FigureData)::Nothing
         return nothing
     end
 
+    nothing
+end
+
+# ============================================================
+#  Auto-interpolate
+# ============================================================
+
+function update_interpolate!(fd::FigureData)::Nothing
+    isnothing(fd.ax[]) && return nothing
+    fd.plot_data.plot_type[].type ∉ Constants.GEOGRAPHIC_PLOT_TYPES && return nothing
+    # Get the names of x and y coordinates
+    x_name = fd.ui.state.x_name[]
+    y_name = fd.ui.state.y_name[]
+    # Get the dataset
+    dataset = fd.plot_data.dataset
+    # Get current axis limits
+    limits = fd.ax[].finallimits[]
+    xmin, xmax = limits.origin[1], limits.origin[1] + limits.widths[1]
+    ymin, ymax = limits.origin[2], limits.origin[2] + limits.widths[2]
+    # Get data limits
+    xlims = Data.get_data_limits(dataset, x_name)
+    ylims = Data.get_data_limits(dataset, y_name)
+    # Adjust limits if they exceed data limits
+    xmin = max(xmin, xlims[1])
+    xmax = min(xmax, xlims[2])
+    ymin = max(ymin, ylims[1])
+    ymax = min(ymax, ylims[2])
+    # Get the size of the axis in pixels
+    widths = fd.ax[].scene.viewport[].widths
+    # Update the coordinate ranges by setting the kwargs in the UI state
+    current_kwargs = fd.ui.state.kwargs[]
+    new_kwargs = Dict(
+        Symbol(x_name) => (xmin, xmax, widths[1]),
+        Symbol(y_name) => (ymin, ymax, widths[2]),
+    )
+    merged_kwargs = merge(current_kwargs, new_kwargs)
+    # Update the UI text box with the new kwargs
+    textbox = fd.ui.main_menu.plot_menu.plot_kw
+    new_kw_string = Plotting.kwarg_dict_to_string(merged_kwargs)
+    new_display_string = isempty(new_kw_string) ? " " : new_kw_string
+    try
+        textbox.displayed_string = new_display_string
+        textbox.stored_string = new_kw_string
+    catch e
+        @warn "Error parsing additional arguments: $e"
+    end
     nothing
 end
 
