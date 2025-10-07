@@ -92,6 +92,9 @@ function record_scene(fig::Figure, settings::OutputSettings, slider::Slider)::No
     @info "Finished recording. Saving ..."
     @cd settings mv(tmp_file, filename)
     @info "Saved animation to $filename"
+    # There is a bug in the record function that causes blocking of tick events
+    # These can be cleared by running a garbage collection
+    GC.gc()
     nothing
 end
 

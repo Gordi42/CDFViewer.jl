@@ -584,7 +584,7 @@ function start_repl(controller:: Controller.ViewerController)::Nothing
             print("CDFViewer> ")
 
             if eof(stdin)
-                @info "EOF detected. Exiting CDFViewer REPL."
+                @info "Exiting CDFViewer REPL."
                 running = false
                 break
             end
