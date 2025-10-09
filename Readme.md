@@ -4,7 +4,7 @@
 
 For optimal performance, I recommend compiling the application using PackageCompiler.jl. This will drastically reduce the startup time of the application. However, it also has some limitations, such as the very big size of the system image (~ 1GB) and the very long compilation time (up to an hour).
 
-For compiling the application, you need to have julia installed on your system. You can download it from [here](https://julialang.org/downloads/).
+For compiling the application, you need to have julia installed on your system. You can download it from [here](https://julialang.org/downloads/). You need at least version `1.11.6`.
 
 1. Clone the repository and run the build script:
     ```bash
@@ -18,6 +18,9 @@ For compiling the application, you need to have julia installed on your system. 
     ```
 
 Optionally, you can add the `cdfviewer` executable to your PATH for easier access.
+
+## Remote
+If you want to run the application on a remote server and forward the display to your local machine, you can use SSH with X11Trusted forwarding (`ssh -Y` option).
 
 ## Running using julia
 
