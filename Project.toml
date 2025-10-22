@@ -1,7 +1,7 @@
 name = "CDFViewer"
 uuid = "50096eed-4867-42b1-b390-9381532214de"
-authors = ["Silvano <silvano98@hotmail.de>"]
 version = "0.1.0"
+authors = ["Silvano <silvano98@hotmail.de>"]
 
 [deps]
 ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
@@ -15,6 +15,7 @@ Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 NCDatasets = "85f8d34a-cbdd-5861-8df4-14fed0d494ab"
 NearestNeighbors = "b8a86587-4115-5ab1-83bc-aa920d37bbce"
+PackageCompiler = "9b87118b-4619-50d2-8e1e-99f35a4d4d9d"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
@@ -36,6 +37,7 @@ Logging = "1.11.0"
 Makie = "0.24.6"
 NCDatasets = "0.14.8"
 NearestNeighbors = "0.4.22"
+PackageCompiler = "2.2.3"
 Printf = "1.11.0"
 ProgressMeter = "1.11.0"
 REPL = "1.11.0"

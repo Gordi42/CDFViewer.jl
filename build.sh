@@ -16,9 +16,10 @@ build_dir=$(realpath build)
 # Create the create_sysimage.jl script
 create_sysimage_script=$(mktemp /tmp/create_sysimage.XXXXXX.jl)
 cat <<EOF >"$create_sysimage_script"
-using PackageCompiler
 using Pkg
 Pkg.activate(".")
+
+using PackageCompiler
 
 create_sysimage(
     ["CDFViewer"],

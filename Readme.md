@@ -34,20 +34,3 @@ If you don't want to compile the application, you can run it directly using juli
    ```bash
    julia --project=/path/to/CDFViewer.jl -e 'using CDFViewer; julia_main()' <path_to_your_file.nc>
    ```
-
-# TODO
-
-## Plot Options
-
-- [ ] Add scatter2d
-- [ ] Add scatter2d on 3D axis
-- [ ] Add scatter3d
-- [ ] Add quiver, streamline (the idea is to add a second variable selection)
-- [ ] Add statistical plots (histogram, etc.)
-- [ ] Add support for GeoMakie (Various Projections, Coastlines etc.)
-
-## Others
-
-- [ ] Add test workflow for github
-- [ ] Add online documentation
-- [ ] Add support for dark theme
