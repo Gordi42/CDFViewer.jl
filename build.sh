@@ -18,6 +18,7 @@ create_sysimage_script=$(mktemp /tmp/create_sysimage.XXXXXX.jl)
 cat <<EOF >"$create_sysimage_script"
 using Pkg
 Pkg.activate(".")
+Pkg.instantiate()
 
 using PackageCompiler
 
