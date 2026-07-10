@@ -10,18 +10,18 @@ behind the scenes.
 
 ## Opening ICON-style output
 
-Our example `ocean.nc` stores sea surface temperature on an `ncells`
+Our example `atmos.nc` stores the 2 m air temperature on an `ncells`
 dimension. The cell coordinates live in a separate grid file (see
 [External grid files](@ref) below), which is found and attached
 automatically:
 
 ```bash
-cdfviewer ocean.nc
+cdfviewer atmos.nc
 ```
 
 ```@example uns
 using Main.DocHelpers # hide
-session = open_viewer(demo_file("ocean.nc")) # hide
+session = open_viewer(demo_file("atmos.nc")) # hide
 print_overview(session) # hide
 ```
 
@@ -29,7 +29,7 @@ The coordinates `clon`/`clat` are now available as plot axes (radians are
 converted to degrees automatically):
 
 ```@example uns
-repl(session, "v sst", "x clon", "y clat", "p heatmap") # hide
+repl(session, "v temp2m", "x clon", "y clat", "p heatmap") # hide
 ```
 
 ```@example uns
@@ -50,22 +50,22 @@ range keyword argument of the form
 coordinate = (start, stop, number_of_points)
 ```
 
-For example, to zoom the interpolation into the tropics and sample each axis
+For example, to zoom the interpolation into the tropics, sample each axis
 with 500 points across the smaller window (giving a correspondingly finer
-resolution there):
+resolution there), and match the axis limits to the window:
 
 ```@example uns
-repl(session, "clon=(-60, 60, 500), clat=(-30, 30, 500)") # hide
+repl(session, "clon=(-60, 60, 500), clat=(-30, 30, 500), limits=(-60, 60, -30, 30)") # hide
 ```
 
 ```@example uns
 plot_figure(session) # hide
 ```
 
-`del` restores the default ranges:
+`del` restores the default ranges and limits:
 
 ```@example uns
-repl(session, "del clon clat") # hide
+repl(session, "del clon clat limits") # hide
 ```
 
 !!! tip
@@ -83,7 +83,7 @@ attaches them from a grid file.
 You can always name the grid file explicitly:
 
 ```bash
-cdfviewer ocean.nc --grid /pool/data/ICON/grids/public/icon_grid_0013_R02B04_G.nc
+cdfviewer atmos.nc --grid /pool/data/ICON/grids/public/icon_grid_0013_R02B04_G.nc
 ```
 
 Without `--grid`, the directory of the data file and all configured search

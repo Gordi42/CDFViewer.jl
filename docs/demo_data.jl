@@ -102,10 +102,10 @@ function create_wave_file(dir::String)::String
 end
 
 """
-Create an ICON-style pair (`ocean.nc` + `icon_grid_0013_R02B04_G.nc`): the data
-file stores a variable on an `ncells` dimension but no coordinates; the grid
-file provides `clon`/`clat` in radians. Cell positions come from a Fibonacci
-lattice, so they are irregular but deterministic.
+Create an ICON-style pair (`atmos.nc` + `icon_grid_0013_R02B04_G.nc`): the
+data file stores a variable on an `ncells` dimension but no coordinates; the
+grid file provides `clon`/`clat` in radians. Cell positions come from a
+Fibonacci lattice, so they are irregular but deterministic.
 """
 function create_icon_demo(dir::String)::Tuple{String, String}
     ncells, ntime = 4000, 12
@@ -114,21 +114,21 @@ function create_icon_demo(dir::String)::Tuple{String, String}
     clat = [asin(1.0 - 2.0 * (i - 0.5) / ncells) for i in 1:ncells]
     clon = [mod(i * golden + π, 2π) - π for i in 1:ncells]
 
-    sst = [
+    temp2m = [
         16.0 + 12.0 * cos(clat[c])^2 +
         3.0 * cos(3 * clon[c] + 0.5 * t) * cos(clat[c])^2 +
         2.0 * sin(2 * clat[c] + 0.4 * t)
         for c in 1:ncells, t in 0.0:ntime-1
     ]
 
-    data_file = joinpath(dir, "ocean.nc")
+    data_file = joinpath(dir, "atmos.nc")
     NCDataset(data_file, "c", attrib = Dict{String, Any}(
         "title" => "Unstructured demo output",
         "uuidOfHGrid" => "docs-demo-grid-0013")) do ds
         defVar(ds, "time", collect(0.0:ntime-1), ("time",), attrib = Dict(
             "units" => "days since 2000-01-01 00:00:00"))
-        defVar(ds, "sst", sst, ("ncells", "time"), attrib = Dict(
-            "units" => "degC", "long_name" => "Sea surface temperature",
+        defVar(ds, "temp2m", temp2m, ("ncells", "time"), attrib = Dict(
+            "units" => "degC", "long_name" => "2 m air temperature",
             "coordinates" => "clat clon"))
     end
 

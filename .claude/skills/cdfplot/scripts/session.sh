@@ -20,7 +20,28 @@ set -u
 SDIR="${CDFVIEW_SESSION_DIR:-/tmp/cdfview-session-$USER}"
 FIFO="$SDIR/cmd.fifo"
 LOG="$SDIR/session.log"
-REPO="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)}"
+
+# Resolve how to launch CDFViewer: prefer the compiled `cdfviewer`
+# executable (~2 s startup), fall back to running from a checkout of the
+# repository (~15 s startup).
+find_repo() {
+    local c
+    for c in "${CDFVIEWER_REPO:-}" "${CLAUDE_PROJECT_DIR:-}" \
+             "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." 2>/dev/null && pwd)" \
+             "$HOME/Projects/CDFViewer.jl"; do
+        [ -n "$c" ] && [ -f "$c/src/CDFViewer.jl" ] && { echo "$c"; return 0; }
+    done
+    return 1
+}
+if command -v cdfviewer >/dev/null 2>&1; then
+    LAUNCH=(cdfviewer)
+elif REPO=$(find_repo); then
+    LAUNCH=(julia --project="$REPO" -e 'using CDFViewer; julia_main()')
+else
+    echo "ERROR: neither 'cdfviewer' on PATH nor a CDFViewer.jl checkout found" >&2
+    echo "       (set CDFVIEWER_REPO=/path/to/CDFViewer.jl)" >&2
+    exit 1
+fi
 
 app_pid() { cat "$SDIR/app.pid" 2>/dev/null; }
 running() { [ -n "$(app_pid)" ] && kill -0 "$(app_pid)" 2>/dev/null; }
@@ -32,8 +53,7 @@ cmd_start() {
     # Holder keeps the FIFO open so the app never sees EOF between sends
     sleep 86400 > "$FIFO" &
     echo $! > "$SDIR/holder.pid"
-    ( cd "$REPO" && exec julia --project="$REPO" -e 'using CDFViewer; julia_main()' "$@" ) \
-        > "$LOG" 2>&1 < "$FIFO" &
+    "${LAUNCH[@]}" "$@" > "$LOG" 2>&1 < "$FIFO" &
     echo $! > "$SDIR/app.pid"
     # Readiness: [ Info: lines are stderr (unbuffered). Wait for "Setup" then a grace period.
     for i in $(seq 1 90); do grep -q "Setup" "$LOG" 2>/dev/null && break; sleep 1; done

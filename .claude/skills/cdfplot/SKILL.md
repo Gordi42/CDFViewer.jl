@@ -9,30 +9,37 @@ allowed-tools: ["Bash", "Read", "Write"]
 
 User input: `$ARGUMENTS`
 
-This repo *is* CDFViewer.jl, an interactive NetCDF viewer. Three modes — pick
-the lightest that fits:
+CDFViewer.jl is an interactive NetCDF viewer. Three modes — pick the
+lightest that fits:
 
 | Situation | Mode |
 |:--|:--|
-| one question, one image/video | **One-shot** (~15 s) |
-| several plots or iterating on one | **Persistent session** (20 s once, then seconds) |
+| one question, one image/video | **One-shot** |
+| several plots or iterating on one | **Persistent session** |
 | user wants to look around themselves | **Interactive handoff** (visible window) |
 
-Set `REPO` to this repository's root (`$CLAUDE_PROJECT_DIR`). Write outputs to
-a scratch directory, always with absolute paths.
+**Launcher** — define `CDF` once and use it everywhere below:
+
+- `CDF="cdfviewer"` if the compiled executable is on PATH (~2 s startup) —
+  check with `command -v cdfviewer`;
+- otherwise `CDF="julia --project=$REPO -e 'using CDFViewer; julia_main()'"`
+  where `$REPO` is a CDFViewer.jl checkout (`$CLAUDE_PROJECT_DIR` when
+  working in the repo, or `$CDFVIEWER_REPO`); ~15 s startup.
+
+Write outputs to a scratch directory, always with absolute paths.
 
 ## Inspect a file first
 
-If variables/dimensions are unknown:
+If variables/dimensions are unknown, the startup overview lists them all:
 
 ```bash
-julia --project="$REPO" -e 'using NCDatasets; NCDataset(f -> print(f), ARGS[1])' FILE.nc
+printf 'exit\n' | $CDF FILE.nc
 ```
 
 ## One-shot plot (PNG)
 
 ```bash
-julia --project="$REPO" -e 'using CDFViewer; julia_main()' FILE.nc \
+$CDF FILE.nc \
   -v VAR -x XDIM -y YDIM -p heatmap --dims="time=5" \
   --savefig -s 'filename="/abs/path/plot.png", px_per_unit=2'
 ```
@@ -46,7 +53,7 @@ julia --project="$REPO" -e 'using CDFViewer; julia_main()' FILE.nc \
 ## One-shot animation (MP4/GIF)
 
 ```bash
-julia --project="$REPO" -e 'using CDFViewer; julia_main()' FILE.nc \
+$CDF FILE.nc \
   -v VAR -x XDIM -y YDIM -p heatmap -a time \
   --record -s 'filename="/abs/path/anim.mp4", framerate=24'
 ```
@@ -58,10 +65,11 @@ and Read it.
 
 ## Persistent session / Interactive handoff
 
-Managed by [scripts/session.sh](scripts/session.sh) (FIFO-driven live app):
+Managed by [scripts/session.sh](scripts/session.sh) (FIFO-driven live app;
+it resolves the launcher automatically):
 
 ```bash
-scripts/session.sh start FILE.nc          # ~20 s; one session at a time
+scripts/session.sh start FILE.nc          # one session at a time
 scripts/session.sh send "v temperature" "x lon" "y lat" "p heatmap"
 scripts/session.sh save /abs/path/plot.png    # waits for the file; Read it
 scripts/session.sh send "colormap=:thermal, title=\"...\""   # instant tweaks
@@ -92,9 +100,8 @@ colorrange, title, levels, labels, limits, figsize, geographic, proj, ...) ·
 `menu` `hidemenu` `show` `hide` · `overview` `vars` `dims` `varinfo` ·
 `exit`
 
-Full reference: `docs/src/reference/commands.md`, `docs/src/reference/cli.md`;
-plot-type gallery: `docs/src/usage/plot_types.md`; unstructured/ICON grids
-(auto grid-file search): `docs/src/usage/unstructured.md`.
+Full reference: <https://gordi42.github.io/CDFViewer.jl/> (in a repo
+checkout also under `docs/src/reference/` and `docs/src/usage/`).
 
 ## Rules
 
