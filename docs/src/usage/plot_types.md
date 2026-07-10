@@ -74,8 +74,7 @@ rotate with the mouse:
 ```@example pt
 close_viewer!(session) # hide
 session = open_viewer(demo_file("wave.nc")) # hide
-repl(session, "v eta", "x x", "y y", "isel time 25", "p surface",
-    "limits=(0, 2000, 0, 2000, -6, 6)") # hide
+repl(session, "v eta", "x x", "y y", "isel time 25", "p surface", "limits=(0, 2000, 0, 2000, -6, 6)") # hide
 ```
 
 ```@example pt

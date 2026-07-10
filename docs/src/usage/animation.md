@@ -40,9 +40,7 @@ do not rescale from frame to frame:
 
 ```@example anim
 run!(session, "play") # hide
-repl(session,
-    "colorrange=(-3, 3), limits=(0, 2000, 0, 2000, -6, 6)",
-    "record filename=animation.mp4, framerate=24") # hide
+repl(session, "colorrange=(-3, 3), limits=(0, 2000, 0, 2000, -6, 6)", "record filename=animation.mp4, framerate=24") # hide
 publish_asset("animation.mp4", "animation") # hide
 close_viewer!(session) # hide
 ```
