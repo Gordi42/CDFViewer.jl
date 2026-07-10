@@ -60,7 +60,16 @@ function open_dataset(file_paths::Vector{String})::AbstractDataset
             "Opening multiple paths is only supported for NetCDF files " *
             "(multi-file aggregation is NetCDF-only). " *
             "Please open a single zarr store instead.")
-        return ZarrDataset(file_paths[1], "r")
+        store = file_paths[1]
+        # A `zarr.json` at the store root marks zarr format v3, which the
+        # Julia zarr stack (ZarrDatasets.jl on Zarr.jl 0.9) cannot read yet
+        # — fail with a clear message instead of a cryptic backend error.
+        isfile(joinpath(store, "zarr.json")) && error(
+            "The store '$store' uses zarr format v3 (`zarr.json` metadata), " *
+            "which is not yet supported by the Julia zarr stack " *
+            "(ZarrDatasets.jl / Zarr.jl 0.9). " *
+            "Please rewrite the store as zarr v2 to open it with CDFViewer.")
+        return ZarrDataset(store, "r")
     end
     length(file_paths) == 1 && return NCDataset(file_paths[1], "r")
     NCDataset(file_paths, "r")

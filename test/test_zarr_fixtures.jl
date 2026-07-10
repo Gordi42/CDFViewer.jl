@@ -113,16 +113,33 @@ end
         check_iteration_coordinate(dataset, 5)
         @test size(Data.get_data(dataset, "c", ["x", "y"], Dict("iteration" => 5))) ==
             (8, 8)
-        # The CF time axis is typed as DateTime, but CFTime 0.2.4 cannot decode
-        # the nanosecond-precision reference date tensorstore/xarray writes
-        # ("seconds since 2020-01-01T00:00:00.000000000"): the conversion to
-        # DateTime overflows (same failure with an equivalent NetCDF file, so
-        # this is an upstream CFTime limitation, not zarr-specific). The
-        # viewer's broken-time fallback returns the raw seconds instead.
+        # The CF time axis ("seconds since 2020-01-01T00:00:00", whole-second
+        # reference date — the fridom Writer trims the nanoseconds CFTime
+        # cannot decode) decodes to real DateTimes, half-second steps included.
         @test eltype(dataset.ds["time"]) <: Union{Missing, Dates.DateTime}
+        @test dataset.ds["time"][1] == Dates.DateTime(2020, 1, 1, 0, 0, 0)
+        @test dataset.ds["time"][2] == Dates.DateTime(2020, 1, 1, 0, 0, 0, 500)
+        @test dataset.ds["time"][5] == Dates.DateTime(2020, 1, 1, 0, 0, 2)
+        # The undecoded raw values stay reachable for interpolation.
         @test Interpolate.convert_to_float64(dataset.ds, "time") ==
             [0.0, 0.5, 1.0, 1.5, 2.0]
         close(dataset.ds)
+    end
+
+    @testset "2d_scalar_v3 (zarr v3, detected but unsupported)" begin
+        # Python-xarray-generated zarr format v3 store (zarr.json metadata).
+        # The pinned Julia stack (ZarrDatasets 0.1.5 on Zarr.jl 0.9) cannot
+        # read v3, so opening must fail with a clear, informative error
+        # instead of Zarr.jl's cryptic "neither a ZArray nor a ZGroup".
+        store = joinpath(ZARR_FIXTURE_DIR, "2d_scalar_v3.zarr")
+        @test isfile(joinpath(store, "zarr.json"))       # v3 marker
+        @test !isfile(joinpath(store, ".zgroup"))        # no v2 metadata
+        @test Data.is_zarr_store(store)                  # still detected as zarr
+        err = @test_throws ErrorException Data.CDFDataset([store])
+        msg = sprint(showerror, err.value)
+        @test occursin("zarr format v3", msg)
+        @test occursin("not yet supported", msg)
+        @test occursin(store, msg)
     end
 
     @testset "Batch output on a fixture" begin

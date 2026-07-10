@@ -18,6 +18,9 @@ cdfviewer demo.nc
 Zarr stores work the same way — pass the store directory instead of a file
 (`cdfviewer output.zarr`). A single zarr store is supported per session;
 opening multiple paths at once (multi-file aggregation) is NetCDF-only.
+Only zarr format v2 can be read: v3 stores (`zarr.json` metadata) are
+detected, but the Julia zarr stack does not support them yet, so CDFViewer
+refuses them with a clear error.
 
 When the file is opened, CDFViewer prints a compact overview of the dataset —
 the dimension sizes, a coordinate block with units and value ranges, and a

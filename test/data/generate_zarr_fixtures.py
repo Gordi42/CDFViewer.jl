@@ -218,6 +218,10 @@ def verify():
 
     import xarray as xr
     for store in sorted(OUT.glob("*.zarr")):
+        # Only the Writer's zarr-v2 stores; skip e.g. the v3 fixture from
+        # generate_zarr_v3_fixture.py (no .zgroup, zarr.json metadata).
+        if not (store / ".zgroup").is_file():
+            continue
         ds = xr.open_zarr(store, consolidated=False)
         print("=" * 64)
         print(store.name)

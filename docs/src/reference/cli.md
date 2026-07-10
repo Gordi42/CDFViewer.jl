@@ -16,7 +16,7 @@ cdfviewer demo.nc -v temperature -x lon -y lat -p heatmap --dims="time=5" -a tim
 
 | Argument | Description |
 |:---------|:------------|
-| `files` | Path(s) to the NetCDF file(s) to open (one or more), or a single zarr store directory. Combining multiple paths (multi-file aggregation) is NetCDF-only. |
+| `files` | Path(s) to the NetCDF file(s) to open (one or more), or a single zarr store directory (zarr format v2; v3 stores are detected but not yet supported). Combining multiple paths (multi-file aggregation) is NetCDF-only. |
 
 ## Options
 
