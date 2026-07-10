@@ -1,0 +1,78 @@
+# Installation
+
+CDFViewer requires [Julia](https://julialang.org/downloads/) version `1.12` or
+newer and a system with OpenGL support (any regular desktop or laptop works;
+for remote machines see [Remote use](@ref) below).
+
+## Running with Julia
+
+Clone the repository and instantiate the environment:
+
+```bash
+git clone https://github.com/Gordi42/CDFViewer.jl.git
+cd CDFViewer.jl
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+```
+
+The one-time instantiation precompiles the package together with a built-in
+workload that covers the whole interactive surface, so the app starts in
+roughly 10 seconds and stays smooth afterwards — there are no compilation
+pauses on first clicks.
+
+Run the application by passing your file to `julia_main`:
+
+```bash
+julia --project=/path/to/CDFViewer.jl -e 'using CDFViewer; julia_main()' your_file.nc
+```
+
+!!! tip
+    Put a small wrapper script on your `PATH` so the viewer is a single
+    command away:
+
+    ```bash
+    #!/usr/bin/env bash
+    exec julia --project=/path/to/CDFViewer.jl -e 'using CDFViewer; julia_main()' "$@"
+    ```
+
+    Save it as `cdfviewer`, make it executable (`chmod +x cdfviewer`), and
+    open files with `cdfviewer your_file.nc`. The examples in this manual use
+    this form.
+
+## Compiling a system image (optional fast path)
+
+For the fastest startup (~1–3 seconds), you can bake everything into a system
+image with [PackageCompiler](https://julialang.github.io/PackageCompiler.jl/stable/).
+The trade-offs are a large system image (several hundred MB) and a long
+one-time build.
+
+Run the build script from the repository:
+
+```bash
+./build.sh
+```
+
+After the build completes, an executable `cdfviewer` is created in the
+`build` folder:
+
+```bash
+./build/cdfviewer your_file.nc
+```
+
+Optionally, add the `cdfviewer` executable to your `PATH` for easier access.
+
+!!! warning
+    The system image pins the compiled code: rebuild it after updating the
+    package or its dependencies.
+
+## Remote use
+
+If you want to run the application on a remote server and forward the display
+to your local machine, use SSH with trusted X11 forwarding:
+
+```bash
+ssh -Y user@remote
+```
+
+On slow network file systems, the [`--use-local`](reference/cli.md) flag
+speeds up recording and saving by doing temporary file operations in a local
+directory first — see [Configuration](usage/configuration.md).
