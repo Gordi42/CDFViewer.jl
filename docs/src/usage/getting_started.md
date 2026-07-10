@@ -15,6 +15,10 @@ command):
 cdfviewer demo.nc
 ```
 
+Zarr stores work the same way — pass the store directory instead of a file
+(`cdfviewer output.zarr`). A single zarr store is supported per session;
+opening multiple paths at once (multi-file aggregation) is NetCDF-only.
+
 When the file is opened, CDFViewer prints a compact overview of the dataset —
 the dimension sizes, a coordinate block with units and value ranges, and a
 table of the data variables:

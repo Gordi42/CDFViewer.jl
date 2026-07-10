@@ -2,7 +2,7 @@
 
 [![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://gordi42.github.io/CDFViewer.jl/)
 
-CDFViewer is an interactive viewer for NetCDF files, built on
+CDFViewer is an interactive viewer for NetCDF files and zarr stores, built on
 [GLMakie](https://docs.makie.org/stable/). It opens a dataset straight from
 your terminal and lets you explore every variable with a command prompt, a
 GUI menu, sliders, and animations — no scripts or notebooks required.
@@ -15,8 +15,8 @@ always match the code.
 
 ## Features
 
-- **Quick look, zero code:** open any NetCDF file and get a plot with a
-  handful of keystrokes.
+- **Quick look, zero code:** open any NetCDF file or zarr store and get a
+  plot with a handful of keystrokes.
 - **Command REPL:** a `CDFViewer>` prompt with tab completion, persistent
   history, and reverse search.
 - **Interactive menu:** every setting is also available in a GUI window —

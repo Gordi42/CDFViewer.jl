@@ -23,7 +23,7 @@ function get_arg_parser()::ArgParseSettings
 
     @add_arg_table! s begin
         "files"
-            help = "Path(s) to the NetCDF file(s) to open"
+            help = "Path(s) to the NetCDF file(s) or a single zarr store to open"
             arg_type = String
             nargs = '+'  # one or more files
             required = true

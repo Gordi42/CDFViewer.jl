@@ -23,6 +23,7 @@ REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 Suppressor = "fd094767-a336-5f1f-9728-57cf17d0bbfb"
 TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 Term = "22787eb5-b846-44ae-b979-8e399b8463ab"
+ZarrDatasets = "519a4cdf-1362-424a-9ea1-b1d782dbb24b"
 
 [compat]
 ArgParse = "1.2.0"
@@ -45,6 +46,7 @@ Suppressor = "0.2.8"
 TOML = "1.0.3"
 Term = "1.0.2"
 Test = "1.11.0"
+ZarrDatasets = "0.1.5"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
