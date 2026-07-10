@@ -59,9 +59,12 @@ jobs:
             xorg-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev
       - uses: julia-actions/julia-docdeploy@v1
         with:
-          prefix: xvfb-run -s '-screen 0 1024x768x24'
+          # Must be a single word: julia-docdeploy passes the prefix as one
+          # argv element (multi-word prefixes fail with exit 127)
+          prefix: xvfb-run
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISPLAY: ':0'
 
   # Weekly canary: does the package still work with the newest dependency
   # versions (ignoring the committed Manifest)?
