@@ -17,6 +17,7 @@ using GLMakie: save # hide
 session = open_viewer(demo_file("demo.nc")) # hide
 run!(session, "v temperature", "x lon", "y lat", "p heatmap", "pdim time") # hide
 save("menu_window.png", menu_figure(session)) # hide
+publish_asset("menu_window.png", "menu") # hide
 nothing # hide
 ```
 

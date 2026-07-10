@@ -12,7 +12,7 @@ using CDFViewer
 using CDFViewer: ArgParse, Controller, Data, ViewerREPL, get_arg_parser
 
 export open_viewer, repl, run!, print_overview, menu_figure, plot_figure,
-    close_viewer!, demo_file
+    close_viewer!, demo_file, publish_asset
 
 # Set by make.jl to the directory holding the generated demo datasets
 const DEMO_DIR = Ref("")
@@ -51,18 +51,45 @@ wait_tasks(session::ViewerSession) =
 
 """
 Run commands through the REPL evaluator and print prompt, command, and result
-just like the interactive session does.
+just like the interactive session does. Progress-bar frames (ProgressMeter
+writes one per update to stderr, ~70 of them on a slow machine) are dropped
+from the transcript.
 """
 function repl(session::ViewerSession, commands::String...)::Nothing
     with_logger(ConsoleLogger(stdout)) do
         for cmd in commands
             printstyled("CDFViewer> ", color = :cyan, bold = true)
             println(cmd)
-            status = ViewerREPL.evaluate_command(session.state, cmd)
+            pipe = Pipe()
+            status = redirect_stderr(pipe) do
+                s = ViewerREPL.evaluate_command(session.state, cmd)
+                wait_tasks(session)
+                s
+            end
+            close(pipe.in)
+            for line in split(read(pipe, String), r"[\r\n]+")
+                isempty(strip(line)) && continue
+                occursin(r"Recording\s+\d+%", line) && continue
+                println(line)
+            end
             status isa String && !isempty(status) && @info status
-            wait_tasks(session)
         end
     end
+    nothing
+end
+
+"""
+Copy a file generated next to the page (the `@example` working directory)
+into the page's pretty-URL directory as well. With `prettyurls = true` (CI),
+`usage/foo.md` becomes `usage/foo/index.html`, so a relative `src="file"`
+resolves inside `usage/foo/` — while the `@example` block wrote the file to
+`usage/`. Publishing to both locations makes the same relative link work in
+both URL modes.
+"""
+function publish_asset(file::String, page::String)::Nothing
+    dir = joinpath(pwd(), page)
+    mkpath(dir)
+    cp(file, joinpath(dir, basename(file)), force = true)
     nothing
 end
 
