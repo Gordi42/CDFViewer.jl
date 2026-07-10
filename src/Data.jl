@@ -4,9 +4,11 @@ using Dates
 using Printf
 using DataStructures
 using NCDatasets
+using NCDatasets.CommonDataModel: AbstractDataset
 using GLMakie
 
 import ..Constants
+import ..GridFiles
 import ..Interpolate
 import ..RescaleUnits
 
@@ -15,7 +17,7 @@ import ..RescaleUnits
 # ============================================================
 
 struct CDFDataset
-    ds::NCDataset
+    ds::AbstractDataset
     dimensions::Vector{String}
     coordinates::Vector{String}
     variables::Vector{String}
@@ -30,12 +32,19 @@ end
 #  Constructors
 # ---------------------------------------------------
 
-function CDFDataset(file_paths::Vector{String})::CDFDataset
+function CDFDataset(
+    file_paths::Vector{String};
+    grid_file::String="",
+    grid_search::Bool=true,
+)::CDFDataset
     ds = if length(file_paths) == 1
         NCDataset(file_paths[1], "r")
     else
         NCDataset(file_paths, "r")
     end
+
+    # Attach coordinates from an external grid file if needed
+    ds = GridFiles.apply_grid(ds, file_paths; grid_file, grid_search)
 
     dimensions = collect(keys(ds.dim))
     var_coords = get_var_coordinates(ds)
@@ -54,7 +63,7 @@ function CDFDataset(file_paths::Vector{String})::CDFDataset
     )
 end
 
-function get_var_coordinates(ds::NCDataset)::OrderedDict{String, Vector{String}}
+function get_var_coordinates(ds::AbstractDataset)::OrderedDict{String, Vector{String}}
     dimensions = collect(keys(ds.dim))
     variables = setdiff(collect(keys(ds)), dimensions)
     possible_coords = union(dimensions, variables)
@@ -94,7 +103,7 @@ end
 function get_paired_coordinates(
         coord::String,
         var_coords::OrderedDict{String, Vector{String}},
-        ds::NCDataset,
+        ds::AbstractDataset,
         )::Vector{String}
     # If the coordinate is a dimension of the dataset, it has no paired coordinates
     coord ∈ keys(ds.dim) && return String[] 
@@ -123,7 +132,7 @@ end
 
 function get_coords_by_dim(
     coordinates::Vector{String},
-    ds::NCDataset
+    ds::AbstractDataset
 )::Dict{String, Vector{String}}
     # coords by dimension is a mapping from each dimension to a list of coordinates
     # that depend on that dimension
@@ -176,7 +185,7 @@ function get_group_ids_of_var_dims(
     group_ids_of_var_dims
 end
 
-function get_coord_order_priority(ds::NCDataset, coord::String)::Int
+function get_coord_order_priority(ds::AbstractDataset, coord::String)::Int
     # if COORDINATE_ORDER_PRIORITY has an entry for the name, we return it
     haskey(Constants.COORDINATE_ORDER_PRIORITY, lowercase(coord)) && 
         return Constants.COORDINATE_ORDER_PRIORITY[lowercase(coord)]
@@ -196,7 +205,7 @@ function get_coord_order_priority(ds::NCDataset, coord::String)::Int
     return 99
 end
 
-function sort_coordinates(ds::NCDataset, coords::Vector{String})::Vector{String}
+function sort_coordinates(ds::AbstractDataset, coords::Vector{String})::Vector{String}
     sort(coords, by = c -> get_coord_order_priority(ds, c))
 end
 
@@ -246,6 +255,139 @@ end
 function get_dim_values(dataset::CDFDataset, dim::String)::Vector{Float64}
     dim === Constants.NOT_SELECTED_LABEL && return collect(Float64, 1:1)
     getproperty(dataset.interp.rc, Symbol(dim))
+end
+
+# ---------------------------------------------------
+#  Dataset overview
+# ---------------------------------------------------
+
+_bold(s::AbstractString, color::Bool)::String =
+    color ? Base.text_colors[:bold] * s * Base.text_colors[:normal] : String(s)
+
+# Pad a string to a given display width (textwidth-aware, so "m/s²" and "…"
+# line up correctly).
+_pad(s::AbstractString, w::Int)::String = s * " "^max(0, w - textwidth(s))
+
+function _dataset_name(dataset::CDFDataset)::String
+    try
+        p = NCDatasets.CommonDataModel.path(dataset.ds)
+        p isa AbstractString && !isempty(p) && return basename(p)
+    catch
+    end
+    "dataset"
+end
+
+function _format_value(v)::String
+    v isa Dates.DateTime && return Dates.format(v, Constants.DATETIME_FORMAT)
+    v isa Number && return @sprintf("%g", v)
+    v isa AbstractString && return String(v)
+    string(v)
+end
+
+# (unit, range, length) description for a single coordinate.
+function _coord_summary(dataset::CDFDataset, coord::String)::Tuple{String, String, Int}
+    ds = dataset.ds
+    unit = RescaleUnits.get_remapped_unit(ds, coord)
+    if !haskey(ds, coord)
+        # A bare dimension without a coordinate variable: size only.
+        return unit, "", get(ds.dim, coord, 0)
+    end
+    len = length(ds[coord])
+    range_str = ""
+    try
+        if eltype(ds[coord]) <: Dates.DateTime
+            # Monotonic time axis: show the first and last stamp. The formatted
+            # dates make the raw "<unit> since <date>" string redundant, so we
+            # drop the unit to keep the column tight.
+            lo = get_dim_value_endpoint(dataset, coord, 1)
+            hi = get_dim_value_endpoint(dataset, coord, len)
+            if lo isa Dates.DateTime || hi isa Dates.DateTime
+                unit = ""
+            end
+            range_str = "$(_format_value(lo)) … $(_format_value(hi))"
+        else
+            vals = Interpolate.convert_to_float64(ds, coord)
+            isempty(vals) ||
+                (range_str = @sprintf("%g … %g", minimum(vals), maximum(vals)))
+        end
+    catch
+    end
+    unit, range_str, len
+end
+
+# Read a single coordinate value tolerantly (reuses the interpolator's
+# broken-metadata fallbacks).
+get_dim_value_endpoint(dataset::CDFDataset, coord::String, idx::Int) =
+    Interpolate.get_coord_value(dataset.interp, coord, idx)
+
+function _render_table(headers::Vector{String}, rows::Vector{Vector{String}},
+        color::Bool)::String
+    ncol = length(headers)
+    widths = [maximum(vcat(textwidth(headers[c]),
+                           [textwidth(r[c]) for r in rows]); init = 0)
+              for c in 1:ncol]
+    cell(s, w) = " " * _pad(s, w) * " "
+    header = join([cell(headers[c], widths[c]) for c in 1:ncol], "│")
+    sep = join(["─"^(widths[c] + 2) for c in 1:ncol], "┼")
+    lines = [_bold(header, color), sep]
+    for r in rows
+        push!(lines, join([cell(r[c], widths[c]) for c in 1:ncol], "│"))
+    end
+    join(lines, "\n")
+end
+
+"""
+    overview_string(dataset; color=true) -> String
+
+A compact, human-readable summary of the dataset: file name and dimension
+sizes, a coordinate block with units and value ranges, and a table of the data
+variables with their dimensions, units and long names.
+"""
+function overview_string(dataset::CDFDataset; color::Bool = true)::String
+    ds = dataset.ds
+    io = IOBuffer()
+
+    # Header line: file name + dimension sizes
+    dims = sort_coordinates(ds, dataset.dimensions)
+    dim_str = join(["$d:$(get(ds.dim, d, "?"))" for d in dims], "  ")
+    println(io, _bold(_dataset_name(dataset), color), " — dims: ", dim_str)
+
+    haskey(ds.attrib, "title") && println(io, "title: ", ds.attrib["title"])
+    if dataset.ds isa GridFiles.MergedDataset
+        println(io, "grid file: ", basename(dataset.ds.grid_path))
+    end
+
+    # Coordinate block: name  [unit]  lo … hi  (len)
+    coords = sort_coordinates(ds, dataset.coordinates)
+    if !isempty(coords)
+        summaries = [(c, _coord_summary(dataset, c)) for c in coords]
+        namew = maximum(textwidth.(coords))
+        unitw = maximum([textwidth(isempty(u) ? "" : "[$u]")
+                         for (_, (u, _, _)) in summaries]; init = 0)
+        rangew = maximum([textwidth(r) for (_, (_, r, _)) in summaries]; init = 0)
+        println(io, "\n", _bold("Coordinates:", color))
+        for (c, (unit, range_str, len)) in summaries
+            unit_str = isempty(unit) ? "" : "[$unit]"
+            print(io, "  ", _pad(c, namew), "  ", _pad(unit_str, unitw))
+            print(io, "  ", _pad(range_str, rangew))
+            println(io, "  (", len, ")")
+        end
+    end
+
+    # Data variable table
+    headers = ["Variable", "Dimensions", "Units", "Long name"]
+    rows = Vector{String}[]
+    for var in dataset.variables
+        var_dims = join(get_var_dims(dataset, var), ",")
+        unit = RescaleUnits.get_remapped_unit(ds, var)
+        atts = haskey(ds, var) ? ds[var].attrib : Dict{String, Any}()
+        long_name = haskey(atts, "long_name") ? String(atts["long_name"]) : ""
+        push!(rows, [var, var_dims, unit, long_name])
+    end
+    println(io, "")
+    println(io, _render_table(headers, rows, color))
+
+    String(take!(io))
 end
 
 function get_data_limits(dataset::CDFDataset, name::String)::Tuple{Float64, Float64}

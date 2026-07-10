@@ -2,6 +2,7 @@ module Interpolate
 
 using NearestNeighbors
 using NCDatasets
+using NCDatasets.CommonDataModel: AbstractDataset
 
 using ..Constants
 using ..RescaleUnits
@@ -27,7 +28,7 @@ struct Interpolator
     groups::Dict{Int, Vector{String}}
     index_cache::Dict{Int, Any}
     trees::Dict{Int, LazyTree}  # Map from group index to KDTree (lazily computed)
-    ds::NCDataset  # Store the dataset for range computations
+    ds::AbstractDataset  # Store the dataset for range computations
 end
 
 # ====================================================
@@ -35,7 +36,7 @@ end
 # ====================================================
 
 function Interpolator(
-    ds::NCDataset,
+    ds::AbstractDataset,
     paired_coords::Dict{String, Vector{String}}
 )::Interpolator
     ranges = Dict{String, Union{AbstractArray, Nothing}}()
@@ -63,7 +64,7 @@ function Interpolator(
 end
 
 function compute_tree(
-    ds::NCDataset,
+    ds::AbstractDataset,
     coord::String,
     paired_coords::Dict{String, Vector{String}},
     )::KDTree
@@ -86,7 +87,7 @@ This may take a while to compute the KDTree (required for interpolation)."""
 end
 
 function compute_range(
-    ds::NCDataset,
+    ds::AbstractDataset,
     coord::String,
     )::AbstractRange
 
@@ -346,14 +347,27 @@ end
 #  Data collection helpers
 # ====================================================
 
-function convert_to_float64(ds::NCDataset, coord::String)::Vector{Float64}
+# Read the raw, non-CF-decoded values of a variable. Used as a fallback when
+# CF decoding throws - e.g. a "time" axis carrying a `calendar` attribute but a
+# `units` string without a reference date ("seconds" instead of
+# "seconds since ..."), which NCDatasets types as DateTime and cannot convert.
+raw_variable(ds::AbstractDataset, name::String) =
+    NCDatasets.CommonDataModel.variable(ds, name)
+
+function convert_to_float64(ds::AbstractDataset, coord::String)::Vector{Float64}
     try
         values = convert(Vector{Float64}, ds[coord][:])
         transform = RescaleUnits.get_transformation_function(ds, coord)
-        transform(values)
+        return transform(values)
+    catch
+    end
+    # CF decoding failed - fall back to the raw stored values, and only to
+    # positional indices if even that is not possible.
+    try
+        return convert(Vector{Float64}, raw_variable(ds, coord)[:])
     catch
         dim_len = ds.dim[coord]
-        Float64.(1:dim_len)
+        return Float64.(1:dim_len)
     end
 end
 
@@ -362,9 +376,23 @@ function get_coord_value(
     coord::String,
     index::Int,
 )
-    arr = isnothing(interp.ranges[coord]) ? interp.ds[coord] : interp.ranges[coord]
-    index > length(arr) && return nothing
-    arr[index]
+    if !isnothing(interp.ranges[coord])
+        arr = interp.ranges[coord]
+        return index > length(arr) ? nothing : arr[index]
+    end
+    haskey(interp.ds, coord) || return nothing
+    var = interp.ds[coord]
+    index > length(var) && return nothing
+    try
+        return var[index]
+    catch
+        # CF decoding failed (e.g. broken time metadata) - show the raw value
+        try
+            return raw_variable(interp.ds, coord)[index]
+        catch
+            return index
+        end
+    end
 end
 
 

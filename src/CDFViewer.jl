@@ -5,6 +5,7 @@ using ArgParse
 using GLMakie
 
 include("Constants.jl")
+include("GridFiles.jl")
 include("Parsing.jl")
 include("Output.jl")
 include("RescaleUnits.jl")
@@ -63,6 +64,10 @@ function get_arg_parser()::ArgParseSettings
             help = "Options for saving the figure (as a Julia expression)"
             arg_type = String
             default = ""
+        "--grid", "-g"
+            help = "Path to a grid file providing coordinates that are not stored in the data file(s) (e.g. an ICON grid file)"
+            arg_type = String
+            default = ""
         # Flags
         "--savefig"
             help = "Only save the figure to file and exit"
@@ -75,6 +80,12 @@ function get_arg_parser()::ArgParseSettings
             action = :store_true
         "--use-local"
             help = "Use local directory for temporary operations to improve performance. Set CDFVIEWER_USE_LOCAL=true to make it default. The local directory can be changed with the environment variable CDFVIEWER_LOCAL_DIR."
+            action = :store_true
+        "--no-grid-search"
+            help = "Disable the automatic search for a matching grid file"
+            action = :store_true
+        "--no-summary"
+            help = "Do not print the dataset overview when a file is opened"
             action = :store_true
     end
 
@@ -107,12 +118,21 @@ function julia_main(;parsed_args::Union{Nothing,Dict}=nothing)::Cint
 
 
     @info "Loading dataset from file(s): $file_paths"
-    dataset = Data.CDFDataset(file_paths)
+    dataset = Data.CDFDataset(
+        file_paths,
+        grid_file = get(parsed_args, "grid", ""),
+        grid_search = !get(parsed_args, "no-grid-search", false),
+    )
+
+    headless = is_headless(testing, parsed_args["savefig"], parsed_args["record"])
+
+    # Print a compact overview of what was loaded (interactive sessions only)
+    if !headless && !get(parsed_args, "no-summary", false)
+        print(stdout, "\n", Data.overview_string(dataset), "\n")
+    end
 
     # After the dataset is loaded, we can cd to the local directory
     cd(local_dir)
-
-    headless = is_headless(testing, parsed_args["savefig"], parsed_args["record"]) 
 
     @info "Setup..."
     @time controller = Controller.ViewerController(
@@ -129,5 +149,7 @@ function julia_main(;parsed_args::Union{Nothing,Dict}=nothing)::Cint
 
     return 0
 end
+
+include("Precompile.jl")
 
 end # module CDFViewer

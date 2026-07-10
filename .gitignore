@@ -1,5 +1,6 @@
-# Build directories
-/build/
+# Build directories (keep the build environment's Project.toml)
+/build/*
+!/build/Project.toml
 /build_old/
 /.vscode/
 

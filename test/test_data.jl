@@ -203,6 +203,65 @@ using GLMakie
         @test Data.get_dim_value_label(dataset, "lon", 10) == "  → lon: Index 10 out of bounds"
     end
 
+    @testset "Dataset Overview" begin
+        dataset = make_temp_dataset()
+        ov = Data.overview_string(dataset; color=false)
+
+        # Header with dimension sizes
+        @test occursin("lon:5", ov)
+        @test occursin("time:4", ov)
+        # Coordinate block with a real (CF) time range
+        @test occursin("Coordinates:", ov)
+        @test occursin("1951", ov)          # decoded time axis start
+        # Variable table
+        @test occursin("Variable", ov)
+        @test occursin("Long name", ov)
+        for var in dataset.variables
+            @test occursin(var, ov)
+        end
+        @test occursin("both_atts_var", ov)
+        @test occursin("Both", ov)          # long_name column
+        @test occursin("m/s", ov)           # units column
+        # color=false is free of ANSI escapes; color=true adds them
+        @test !occursin("\e[", ov)
+        @test occursin("\e[", Data.overview_string(dataset; color=true))
+        close(dataset.ds)
+
+        # Unstructured dataset: radian coords remapped to degrees, DateTime range
+        ud = make_unstructured_temp_dataset()
+        uov = Data.overview_string(ud; color=false)
+        @test occursin("degrees", uov)      # clon/clat remapped
+        @test occursin("clon", uov)
+        @test occursin("2000-01-01", uov)   # formatted datetime range
+        close(ud.ds)
+    end
+
+    @testset "Broken time metadata" begin
+        # A "time" axis carrying a calendar attribute but a units string
+        # without a reference date ("seconds" instead of "seconds since ...")
+        # is typed as DateTime by NCDatasets and throws on read. The viewer
+        # must tolerate this and fall back to the raw numeric values instead
+        # of crashing (regression for snap_0s.cdf).
+        file = tempname() * ".nc"
+        NCDatasets.NCDataset(file, "c") do ds
+            NCDatasets.defVar(ds, "time", [0.0, 0.5, 1.0], ("time",),
+                attrib = Dict("units" => "seconds", "calendar" => "standard",
+                              "standard_name" => "time"))
+            NCDatasets.defVar(ds, "x", collect(1.0:4.0), ("x",))
+            NCDatasets.defVar(ds, "u", rand(4, 3), ("x", "time"),
+                attrib = Dict("long_name" => "velocity"))
+        end
+        dataset = Data.CDFDataset([file])
+
+        # Reading the time coordinate must not throw and yields the raw seconds
+        @test Data.get_dim_value_label(dataset, "time", 2) == "  → time: 0.5 seconds"
+        @test CDFViewer.Interpolate.get_coord_value(dataset.interp, "time", 3) == 1.0
+        @test Data.get_dim_values(dataset, "time") == [0.0, 0.5, 1.0]
+        # Plotting a variable over the broken time axis still works
+        @test size(Data.get_data(dataset, "u", ["x"], Dict("time" => 1))) == (4,)
+        close(dataset.ds)
+    end
+
     @testset "Dimension Observables" begin
         # Arrange
         dataset = make_temp_dataset()

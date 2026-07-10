@@ -6,6 +6,7 @@ results = @testset "CDFViewer Tests" begin
     include("test_interpolate.jl")
     include("test_rescale_units.jl")
     include("test_data.jl")
+    include("test_gridfiles.jl")
     include("test_output.jl")
     include("test_ui.jl")
     include("test_parsing.jl")

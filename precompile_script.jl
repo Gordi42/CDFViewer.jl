@@ -1,9 +1,12 @@
 using GLMakie
-
 import CDFViewer
 
 # ==================================================
 #  GLMakie precompilation
+#
+#  Simulates real mouse/keyboard interaction against a live render loop
+#  (zoom, pan, inspector, widgets) — paths the headless in-package workload
+#  cannot reach. Short sleeps let the render loop process the events.
 # ==================================================
 
 function create_fig()
@@ -39,12 +42,12 @@ function interact_with_obj!(fig, ax, obj)
     ev = fig.scene.events
     inspector = DataInspector(fig[1,1])
     Makie.show_data_recursion(inspector, obj, 1)
-    sleep(1.0)
+    sleep(0.2)
     move_mouse_to_center_of_obj!(ev, ax)
-    sleep(2.0)
+    sleep(0.3)
     # zoom
     ev.scroll[] = (0, 5)
-    sleep(1.0)
+    sleep(0.2)
     ev.scroll[] = (0, -2)
     sleep(0.1)
     # move
@@ -52,19 +55,19 @@ function interact_with_obj!(fig, ax, obj)
     old_pos = ev.mouseposition[]
     ev.mouseposition[] = (old_pos[1] + 30.0, old_pos[2] + 30.0)
     ev.mousebutton[] = Makie.MouseButtonEvent(Makie.Mouse.right, Makie.Mouse.release)
-    sleep(1.0)
+    sleep(0.2)
     # reset view
     move_mouse_to_center_of_obj!(ev, ax)
     ev.keyboardbutton[] = Makie.KeyEvent(Makie.Keyboard.left_control, Makie.Keyboard.press)
     click!(ev)
     ev.keyboardbutton[] = Makie.KeyEvent(Makie.Keyboard.left_control, Makie.Keyboard.release)
-    sleep(1.0)
+    sleep(0.2)
     # zoom / rotate
     ev.mousebutton[] = Makie.MouseButtonEvent(Makie.Mouse.left, Makie.Mouse.press)
     old_pos = ev.mouseposition[]
     ev.mouseposition[] = (old_pos[1] + 30.0, old_pos[2] + 30.0)
     ev.mousebutton[] = Makie.MouseButtonEvent(Makie.Mouse.left, Makie.Mouse.release)
-    sleep(1.0)
+    sleep(0.2)
 end
 
 
@@ -110,25 +113,30 @@ slider = Slider(fig[3,1], range = 0:0.1:1, tellwidth = false)
 toggle = Toggle(fig[4,1], tellwidth = false)
 button = Button(fig[5,1], label = "Press me", width = Relative(1))
 
-sleep(3)
+sleep(0.5)
 click_at!(ev, menu)
-sleep(2.0)
+sleep(0.3)
 click_at!(ev, menu)
-sleep(1.0)
+sleep(0.2)
 click_at!(ev, textbox)
-sleep(1.0)
+sleep(0.2)
 ev.unicode_input[] = 't'
-sleep(1.0)
+sleep(0.2)
 click_at!(ev, slider)
-sleep(1.0)
+sleep(0.2)
 click_at!(ev, toggle)
-sleep(1.0)
+sleep(0.2)
 click_at!(ev, button)
-sleep(1.0)
+sleep(0.2)
 
+GLMakie.closeall()
 
 # ==================================================
 #  CDFViewer precompilation
+#
+#  The same app-level workload used for the package image: full pipeline,
+#  every plot type, sliders, playback, kwargs, save/record/export, REPL
+#  commands and tab completion.
 # ==================================================
 
-include(joinpath(pkgdir(CDFViewer), "test", "runtests.jl"))
+CDFViewer.run_precompile_workload()

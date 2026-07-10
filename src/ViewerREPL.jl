@@ -1,6 +1,7 @@
 module ViewerREPL
 
 import REPL
+using REPL: LineEdit
 using REPL.TerminalMenus
 using Term
 using DataStructures
@@ -14,11 +15,6 @@ using CDFViewer.Plotting
 
 struct REPLState
     controller:: Controller.ViewerController
-    history:: Vector{String}
-
-    function REPLState(controller:: Controller.ViewerController)
-        new(controller, String[])
-    end
 end
 
 # ============================================================ 
@@ -410,6 +406,13 @@ function delete_kwarg(state:: REPLState, command:: String)::String
     get_plot_settings(state, "")
 end
 
+function show_overview(state:: REPLState, command:: String)::String
+    # Print directly so the table keeps its alignment (an @info-logged string
+    # would prefix every line with the logger's "│ ").
+    print(stdout, Data.overview_string(state.controller.dataset), "\n")
+    ""
+end
+
 function get_variable_list(state:: REPLState, command:: String)::String
     var_options = state.controller.ui.main_menu.variable_menu.options[]
     "Available variables: \n" * join(var_options, ", ")
@@ -531,6 +534,7 @@ function __init_commands!()
     r(REPLCommand("help", "Get help", "help", get_help))
     r(REPLCommand("kwargs", "Get a list of available keyword arguments", "kwargs [category]" , get_kwargs_list))
     r(REPLCommand("get", "Get the value of a keyword argument", "get <kwarg_name>", get_kwarg_value))
+    r(REPLCommand("overview", "Show an overview of the dataset", "overview", show_overview))
     r(REPLCommand("vars", "Get a list of variables", "vars", get_variable_list))
     r(REPLCommand("varinfo", "Get information about a variable", "varinfo [variable_name]", get_var_info))
     r(REPLCommand("dims", "Get a list of dimensions", "dims", get_dim_list))
@@ -570,15 +574,162 @@ function evaluate_command(state:: REPLState, command_line:: String)::Union{Strin
     end
 end
 
-# ============================================================ 
+# ============================================================
+#  Tab Completion
+# ============================================================
+
+function get_kwarg_names(state:: REPLState)::Vector{String}
+    fd = state.controller.fd
+    names = Symbol[]
+    append!(names, propertynames(fd.settings))
+    isnothing(fd.ax[]) || append!(names, propertynames(fd.ax[]))
+    isnothing(fd.plot_obj[]) || append!(names, propertynames(fd.plot_obj[]))
+    isnothing(fd.cbar[]) || append!(names, propertynames(fd.cbar[]))
+    append!(names, propertynames(fd.range_control[]))
+    sort!(unique!(String.(names)))
+end
+
+function get_argument_candidates(state:: REPLState, cmd:: String)::Vector{String}
+    menu = state.controller.ui.main_menu
+    cmd in ("v", "varinfo", "dims") && return String.(menu.variable_menu.options[])
+    cmd == "x" && return String.(menu.coord_menu.menus[1].options[])
+    cmd == "y" && return String.(menu.coord_menu.menus[2].options[])
+    cmd == "z" && return String.(menu.coord_menu.menus[3].options[])
+    cmd == "p" && return String.(menu.plot_menu.plot_type.options[])
+    cmd in ("isel", "sel") && return collect(String, keys(menu.coord_sliders.sliders))
+    cmd in ("pdim", "play") && return String.(menu.playback_menu.var.options[])
+    cmd == "kwargs" && return ["figure", "axis", "plot", "colorbar", "range"]
+    cmd in ("get", "del") && return get_kwarg_names(state)
+    return String[]
+end
+
+"""
+    completion_candidates(state, prefix) -> (word, candidates)
+
+Given the text left of the cursor, return the word currently being completed
+and all candidates valid in that position (unfiltered).
+"""
+function completion_candidates(state:: REPLState, prefix:: String)::Tuple{String, Vector{String}}
+    word = String(match(r"[^\s,]*$", prefix).match)
+    tokens = split(prefix)
+    completing_first = length(tokens) <= 1 && !endswith(prefix, ' ')
+
+    if completing_first
+        # Command names plus `key=` completions for the top-level kwarg syntax
+        candidates = vcat(
+            collect(String, keys(commands)),
+            ["exit", "quit"],
+            get_kwarg_names(state) .* "=",
+        )
+    elseif occursin('=', String(tokens[1]))
+        # Continuation of a `key=value, key2=value2` line
+        candidates = get_kwarg_names(state) .* "="
+    else
+        candidates = get_argument_candidates(state, String(tokens[1]))
+    end
+    word, sort(candidates)
+end
+
+struct CDFCompletionProvider <: LineEdit.CompletionProvider
+    state:: REPLState
+end
+
+function LineEdit.complete_line(c:: CDFCompletionProvider, s:: LineEdit.PromptState, ::Module; hint::Bool=false)
+    prefix = REPL.beforecursor(LineEdit.buffer(s))
+    word, candidates = completion_candidates(c.state, prefix)
+    matches = filter(startswith(word), candidates)
+    # Return the modern LineEdit contract: NamedCompletions plus the buffer
+    # Region being completed. The TAB path also accepts the old
+    # (Vector{String}, String, Bool) form via complete_line_named, but
+    # edit_move_right (right-arrow at end of line) calls complete_line
+    # directly and indexes `.completion` / `reg.second`, so we must hand back
+    # the normalised types here.
+    completions = LineEdit.NamedCompletion.(matches)
+    pos = LineEdit.position(s)
+    region = (pos - sizeof(word)) => pos
+    return completions, region, true
+end
+
+# ============================================================
 #  REPL Loop
-# ============================================================ 
+# ============================================================
 
-function start_repl(controller:: Controller.ViewerController)::Nothing
-    state = REPLState(controller)
-    println("Type 'help' for a list of commands.")
+history_path()::String = get(ENV, "CDFVIEWER_HISTORY", joinpath(homedir(), ".cdfviewer_history"))
+
+function setup_history!(prompt:: LineEdit.Prompt)::REPL.REPLHistoryProvider
+    hp = REPL.REPLHistoryProvider(Dict{Symbol, LineEdit.Prompt}(:cdfviewer => prompt))
+    try
+        path = history_path()
+        hp.file_path = path
+        isfile(path) && REPL.hist_from_file(hp, path)
+        REPL.hist_open_file(hp)
+    catch e
+        @warn "Could not open REPL history file" exception=e
+    end
+    # Initialise the navigation cursor to point past the last entry. Without
+    # this the provider keeps its constructor default of cur_idx == 0, and the
+    # first up/down arrow trips an assertion inside REPL.history_move.
+    REPL.history_reset_state(hp)
+    prompt.hist = hp
+    hp
+end
+
+function build_repl_interface(state:: REPLState)::LineEdit.ModalInterface
+    prompt = LineEdit.Prompt("CDFViewer> ";
+        prompt_prefix = Base.text_colors[:cyan] * Base.text_colors[:bold],
+        prompt_suffix = Base.text_colors[:normal],
+        complete = CDFCompletionProvider(state),
+        sticky = true,
+    )
+    hp = setup_history!(prompt)
+
+    search_prompt, skeymap = LineEdit.setup_search_keymap(hp)
+    prefix_prompt, prefix_keymap = LineEdit.setup_prefix_keymap(hp, prompt)
+    prompt.keymap_dict = LineEdit.keymap(Dict{Any, Any}[
+        skeymap,
+        prefix_keymap,
+        LineEdit.history_keymap,
+        LineEdit.default_keymap,
+        LineEdit.escape_defaults,
+    ])
+
+    prompt.on_done = (s, buf, ok) -> begin
+        # The committed line has already been appended to history (via
+        # commit_line -> add_history) by the time on_done runs. Reset the
+        # navigation cursor so the next line starts fresh at length+1; this
+        # keeps up/down arrow history navigation consistent across commands.
+        REPL.history_reset_state(hp)
+        # ok == false means the line editor aborted (e.g. Ctrl-D)
+        ok || return nothing
+        command_line = String(strip(String(take!(buf))))
+        status = evaluate_command(state, command_line)
+        if status === false
+            LineEdit.transition(s, :abort)
+            return nothing
+        end
+        !isempty(status) && @info status
+        nothing
+    end
+
+    LineEdit.ModalInterface(LineEdit.TextInterface[prompt, search_prompt, prefix_prompt])
+end
+
+function run_line_edit_repl(state:: REPLState)::Nothing
+    term = REPL.Terminals.TTYTerminal(
+        get(ENV, "TERM", Sys.iswindows() ? "" : "dumb"), stdin, stdout, stderr)
+    interface = build_repl_interface(state)
+    try
+        LineEdit.run_interface(term, interface)
+    catch e
+        isa(e, InterruptException) || rethrow()
+    end
+    @info "Exiting CDFViewer REPL."
+    nothing
+end
+
+# Fallback for non-interactive stdin (pipes, tests, CI)
+function run_basic_repl(state:: REPLState)::Nothing
     running = true
-
     while running
         try
             print("CDFViewer> ")
@@ -590,7 +741,6 @@ function start_repl(controller:: Controller.ViewerController)::Nothing
             end
 
             command_line = String(strip(readline()))
-            push!(state.history, command_line)
             status = evaluate_command(state, command_line)
             if isa(status, Bool) && status == false
                 running = false
@@ -608,6 +758,16 @@ function start_repl(controller:: Controller.ViewerController)::Nothing
         end
     end
     nothing
+end
+
+function use_line_edit()::Bool
+    stdin isa Base.TTY && stdout isa Base.TTY && get(ENV, "TERM", "") != "dumb"
+end
+
+function start_repl(controller:: Controller.ViewerController)::Nothing
+    state = REPLState(controller)
+    println("Type 'help' for a list of commands. Press TAB to complete.")
+    use_line_edit() ? run_line_edit_repl(state) : run_basic_repl(state)
 end
 
 end

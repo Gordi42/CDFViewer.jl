@@ -94,6 +94,12 @@ NS = Constants.NOT_SELECTED_LABEL
             @test args["record"] == false
             @test args["menu"] == false
             @test args["use-local"] == false
+            @test args["no-summary"] == false
+        end
+
+        @testset "No summary" begin
+            args = get_args("file.nc", "--no-summary")
+            @test args["no-summary"] == true
         end
 
         @testset "Files" begin

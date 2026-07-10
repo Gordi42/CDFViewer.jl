@@ -813,6 +813,116 @@ using CDFViewer.ViewerREPL
             cleanup(state)
         end
 
+        @testset "Completion Candidates" begin
+            # Arrange
+            state = init_state()
+            ViewerREPL.select_variable(state, "v 5d_float")
+
+            # Act & Assert: first word completes commands, exit and kwarg= entries
+            word, cands = ViewerREPL.completion_candidates(state, "")
+            @test word == ""
+            for cmd in keys(ViewerREPL.commands)
+                @test cmd in cands
+            end
+            @test "exit" in cands
+            @test any(endswith("="), cands)  # top-level key=value syntax
+
+            word, cands = ViewerREPL.completion_candidates(state, "he")
+            @test word == "he"
+            @test "help" in cands
+
+            # Act & Assert: variable name completion
+            word, cands = ViewerREPL.completion_candidates(state, "v ")
+            @test word == ""
+            @test "5d_float" in cands
+            word, cands = ViewerREPL.completion_candidates(state, "v 5d")
+            @test word == "5d"
+            @test "5d_float" in cands
+            word, cands = ViewerREPL.completion_candidates(state, "varinfo 2d")
+            @test "2d_float" in cands
+
+            # Act & Assert: plot type completion
+            word, cands = ViewerREPL.completion_candidates(state, "p hea")
+            @test word == "hea"
+            @test "heatmap" in cands
+
+            # Act & Assert: axis completion
+            word, cands = ViewerREPL.completion_candidates(state, "x lo")
+            @test "lon" in cands
+            word, cands = ViewerREPL.completion_candidates(state, "y ")
+            @test "lat" in cands
+
+            # Act & Assert: dimension completion for isel/sel
+            word, cands = ViewerREPL.completion_candidates(state, "isel ")
+            @test "float_dim" in cands
+            word, cands = ViewerREPL.completion_candidates(state, "sel flo")
+            @test word == "flo"
+            @test "float_dim" in cands
+
+            # Act & Assert: kwargs categories
+            word, cands = ViewerREPL.completion_candidates(state, "kwargs fi")
+            @test word == "fi"
+            @test cands == ["axis", "colorbar", "figure", "plot", "range"]
+
+            # Act & Assert: kwarg names for get/del
+            word, cands = ViewerREPL.completion_candidates(state, "get ")
+            @test !isempty(cands)
+            @test !any(endswith("="), cands)
+
+            # Act & Assert: continuation of key=value lines completes kwarg names
+            word, cands = ViewerREPL.completion_candidates(state, "xlabel=\"a\", yla")
+            @test word == "yla"
+            @test all(endswith("="), cands)
+
+            # Act & Assert: unknown command yields no candidates
+            word, cands = ViewerREPL.completion_candidates(state, "unknowncmd ")
+            @test isempty(cands)
+
+            # Cleanup
+            cleanup(state)
+        end
+
+        @testset "Overview command" begin
+            state = init_state()
+            # Prints directly (returns "") so the table keeps its alignment.
+            local out
+            @test (out = @capture_out ViewerREPL.show_overview(state, "overview")) isa String
+            @test occursin("Variable", out)
+            @test occursin("Coordinates:", out)
+            @test occursin("5d_float", out)
+            @test ViewerREPL.evaluate_command(state, "overview") == ""
+            cleanup(state)
+        end
+
+        @testset "complete_line contract" begin
+            # Regression: edit_move_right (right-arrow at end of line) calls
+            # complete_line directly and indexes `completions[1].completion`
+            # and `reg.second`/`reg.first`. Returning the old
+            # (Vector{String}, String, Bool) form made it crash with
+            # `type String has no field second`. complete_line must hand back
+            # the normalised (Vector{NamedCompletion}, Region, Bool) form.
+            state = init_state()
+            LE = ViewerREPL.LineEdit
+            prov = ViewerREPL.CDFCompletionProvider(state)
+            prompt = LE.Prompt("CDFViewer> "; complete = prov)
+            term = ViewerREPL.REPL.Terminals.TTYTerminal(
+                "dumb", stdin, stdout, stderr)
+            ps = LE.init_state(term, prompt)
+            write(LE.buffer(ps), "hel")
+            seekend(LE.buffer(ps))
+
+            completions, reg, should_complete = LE.complete_line(prov, ps, Main)
+
+            @test reg isa LE.Region              # Pair{Int,Int}, has .first/.second
+            @test reg.second - reg.first == 3    # length of the word "hel"
+            @test should_complete
+            @test completions isa Vector{LE.NamedCompletion}
+            @test length(completions) == 1
+            @test completions[1].completion == "help"  # accessed by edit_move_right
+
+            cleanup(state)
+        end
+
         @testset "Get Help" begin
             # Arrange
             state = init_state()
@@ -832,6 +942,43 @@ using CDFViewer.ViewerREPL
 
             # Cleanup
             cleanup(state)
+        end
+
+        @testset "History Navigation" begin
+            # Regression: the history provider used to be created with the
+            # constructor default cur_idx == 0. The first up/down arrow then
+            # tripped `@assert 1 <= hist.cur_idx <= max_idx` inside
+            # REPL.history_move (and, later, transition(::Nothing)). The cursor
+            # must start one past the last entry so navigation is safe.
+            new_prompt() = ViewerREPL.LineEdit.Prompt("CDFViewer> ")
+
+            mktempdir() do dir
+                # Empty history (the reported "fresh environment" case)
+                empty_hist = joinpath(dir, "empty_history")
+                withenv("CDFVIEWER_HISTORY" => empty_hist) do
+                    prompt = new_prompt()
+                    hp = ViewerREPL.setup_history!(prompt)
+                    @test isempty(hp.history)
+                    @test hp.cur_idx == length(hp.history) + 1
+                    @test 1 <= hp.cur_idx <= length(hp.history) + 1
+                    @test prompt.hist === hp
+                    close(hp.history_file)
+                end
+
+                # Pre-populated history file
+                pop_hist = joinpath(dir, "populated_history")
+                write(pop_hist,
+                    "# time: 2024-01-01 00:00:00 UTC\n# mode: cdfviewer\n\thelp\n" *
+                    "# time: 2024-01-01 00:00:01 UTC\n# mode: cdfviewer\n\tvars\n")
+                withenv("CDFVIEWER_HISTORY" => pop_hist) do
+                    prompt = new_prompt()
+                    hp = ViewerREPL.setup_history!(prompt)
+                    @test hp.history == ["help", "vars"]
+                    @test hp.cur_idx == length(hp.history) + 1
+                    @test 1 <= hp.cur_idx <= length(hp.history) + 1
+                    close(hp.history_file)
+                end
+            end
         end
 
     end

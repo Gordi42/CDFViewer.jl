@@ -2,6 +2,7 @@ module RescaleUnits
 
 using DataStructures
 using NCDatasets
+using NCDatasets.CommonDataModel: AbstractDataset
 
 # ======================================================
 #  Unit Mappings
@@ -35,7 +36,7 @@ const coordinate_unit_mappings = OrderedDict{String, CoordinateUnitMapping}(
     "latitude" => CoordinateUnitMapping("latitude", unit_mappings["rad2deg"]),
 )
 
-function get_standard_name(coord::String, ds::NCDataset)::String
+function get_standard_name(coord::String, ds::AbstractDataset)::String
     !haskey(ds, coord) && return lowercase(coord)
     name_variants = [lowercase(coord)]
     if haskey(ds.attrib, "standard_name")
@@ -58,13 +59,13 @@ function get_standard_name(coord::String, ds::NCDataset)::String
     return lowercase(coord)
 end
 
-function get_unit(ds::NCDataset, coord::String)::String
+function get_unit(ds::AbstractDataset, coord::String)::String
     !haskey(ds, coord) && return ""
     !haskey(ds[coord].attrib, "units") && return ""
     return lowercase(ds[coord].attrib["units"])
 end
 
-function get_remapped_unit(ds::NCDataset, coord::String)::String
+function get_remapped_unit(ds::AbstractDataset, coord::String)::String
     unit = get_unit(ds, coord)
     standard_name = get_standard_name(coord, ds)
     if standard_name in keys(coordinate_unit_mappings)
@@ -76,7 +77,7 @@ function get_remapped_unit(ds::NCDataset, coord::String)::String
     unit
 end
 
-function get_transformation_function(ds::NCDataset, coord::String)::Function
+function get_transformation_function(ds::AbstractDataset, coord::String)::Function
     unit = get_unit(ds, coord)
     standard_name = get_standard_name(coord, ds)
     if standard_name in keys(coordinate_unit_mappings)
