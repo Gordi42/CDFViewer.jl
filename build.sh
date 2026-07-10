@@ -17,6 +17,10 @@ rm -f "$build_dir/CDFViewer.so" "$build_dir/cdfviewer"
 echo "Building the sysimage..."
 echo "This may take a while (most compiled code is reused from the package cache)..."
 
+# Parallelize the native-code emission phase of the sysimage build
+# (defaults to half the logical cores; needs a few GB RAM per thread).
+export JULIA_IMAGE_THREADS="$(nproc)"
+
 julia --project="$build_dir" -e "
 using Pkg
 Pkg.develop(path = raw\"$project_dir\")
