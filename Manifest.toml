@@ -136,7 +136,7 @@ uuid = "6e34b625-4abd-537c-b88f-471c36dfa7a0"
 version = "1.0.9+0"
 
 [[deps.CDFViewer]]
-deps = ["ArgParse", "Colors", "DataStructures", "Dates", "Downloads", "GLMakie", "GeoMakie", "GeometryBasics", "Logging", "Makie", "NCDatasets", "NearestNeighbors", "PrecompileTools", "Printf", "ProgressMeter", "REPL", "Suppressor", "TOML", "Term"]
+deps = ["ArgParse", "Colors", "DataStructures", "Dates", "Downloads", "GLMakie", "GeoMakie", "GeometryBasics", "Logging", "Makie", "NCDatasets", "NearestNeighbors", "PrecompileTools", "Printf", "ProgressMeter", "REPL", "Suppressor", "TOML", "Term", "ZarrDatasets"]
 path = "."
 uuid = "50096eed-4867-42b1-b390-9381532214de"
 version = "0.1.0"
@@ -518,10 +518,10 @@ weakdeps = ["PDMats", "SparseArrays", "Statistics"]
     FillArraysStatisticsExt = "Statistics"
 
 [[deps.FixedPointNumbers]]
-deps = ["Statistics"]
-git-tree-sha1 = "05882d6995ae5c12bb5f36dd2ed3f61c98cbb172"
+deps = ["Random", "Statistics"]
+git-tree-sha1 = "59af96b98217c6ef4ae0dfe065ac7c20831d1a84"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
-version = "0.8.5"
+version = "0.8.6"
 
 [[deps.Fontconfig_jll]]
 deps = ["Artifacts", "Bzip2_jll", "Expat_jll", "FreeType2_jll", "JLLWrappers", "Libdl", "Libuuid_jll", "Zlib_jll"]
