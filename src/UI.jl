@@ -36,7 +36,7 @@ end
 function layout(plot_menu::PlotMenu)::GridLayout
     vgrid!(
         hgrid!(
-            Label(plot_menu.fig, L"\textbf{Plot Settings}", width = nothing),
+            Label(plot_menu.fig, rich("Plot Settings", font = :bold), width = nothing),
             plot_menu.plot_type),
         plot_menu.plot_kw,
     )
@@ -122,7 +122,7 @@ end
 function layout(coord_sliders::CoordinateSliders)::GridLayout
     vgrid!(
         hgrid!(
-            Label(coord_sliders.fig, L"\textbf{Fixed Coordinates}", width = nothing),
+            Label(coord_sliders.fig, rich("Fixed Coordinates", font = :bold), width = nothing),
             coord_sliders.auto_update
         ),
         coord_sliders.slider_grid,
@@ -171,7 +171,7 @@ end
 function layout(playback_menu::PlaybackMenu)::GridLayout
     vgrid!(
         hgrid!(
-            Label(playback_menu.fig, L"\textbf{Play}", width = 30), 
+            Label(playback_menu.fig, rich("Play", font = :bold), width = 30),
             playback_menu.toggle,
             playback_menu.speed,
             playback_menu.var,
@@ -245,8 +245,8 @@ end
 
 function layout(main_menu::MainMenu)::GridLayout
     vgrid!(
-        Label(main_menu.fig, L"\textbf{CDF Viewer}", halign = :center, fontsize=30, tellwidth=false),
-        hgrid!(Label(main_menu.fig, L"\textbf{Variable}", width = nothing), main_menu.variable_menu),
+        Label(main_menu.fig, rich("CDF Viewer", font = :bold), halign = :center, fontsize=30, tellwidth=false),
+        hgrid!(Label(main_menu.fig, rich("Variable", font = :bold), width = nothing), main_menu.variable_menu),
         layout(main_menu.plot_menu),
         layout(main_menu.coord_menu),
         layout(main_menu.playback_menu),
