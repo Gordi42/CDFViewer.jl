@@ -64,6 +64,33 @@ Optionally, add the `cdfviewer` executable to your `PATH` for easier access.
     The system image pins the compiled code: rebuild it after updating the
     package or its dependencies.
 
+## Prebuilt binary (Linux x86_64)
+
+Each [release](https://github.com/Gordi42/CDFViewer.jl/releases) ships a
+self-contained Linux bundle — no Julia installation required. It needs
+OpenGL drivers and glibc ≥ 2.35 (Ubuntu 22.04 or newer):
+
+```bash
+curl -L https://github.com/Gordi42/CDFViewer.jl/releases/latest/download/cdfviewer-linux-x86_64.tar.zst | tar --zstd -x
+./cdfviewer/bin/cdfviewer your_file.nc
+```
+
+Startup is as fast as the system image path, and the bundle is what CI
+pipelines should use — a workflow can download it and render plots in about
+two minutes from job start, with no Julia setup:
+
+```yaml
+- name: Install CDFViewer
+  run: |
+    sudo apt-get update && sudo apt-get install -y xvfb libgl1 zstd
+    curl -L https://github.com/Gordi42/CDFViewer.jl/releases/latest/download/cdfviewer-linux-x86_64.tar.zst | tar --zstd -x
+- name: Render a plot
+  run: |
+    xvfb-run -s '-screen 0 1024x768x24' ./cdfviewer/bin/cdfviewer data.nc \
+      -v temperature -x lon -y lat -p heatmap \
+      --savefig -s 'filename="plot.png"'
+```
+
 ## Remote use
 
 If you want to run the application on a remote server and forward the display
