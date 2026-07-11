@@ -10,6 +10,7 @@
 using PrecompileTools
 using Logging: NullLogger, with_logger
 using NCDatasets: NCDataset, defVar
+using ZarrDatasets: ZarrDataset
 
 function create_workload_file()::String
     file = tempname() * ".nc"
@@ -138,6 +139,35 @@ function exercise_grid_file!(args::Dict)::Nothing
     nothing
 end
 
+function create_workload_zarr_store()::String
+    dir = joinpath(mktempdir(), "workload.zarr")
+    ZarrDataset(dir, "c") do ds
+        defVar(ds, "x", collect(1.0:8.0), ("x",), attrib = Dict("units" => "m"))
+        defVar(ds, "y", collect(1.0:6.0), ("y",), attrib = Dict("units" => "m"))
+        defVar(ds, "time", [0.0, 3600.0], ("time",), attrib = Dict(
+            "units" => "seconds since 2000-01-01 00:00:00"))
+        defVar(ds, "temp", rand(8, 6, 2), ("x", "y", "time"),
+            attrib = Dict("units" => "K"))
+    end
+    dir
+end
+
+function exercise_zarr!(args::Dict)::Nothing
+    store = create_workload_zarr_store()
+    dataset = Data.CDFDataset([store])
+    controller = Controller.ViewerController(
+        dataset, headless = true, parsed_args = args, work_dir = pwd())
+    state = ViewerREPL.REPLState(controller)
+    ViewerREPL.evaluate_command(state, "v temp")
+    ViewerREPL.evaluate_command(state, "p heatmap")
+    foreach(wait, controller.fd.tasks[])
+    Data.overview_string(dataset)
+    GLMakie.closeall()
+    close(dataset.ds)
+    rm(dirname(store), recursive = true, force = true)
+    nothing
+end
+
 function run_precompile_workload()::Nothing
     file = create_workload_file()
     with_logger(NullLogger()) do
@@ -160,6 +190,9 @@ function run_precompile_workload()::Nothing
 
         # External grid file support (merged-dataset code paths)
         exercise_grid_file!(args)
+
+        # Zarr open path (ZarrDataset + CF time decode on zarr arrays)
+        exercise_zarr!(args)
     end
     rm(file, force = true)
     nothing
