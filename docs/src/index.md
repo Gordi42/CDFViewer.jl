@@ -1,6 +1,6 @@
 # CDFViewer.jl
 
-CDFViewer is an interactive viewer for NetCDF files. It opens a dataset
+CDFViewer is an interactive viewer for NetCDF files and zarr stores. It opens a dataset
 straight from your terminal, lets you explore every variable with sliders,
 menus, and a command prompt, and produces publication-ready figures, animated
 recordings, and reproducible session exports — all powered by
@@ -15,8 +15,8 @@ plot_figure(session) # hide
 
 ## Features
 
-- **Quick look, zero code:** open any NetCDF file and get a plot with a
-  handful of keystrokes — no scripts, no notebooks.
+- **Quick look, zero code:** open any NetCDF file or zarr store and get a
+  plot with a handful of keystrokes — no scripts, no notebooks.
 - **Command REPL:** a `CDFViewer>` prompt with tab completion, persistent
   history, and reverse search drives the whole application from the keyboard.
 - **Interactive menu:** every setting is also available in a GUI window with

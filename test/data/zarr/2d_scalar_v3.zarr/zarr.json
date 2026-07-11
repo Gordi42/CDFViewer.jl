@@ -1,0 +1,8 @@
+{
+  "attributes": {
+    "Conventions": "CF-1.10",
+    "title": "zarr v3 fixture: 2D scalar"
+  },
+  "zarr_format": 3,
+  "node_type": "group"
+}

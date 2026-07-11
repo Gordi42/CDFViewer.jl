@@ -5,6 +5,7 @@ using Printf
 using DataStructures
 using NCDatasets
 using NCDatasets.CommonDataModel: AbstractDataset
+using ZarrDatasets: ZarrDataset
 using GLMakie
 
 import ..Constants
@@ -29,6 +30,52 @@ struct CDFDataset
 end
 
 # ---------------------------------------------------
+#  Opening (NetCDF files and zarr stores)
+# ---------------------------------------------------
+
+"""
+    is_zarr_store(path) -> Bool
+
+Whether `path` should be opened as a zarr store rather than a NetCDF file.
+A path is treated as zarr when it ends in `.zarr`, or when it is a directory
+(zarr stores are directories containing `.zgroup`/`.zmetadata`/`zarr.json`
+metadata files; NetCDF files are never directories).
+"""
+function is_zarr_store(path::String)::Bool
+    endswith(lowercase(rstrip(path, '/')), ".zarr") && return true
+    # zarr stores are directories (containing .zgroup/.zmetadata/zarr.json
+    # metadata files); NetCDF files never are.
+    isdir(path)
+end
+
+"Open the given path(s) as a NetCDF dataset or a single zarr store."
+function open_dataset(file_paths::Vector{String})::AbstractDataset
+    for path in file_paths
+        # Remote URLs are validated by the backends themselves
+        occursin("://", path) && continue
+        ispath(path) || error("File or directory not found: $path")
+    end
+    if any(is_zarr_store, file_paths)
+        length(file_paths) > 1 && error(
+            "Opening multiple paths is only supported for NetCDF files " *
+            "(multi-file aggregation is NetCDF-only). " *
+            "Please open a single zarr store instead.")
+        store = file_paths[1]
+        # A `zarr.json` at the store root marks zarr format v3, which the
+        # Julia zarr stack (ZarrDatasets.jl on Zarr.jl 0.9) cannot read yet
+        # — fail with a clear message instead of a cryptic backend error.
+        isfile(joinpath(store, "zarr.json")) && error(
+            "The store '$store' uses zarr format v3 (`zarr.json` metadata), " *
+            "which is not yet supported by the Julia zarr stack " *
+            "(ZarrDatasets.jl / Zarr.jl 0.9). " *
+            "Please rewrite the store as zarr v2 to open it with CDFViewer.")
+        return ZarrDataset(store, "r")
+    end
+    length(file_paths) == 1 && return NCDataset(file_paths[1], "r")
+    NCDataset(file_paths, "r")
+end
+
+# ---------------------------------------------------
 #  Constructors
 # ---------------------------------------------------
 
@@ -37,11 +84,7 @@ function CDFDataset(
     grid_file::String="",
     grid_search::Bool=true,
 )::CDFDataset
-    ds = if length(file_paths) == 1
-        NCDataset(file_paths[1], "r")
-    else
-        NCDataset(file_paths, "r")
-    end
+    ds = open_dataset(file_paths)
 
     # Attach coordinates from an external grid file if needed
     ds = GridFiles.apply_grid(ds, file_paths; grid_file, grid_search)
@@ -272,6 +315,16 @@ function _dataset_name(dataset::CDFDataset)::String
     try
         p = NCDatasets.CommonDataModel.path(dataset.ds)
         p isa AbstractString && !isempty(p) && return basename(p)
+    catch
+    end
+    # CommonDataModel.path is empty for zarr stores: use the store directory
+    try
+        ds = dataset.ds isa GridFiles.MergedDataset ? dataset.ds.ds : dataset.ds
+        if ds isa ZarrDataset
+            folder = ds.zgroup.storage.folder
+            folder isa AbstractString && !isempty(folder) &&
+                return basename(rstrip(folder, '/'))
+        end
     catch
     end
     "dataset"

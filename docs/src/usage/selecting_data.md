@@ -9,7 +9,7 @@ plus the commands for inspecting what the dataset contains.
 
 `vars` lists the variables, `dims` shows the dimensions of the current
 variable together with their currently selected values, and `varinfo` prints
-the full NetCDF metadata of a variable:
+the full metadata of a variable:
 
 ```@example sel
 using Main.DocHelpers # hide
