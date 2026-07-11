@@ -38,10 +38,25 @@ jobs:
         run: |
           Xvfb :99 -screen 0 1024x768x24 &
           echo "DISPLAY=:99" >> "$GITHUB_ENV"
+      # Native-code emission peaks well above the runner's 16 GB RAM and the
+      # stock 4 GB swapfile; without this the VM gets OOM-killed (exit 143).
+      - name: Grow swap for sysimage emission
+        run: |
+          sudo swapoff -a
+          sudo rm -f /mnt/swapfile
+          sudo fallocate -l 16G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
       - name: Build self-contained app bundle
         env:
-          # All 4 runner cores for the native-code emission phase (16 GB RAM)
+          # All 4 runner cores for the native-code emission phase
           JULIA_IMAGE_THREADS: '4'
+          # create_app precompiles everything against its own base sysimage
+          # (with --pkgimages=no), so precompiling on instantiate is wasted
+          # work — the caches are never reused.
+          JULIA_PKG_PRECOMPILE_AUTO: '0'
         run: |
           set -o pipefail
           julia --project=. -e 'using Pkg; Pkg.instantiate()'
