@@ -44,15 +44,18 @@ jobs:
         run: |
           sudo swapoff -a
           sudo rm -f /mnt/swapfile
-          sudo fallocate -l 16G /mnt/swapfile
+          sudo fallocate -l 24G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
           free -h
       - name: Build self-contained app bundle
         env:
-          # All 4 runner cores for the native-code emission phase
-          JULIA_IMAGE_THREADS: '4'
+          # 2, not all 4 cores: each emission thread holds multi-GB of LLVM
+          # state, and 4 threads killed the 16 GB runner VM even with a
+          # 16 GB swapfile (the run dies with no step conclusion and no
+          # uploaded logs). Slower, but it fits.
+          JULIA_IMAGE_THREADS: '2'
           # create_app precompiles everything against its own base sysimage
           # (with --pkgimages=no), so precompiling on instantiate is wasted
           # work — the caches are never reused.
