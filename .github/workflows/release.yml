@@ -32,25 +32,39 @@ jobs:
           sudo apt-get install -y xvfb mesa-utils libgl1 x11-xserver-utils \
             xorg-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libxext-dev zstd
+      # A single X server for the whole job: precompilation already needs a
+      # display (GLFW initializes when GLMakie loads), not just create_app.
+      - name: Start virtual display
+        run: |
+          Xvfb :99 -screen 0 1024x768x24 &
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
       - name: Build self-contained app bundle
         env:
           # All 4 runner cores for the native-code emission phase (16 GB RAM)
           JULIA_IMAGE_THREADS: '4'
         run: |
+          set -o pipefail
           julia --project=. -e 'using Pkg; Pkg.instantiate()'
           julia --project=build -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
-          xvfb-run -s '-screen 0 1024x768x24' julia --project=build -e '
+          julia --project=build -e '
             using PackageCompiler
             create_app(".", "dist";
               executables = ["cdfviewer" => "julia_main"],
               precompile_execution_file = "precompile_script.jl",
               include_lazy_artifacts = true,
-            )'
+            )' 2>&1 | tee build.log
+          # The workload never fails precompilation (by design, for package
+          # installs) — but a release binary built without it would hitch on
+          # first use, so treat the warning as a build failure here.
+          if grep -q "precompile workload failed" build.log; then
+            echo "::error::CDFViewer precompile workload failed during the sysimage build"
+            exit 1
+          fi
       - name: Smoke test the bundle from a clean location
         run: |
           julia --project=. -e 'include("docs/demo_data.jl"); create_demo_file("/tmp")'
           cp -r dist /tmp/relocated
-          xvfb-run -s '-screen 0 1024x768x24' /tmp/relocated/bin/cdfviewer /tmp/demo.nc \
+          /tmp/relocated/bin/cdfviewer /tmp/demo.nc \
             -v temperature -x lon -y lat -p heatmap \
             --savefig -s 'filename="/tmp/smoke.png"'
           test -s /tmp/smoke.png
