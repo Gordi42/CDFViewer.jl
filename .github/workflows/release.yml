@@ -78,6 +78,17 @@ jobs:
             echo "::error::CDFViewer precompile workload failed during the sysimage build"
             exit 1
           fi
+      - name: Wrap executable to default to all cores
+        run: |
+          # The compiled app runs with a single Julia thread unless
+          # JULIA_NUM_THREADS is set, which roughly doubles setup GC time.
+          mv dist/bin/cdfviewer dist/bin/cdfviewer-bin
+          cat > dist/bin/cdfviewer <<'EOF'
+          #!/bin/sh
+          export JULIA_NUM_THREADS="${JULIA_NUM_THREADS:-auto}"
+          exec "$(dirname "$(realpath "$0")")/cdfviewer-bin" "$@"
+          EOF
+          chmod +x dist/bin/cdfviewer
       - name: Smoke test the bundle from a clean location
         run: |
           julia --project=. -e 'include("docs/demo_data.jl"); create_demo_file("/tmp")'
