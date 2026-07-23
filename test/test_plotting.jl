@@ -101,6 +101,9 @@ using CDFViewer.Plotting
 
             @test Plotting.measure_text("time: ") > 0
             @test Plotting.measure_text("") == 0.0
+            # a larger fontsize widens the measured slot
+            @test Plotting.measure_text("time: ", 40) >
+                Plotting.measure_text("time: ", 20)
             close(dataset.ds)
         end
 
@@ -114,6 +117,8 @@ using CDFViewer.Plotting
             @test settings.animlabelcorner[] === Constants.ANIMLABEL_CORNER
             @test settings.animlabelbg[] === Constants.ANIMLABEL_BACKGROUND
             @test settings.title[] === nothing
+            @test settings.titlesize[] == Float64(Constants.TITLESIZE)
+            @test settings.animlabelsize[] == Float64(Constants.LABELSIZE)
         end
 
         @testset "Overlay geometry and background" begin

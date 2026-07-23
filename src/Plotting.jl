@@ -89,6 +89,8 @@ struct FigureSettings
     animlabelbg::Observable{Any}
     # nothing = automatic (the variable label); a string overrides it
     title::Observable{Union{Nothing, String}}
+    titlesize::Observable{Float64}
+    animlabelsize::Observable{Float64}
 
     FigureSettings() = new(
         Observable(Constants.FIGSIZE),
@@ -107,6 +109,8 @@ struct FigureSettings
         Observable(Constants.ANIMLABEL_CORNER),         # animlabelcorner
         Observable{Any}(Constants.ANIMLABEL_BACKGROUND),  # animlabelbg
         Observable{Union{Nothing, String}}(nothing),      # title override
+        Observable(Float64(Constants.TITLESIZE)),         # titlesize
+        Observable(Float64(Constants.LABELSIZE)),         # animlabelsize
     )
 end
 
@@ -168,14 +172,15 @@ function animlabel_font()
     end
 end
 
-"Measured pixel width of `s` at the label fontsize."
-measure_text(s::String)::Float64 = isempty(s) ? 0.0 :
-    Float64(Makie.widths(Makie.text_bb(s, animlabel_font(), Constants.LABELSIZE))[1])
+"Measured pixel width of `s` at the given fontsize."
+measure_text(s::String, fontsize::Real = Constants.LABELSIZE)::Float64 =
+    isempty(s) ? 0.0 : Float64(Makie.widths(
+        Makie.text_bb(s, animlabel_font(), Float64(fontsize)))[1])
 
-"Measured pixel height of `s` at the label fontsize."
-measure_height(s::String)::Float64 =
+"Measured pixel height of `s` at the given fontsize."
+measure_height(s::String, fontsize::Real = Constants.LABELSIZE)::Float64 =
     Float64(Makie.widths(Makie.text_bb(isempty(s) ? "Ag" : s, animlabel_font(),
-                                       Constants.LABELSIZE))[2])
+                                       Float64(fontsize)))[2])
 
 "Render one dynamic placeholder for the current index."
 render_slot(dataset::Data.CDFDataset, pdim::String, idx::Int,
@@ -193,6 +198,7 @@ slot never changes width during playback.
 function widest_slot_text(
     dataset::Data.CDFDataset, pdim::String, placeholder::String,
     numfmt::String, dateformat::String,
+    fontsize::Real = Constants.LABELSIZE,
 )::String
     n = try
         length(Data.get_dim_values(dataset, pdim))
@@ -205,7 +211,7 @@ function widest_slot_text(
     widest, wmax = "", -1.0
     for i in idxs
         s = render_slot(dataset, pdim, i, placeholder, numfmt, dateformat)
-        w = measure_text(s)
+        w = measure_text(s, fontsize)
         w > wmax && (widest = s; wmax = w)
     end
     widest
@@ -227,6 +233,7 @@ function compile_animlabel(
     animlabel::Union{Bool, String},
     numfmt::String,
     dateformat::String,
+    fontsize::Real = Constants.LABELSIZE,
 )::Vector{AnimSegment}
     fmt = animlabel_format(animlabel)
     isempty(fmt) && return AnimSegment[]
@@ -238,16 +245,16 @@ function compile_animlabel(
     fmt = replace(fmt,
         "{name}" => Data.get_dim_display_name(dataset, pdim),
         "{unit}" => Data.get_dim_unit(dataset, pdim))
-    static(txt) = AnimSegment("", false, txt, measure_text(txt))
+    static(txt) = AnimSegment("", false, txt, measure_text(txt, fontsize))
     segments = AnimSegment[]
     pos = 1
     for m in eachmatch(ANIM_DYNAMIC_PLACEHOLDER, fmt)
         m.offset > pos &&
             push!(segments, static(fmt[pos:prevind(fmt, m.offset)]))
         widest = widest_slot_text(dataset, pdim, String(m.match),
-                                  numfmt, dateformat)
+                                  numfmt, dateformat, fontsize)
         push!(segments, AnimSegment(String(m.match), true, widest,
-                                    measure_text(widest)))
+                                    measure_text(widest, fontsize)))
         pos = m.offset + ncodeunits(m.match)
     end
     pos <= ncodeunits(fmt) && push!(segments, static(fmt[pos:end]))
@@ -346,17 +353,21 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
     # Create axis, plot object, and colorbar observables
     figsize = Observable(Constants.FIGSIZE)
     fig = create_figure(figsize[])
-    # Row 1: the figure title. The native axis title is disabled: a layout
-    # Label reserves exactly the height it needs on every axis type (Axis3
-    # reserves a single-line strip only, so a taller native title clips).
-    # Row 2: the animated-axis label. Row 3: the axis body (+ colorbar).
+    # Row 1, the header: the figure title on the left, the animated-axis
+    # label on the right of the same row. The native axis title is disabled:
+    # a layout Label reserves exactly the height it needs on every axis type
+    # (Axis3 reserves a single-line strip only, so a taller native title
+    # clips). Row 2: the axis body (+ colorbar).
+    header = GridLayout(fig[1, 1])
     title_text = @lift begin
         override = $(settings.title)
         override === nothing ? $(plot_data.labels.title) : override
     end
-    title_label = Label(fig[1, 1], title_text;
-        fontsize = Constants.TITLESIZE, font = :bold, tellwidth = false)
-    animrow = GridLayout(fig[2, 1]; tellwidth = false, halign = :center)
+    title_label = Label(header[1, 1], title_text;
+        fontsize = settings.titlesize, font = :bold,
+        halign = :left, tellwidth = false)
+    animrow = GridLayout(header[1, 2]; tellwidth = true,
+                         halign = :right, valign = :bottom)
     # keep a zero-size placeholder: trim! on a contentless layout collapses
     # it to zero rows, whose NaN sizes poison the whole figure solve (an
     # empty-string Label is just as poisonous -- hence the single space)
@@ -396,7 +407,8 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
     for trigger in (ui_state.variable, plot_data.sel_dims, ui_state.pdim,
                     settings.animlabel, settings.animlabelnumfmt,
                     settings.animlabeldateformat, settings.animlabelpos,
-                    settings.animlabelcorner, settings.animlabelbg)
+                    settings.animlabelcorner, settings.animlabelbg,
+                    settings.animlabelsize)
         on(trigger) do _
             update_animlabel!(fd)
         end
@@ -447,7 +459,8 @@ function update_animlabel!(fd::FigureData)::Nothing
     fd.anim_segments[] = compile_animlabel(
         fd.plot_data.dataset, ui_state.variable[], fd.plot_data.sel_dims[],
         ui_state.pdim[], fd.settings.animlabel[],
-        fd.settings.animlabelnumfmt[], fd.settings.animlabeldateformat[])
+        fd.settings.animlabelnumfmt[], fd.settings.animlabeldateformat[],
+        fd.settings.animlabelsize[])
     rebuild_animrow!(fd)
     rebuild_overlay!(fd)
     refresh_anim_values!(fd)
@@ -495,21 +508,28 @@ function rebuild_animrow!(fd::FigureData)::Nothing
         # report NaN sizes that poison the whole figure solve
         Label(gl[1, 1], " "; fontsize = 1, visible = false)
         trim!(gl)
+        colsize!(gl, 1, Auto())
         return nothing
     end
     slot = 0
     for (i, seg) in enumerate(segments)
+        # The Label auto-sizes to its text and is aligned inside a column
+        # of FIXED width. Fixing the Label's own width instead does NOT
+        # align the text: Label halign places the block in its cell, so a
+        # block as wide as the cell leaves the text at its left edge --
+        # and the unit after a growing value visibly crawls.
         if seg.dynamic
             slot += 1
             ensure_slots!(fd, slot)
             Label(gl[1, i], fd.anim_slots[slot];
-                  fontsize = Constants.LABELSIZE, width = seg.width,
-                  halign = :right)
+                  fontsize = fd.settings.animlabelsize[],
+                  halign = :right, tellwidth = false)
         else
             Label(gl[1, i], seg.text;
-                  fontsize = Constants.LABELSIZE, width = seg.width,
-                  halign = :left)
+                  fontsize = fd.settings.animlabelsize[],
+                  halign = :left, tellwidth = false)
         end
+        colsize!(gl, i, Fixed(seg.width))
     end
     colgap!(gl, 0)
     trim!(gl)
@@ -556,8 +576,10 @@ function rebuild_overlay!(fd::FigureData)::Nothing
     isempty(segments) && return nothing
     scene = ax.scene
     bpad = Float64(Constants.ANIMLABEL_BACKGROUND_PADDING)
+    fontsize = fd.settings.animlabelsize[]
     boxw = sum(seg.width for seg in segments) + 2bpad
-    boxh = maximum(measure_height(seg.text) for seg in segments) + 2bpad
+    boxh = maximum(measure_height(seg.text, fontsize)
+                   for seg in segments) + 2bpad
     corner = fd.settings.animlabelcorner[]
     bg = fd.settings.animlabelbg[]
     rect = @lift(animlabel_overlay_rect(
@@ -587,7 +609,7 @@ function rebuild_overlay!(fd::FigureData)::Nothing
         end
         plt = text!(scene, pos; text = text_content, space = :pixel,
                     align = (seg.dynamic ? :right : :left, :bottom),
-                    fontsize = Constants.LABELSIZE, inspectable = false)
+                    fontsize = fontsize, inspectable = false)
         push!(fd.anim_overlay[], (scene, plt))
         xoff += seg.width
     end
@@ -685,7 +707,7 @@ function add_colorbar!(fd::FigureData)::Nothing
         fd.cbar[] = nothing
     end
     if fd.plot_data.plot_type[].colorbar && fd.plot_obj[] !== nothing && fd.settings.cbar[]
-        fd.cbar[] = Colorbar(fd.fig[3, 2], fd.plot_obj[],
+        fd.cbar[] = Colorbar(fd.fig[2, 2], fd.plot_obj[],
             width = 30, tellwidth = false, tellheight = false)
         colsize!(fd.fig.layout, 2, Relative(0.05))
     end
@@ -842,6 +864,16 @@ function set_animlabelbg!(fd::FigureData, value::Any)::Bool
     false
 end
 
+function set_titlesize!(fd::FigureData, value::Real)::Bool
+    fd.settings.titlesize[] = Float64(value)
+    false
+end
+
+function set_animlabelsize!(fd::FigureData, value::Real)::Bool
+    fd.settings.animlabelsize[] = Float64(value)
+    false
+end
+
 function set_title!(fd::FigureData, value::Union{Nothing, AbstractString})::Bool
     fd.settings.title[] = value === nothing ? nothing : String(value)
     false
@@ -880,6 +912,9 @@ const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
     :animlabelbg => FigureSettingsHandler(:animlabelbg, Any, set_animlabelbg!),
     :title => FigureSettingsHandler(
         :title, Union{Nothing, AbstractString}, set_title!),
+    :titlesize => FigureSettingsHandler(:titlesize, Real, set_titlesize!),
+    :animlabelsize => FigureSettingsHandler(
+        :animlabelsize, Real, set_animlabelsize!),
 )
     
 
@@ -936,6 +971,8 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
             :animlabelcorner => Constants.ANIMLABEL_CORNER,
             :animlabelbg => Constants.ANIMLABEL_BACKGROUND,
             :title => nothing,
+            :titlesize => Float64(Constants.TITLESIZE),
+            :animlabelsize => Float64(Constants.LABELSIZE),
         )
         return haskey(defaults, property) ? defaults[property] : :delete
     elseif isa(target_object, Makie.AbstractAxis)
@@ -959,7 +996,8 @@ function get_property_mappings(kwargs::OrderedDict{Symbol, Any}, fig_data::Figur
             target_obj === nothing && continue
             # the figure title lives in a layout Label; never touch
             # the axis' native (empty) title
-            property === :title && target_obj isa Makie.AbstractAxis && continue
+            property in (:title, :titlesize) &&
+                target_obj isa Makie.AbstractAxis && continue
             property ∉ propertynames(target_obj) && continue
             
             # Get the current value of the property
@@ -1338,7 +1376,7 @@ function create_regular_2d_axis(fd::FigureData)::Axis
     end
 
     ax = Axis(
-        fd.fig[3, 1],
+        fd.fig[2, 1],
         xlabel = fd.plot_data.labels.xlabel,
         ylabel = fd.plot_data.plot_type[].ndims > 1 ? fd.plot_data.labels.ylabel : "",
         aspect = aspect,
@@ -1356,14 +1394,14 @@ function create_geographic_2d_axis(fd::FigureData)::GeoAxis
 
     ax = if fd.settings.proj[] === nothing
         GeoAxis(
-            fd.fig[3, 1],
+            fd.fig[2, 1],
             xlabel = fd.plot_data.labels.xlabel,
             ylabel = fd.plot_data.labels.ylabel,
             limits = compute_2d_limits(fd),
         )
     else
         GeoAxis(
-            fd.fig[3, 1],
+            fd.fig[2, 1],
             xlabel = fd.plot_data.labels.xlabel,
             ylabel = fd.plot_data.labels.ylabel,
             dest = fd.settings.proj[],
@@ -1396,7 +1434,7 @@ end
 
 function create_3d_axis(fd::FigureData)::Axis3
     plot_data = fd.plot_data
-    ax_layout = fd.fig[3, 1]
+    ax_layout = fd.fig[2, 1]
 
     Axis3(
         ax_layout,

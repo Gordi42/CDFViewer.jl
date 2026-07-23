@@ -35,8 +35,8 @@ You can also start animating right from the command line: appending
 
 A recorded video carries no menu, so the frame itself has to say where in
 the animation it is. The current value of the play dimension is therefore
-shown on a line of its own, right underneath the title — on every axis
-type, 3D included.
+shown right of the title, with the title on the left of the same row — on
+every axis type, 3D included.
 
 Nothing shifts while the animation runs: the label is compiled into static
 text and value slots, and each slot is exactly as wide as the widest value
@@ -76,11 +76,12 @@ scientific notation, or shorten a timestamp.
 | Keyword | Default | Effect |
 |:--------|:--------|:-------|
 | `animlabel=true` | `true` | `false` hides the label; a string sets the template |
-| `animlabelpos=:title` | `:title` | `:title` (own line under the title) or `:overlay` |
+| `animlabelpos=:title` | `:title` | `:title` (right of the title) or `:overlay` |
 | `animlabelnumfmt="%.1f"` | `"%g"` | printf format for numeric axes |
 | `animlabeldateformat="yyyy-mm-dd"` | `"yyyy-mm-dd HH:MM:SS"` | date format for time axes |
 | `animlabelcorner=:lt` | `:lt` | corner used by `:overlay`: `:lt`, `:rt`, `:lb`, `:rb` |
 | `animlabelbg=true` | `true` | box behind the `:overlay` label; a color overrides it |
+| `animlabelsize=16` | `20` | fontsize of the label (slots resize with it) |
 
 ```@example anim
 repl(session, "reset") # hide

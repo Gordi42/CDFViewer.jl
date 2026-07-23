@@ -86,6 +86,7 @@ A few special keywords control the figure itself rather than the plot:
 | Keyword | Default | Effect |
 |:--------|:--------|:-------|
 | `figsize=(800, 600)` | `(800, 600)` | size of the figure in pixels |
+| `titlesize=28` | `24` | fontsize of the figure title |
 | `cbar=true` | `true` | show or hide the colorbar |
 | `moveable=true` | `true` | allow drag-panning with the mouse |
 | `geographic=false` | `false` | draw on a geographic map projection |
