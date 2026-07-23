@@ -760,8 +760,18 @@ function add_colorbar!(fd::FigureData)::Nothing
         fd.cbar[] = nothing
     end
     if fd.plot_data.plot_type[].colorbar && fd.plot_obj[] !== nothing && fd.settings.cbar[]
-        fd.cbar[] = Colorbar(fd.fig[2, 2], fd.plot_obj[],
-            width = 30, tellwidth = false, tellheight = false)
+        # A 2D axis with a constrained aspect letterboxes: it shrinks
+        # inside its layout cell, while a cell-filling colorbar keeps the
+        # full height and overshoots the plot. Tying the colorbar height
+        # to the axis' actual on-screen height keeps the two flush; when
+        # the axis fills its cell this equals the cell height, so the
+        # unconstrained look is unchanged. Axis3 has no letterboxed plot
+        # rectangle to match, so it keeps the plain cell-filling bar.
+        ax = fd.ax[]
+        size_kw = ax isa Axis3 ? (;) :
+            (; height = @lift(Fixed($(ax.scene.viewport).widths[2])))
+        fd.cbar[] = Colorbar(fd.fig[2, 2], fd.plot_obj[];
+            width = 30, tellwidth = false, tellheight = false, size_kw...)
         colsize!(fd.fig.layout, 2, Relative(0.05))
     end
     nothing

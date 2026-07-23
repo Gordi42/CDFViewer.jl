@@ -169,6 +169,18 @@ using CDFViewer.Plotting
             @test Plotting.animlabel_background_color((:black, 0.4)) == (:black, 0.4)
         end
 
+        @testset "Colorbar height matches the axis" begin
+            (fig_data, state, dataset) = arrange_and_create_axis(
+                "2d_float", ["lon", "lat"], "heatmap")
+            # 2D: the colorbar is pinned to the axis' on-screen height,
+            # so an aspect-letterboxed axis keeps the two flush
+            @test fig_data.cbar[] isa Colorbar
+            h = fig_data.cbar[].height[]
+            @test h isa Makie.GridLayoutBase.Fixed
+            @test h.x == fig_data.ax[].scene.viewport[].widths[2]
+            cleanup(dataset)
+        end
+
         @testset "Label row integration" begin
             (fig_data, state, dataset) = arrange_and_create_axis(
                 "3d_float", ["lon", "lat"], "heatmap")
