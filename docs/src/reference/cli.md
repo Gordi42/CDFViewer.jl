@@ -4,9 +4,9 @@
 cdfviewer <files>... [options] [flags]
 ```
 
-One or more NetCDF files — or a single zarr store — are required; all other
-arguments are optional. A typical invocation that opens a file with a
-complete plot description:
+One or more NetCDF files, or a single zarr store, are required. All other
+arguments are optional. A typical invocation opens a file with a complete
+plot description.
 
 ```bash
 cdfviewer demo.nc -v temperature -x lon -y lat -p heatmap --dims="time=5" -a time
@@ -16,7 +16,7 @@ cdfviewer demo.nc -v temperature -x lon -y lat -p heatmap --dims="time=5" -a tim
 
 | Argument | Description |
 |:---------|:------------|
-| `files` | Path(s) to the NetCDF file(s) to open (one or more), or a single zarr store directory (zarr format v2; v3 stores are detected but not yet supported). Combining multiple paths (multi-file aggregation) is NetCDF-only. |
+| `files` | Path(s) to the NetCDF file(s) to open (one or more), or a single zarr store directory (zarr format v2 only, v3 stores are detected but not yet supported). Combining multiple paths (multi-file aggregation) is NetCDF-only. |
 
 ## Options
 
@@ -47,10 +47,10 @@ cdfviewer demo.nc -v temperature -x lon -y lat -p heatmap --dims="time=5" -a tim
 ## Notes
 
 - `--kwargs` and `--saveoptions` take the same `key=value` expressions as
-  the corresponding REPL input — quote them in the shell:
+  the corresponding REPL input. Quote them in the shell, e.g.
   `--kwargs='colormap=:viridis, title="My Plot"'`.
-- `--savefig` and `--record` run headlessly: no window is opened, the file
-  is written, and the program exits — see
-  [Saving and Recording](../usage/saving.md).
+- `--savefig` and `--record` run headlessly. No window is opened, the file
+  is written, and the program exits (see
+  [Saving and Recording](../usage/saving.md)).
 - The `export` REPL command prints a ready-made argument string that
   reproduces the current session.

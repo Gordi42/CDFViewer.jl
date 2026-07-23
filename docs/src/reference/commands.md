@@ -1,13 +1,13 @@
 # REPL Commands
 
 All commands available at the `CDFViewer>` prompt, grouped by purpose. In
-the usage column, `<argument>` is required and `[argument]` is optional —
-omitting an optional argument of a selection command opens an interactive
+the usage column, `<argument>` is required and `[argument]` is optional.
+Omitting an optional argument of a selection command opens an interactive
 picker in the terminal.
 
 Any input line containing `key=value` pairs that does not start with a
-command name is applied as plot keyword arguments — see
-[Customizing Plots](../usage/customization.md).
+command name is applied as plot keyword arguments (see
+[Customizing Plots](../usage/customization.md)).
 
 ## Plot setup
 
@@ -32,7 +32,7 @@ command name is applied as plot keyword arguments — see
 |:--------|:------|:------------|
 | `play` | `play [dim_name]` | Toggle play/pause for animations |
 | `pdim` | `pdim [dim_name]` | Set play dimension |
-| `speed` | `speed [value]` | Set play speed (no value: print current speed) |
+| `speed` | `speed [value]` | Set play speed (without a value it prints the current speed) |
 
 ## Plot manipulation
 

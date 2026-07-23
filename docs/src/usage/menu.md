@@ -1,10 +1,10 @@
 # The Menu Window
 
-Everything in CDFViewer can be controlled from two places: the
-[command REPL](repl.md) in the terminal, and a menu window with dropdown
-menus, sliders, and buttons. The two are always in sync — selecting a
-variable at the prompt updates the menu, and vice versa. Use whichever fits
-your workflow; they are two views of the same state.
+Everything in CDFViewer can be controlled from two places. One is the
+[command REPL](repl.md) in the terminal, the other a menu window with
+dropdown menus, sliders, and buttons. The two are always in sync. Selecting
+a variable at the prompt updates the menu, and vice versa. Use whichever
+fits your workflow.
 
 The menu window is hidden by default. Open it with the `menu` command, close
 it with `hidemenu`, or start the application with the `--menu` flag to show
@@ -27,28 +27,28 @@ nothing # hide
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);">
 ```
 
-From top to bottom:
+From top to bottom, the menu offers these controls.
 
-- **Variable** — the data variable to plot, one entry per variable in the
-  dataset (the `v` command).
-- **Plot Settings** — the plot type (`p`). The list is filtered to the
-  types that match the number of selected axes. The text box below takes
-  plot keyword arguments, exactly like typing them at the prompt — see
-  [Customizing Plots](customization.md).
-- **X / Y / Z** — assign dataset dimensions to the plot axes (`x`, `y`,
+- **Variable** selects the data variable to plot, with one entry per
+  variable in the dataset (the `v` command).
+- **Plot Settings** selects the plot type (`p`). The list is filtered to
+  the types that match the number of selected axes. The text box below
+  takes plot keyword arguments, exactly like typing them at the prompt
+  (see [Customizing Plots](customization.md)).
+- **X / Y / Z** assign dataset dimensions to the plot axes (`x`, `y`,
   `z`).
-- **Play** — animate a dimension: the toggle starts and stops playback, the
+- **Play** animates a dimension. The toggle starts and stops playback, the
   slider controls the speed, and the dropdown selects the dimension to
   animate. The value label below shows the current coordinate value of the
   animated dimension. See [Animation and Playback](animation.md).
-- **Fixed Coordinates** — one slider per dimension that is not on a plot
-  axis (the `isel`/`sel` commands). The toggle on the right controls
-  whether the plot updates live while dragging a slider — turn it off for
+- **Fixed Coordinates** holds one slider per dimension that is not on a
+  plot axis (the `isel`/`sel` commands). The toggle on the right controls
+  whether the plot updates live while dragging a slider. Turn it off for
   large datasets where every update is expensive.
-- **Save / Record / Export** — write the current figure to an image, record
+- **Save / Record / Export** write the current figure to an image, record
   an animation to a video, or print a command line that reproduces the
   session. The text box takes output options such as
-  `filename="output.png"` — see [Saving and Recording](saving.md).
+  `filename="output.png"` (see [Saving and Recording](saving.md)).
 
 ```@example menu
 close_viewer!(session) # hide
@@ -57,4 +57,4 @@ nothing # hide
 
 !!! tip
     In the figure window, press **Ctrl-I** to toggle the interpolation of
-    unstructured variables — see [Unstructured Grids](unstructured.md).
+    unstructured variables (see [Unstructured Grids](unstructured.md)).
