@@ -107,12 +107,39 @@ using CDFViewer.Plotting
             close(dataset.ds)
         end
 
+        @testset "Uniform number format" begin
+            # equal digit counts across the axis, chosen from the step
+            @test Plotting.uniform_numfmt([0.0, 0.5, 1.0, 1.5, 2.0]) == "%.1f"
+            @test Plotting.uniform_numfmt([0.0, 0.25, 0.5]) == "%.2f"
+            @test Plotting.uniform_numfmt([1.0, 2.0, 3.0]) == "%.0f"
+            @test Plotting.uniform_numfmt([0.0]) == "%.0f"
+            @test Plotting.uniform_numfmt(Float64[]) == Constants.NUMBER_FORMAT
+            # tiny magnitudes switch to scientific, mantissa digits
+            # derived from the step: 1.5e-5, 1.6e-5, ...
+            @test Plotting.uniform_numfmt(collect(1.5e-5:1e-6:2.0e-5)) == "%.1e"
+            # huge magnitudes as well
+            @test Plotting.uniform_numfmt([1e7, 2e7, 3e7]) == "%.0e"
+            # the derived spec really renders uniformly
+            @test Plotting.Data.format_number(1.0, "%.1f") == "1.0"
+            @test Plotting.Data.format_number(0.5, "%.1f") == "0.5"
+
+            dataset = make_temp_dataset()
+            # float_dim = 1.0:0.2:2.0 -> one decimal everywhere
+            @test Plotting.resolve_numfmt(dataset, "float_dim", "auto") == "%.1f"
+            # an explicit spec wins over the derivation
+            @test Plotting.resolve_numfmt(dataset, "float_dim", "%.3f") == "%.3f"
+            # an unknown dimension falls back to the plain default
+            @test Plotting.resolve_numfmt(dataset, "nope", "auto") ==
+                Constants.NUMBER_FORMAT
+            close(dataset.ds)
+        end
+
         @testset "Settings defaults" begin
             settings = Plotting.FigureSettings()
             @test settings.animlabel[] == true
             @test settings.animlabelpos[] === Constants.ANIMLABEL_POSITION
             @test Constants.ANIMLABEL_POSITION === :title
-            @test settings.animlabelnumfmt[] == Constants.NUMBER_FORMAT
+            @test settings.animlabelnumfmt[] == Constants.ANIMLABEL_NUMFMT
             @test settings.animlabeldateformat[] == Constants.DATETIME_FORMAT
             @test settings.animlabelcorner[] === Constants.ANIMLABEL_CORNER
             @test settings.animlabelbg[] === Constants.ANIMLABEL_BACKGROUND

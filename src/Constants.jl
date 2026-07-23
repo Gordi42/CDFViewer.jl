@@ -27,6 +27,14 @@ const DATETIME_FORMAT = "yyyy-mm-dd HH:MM:SS"
 # override with e.g. "%.3f" (fixed decimals) or "%.2e" (always scientific).
 const NUMBER_FORMAT = "%g"
 
+# Number format of the animated-axis label. "auto" derives one printf spec
+# from the axis itself (fixed decimals or scientific, chosen from the step
+# and magnitude), so every frame renders with the same number of digits --
+# "0.5" -> "1.0" -> "1.5" instead of "0.5" -> "1" -> "1.5", whose changing
+# widths make a right-aligned value dance inside its slot. Any explicit
+# printf spec overrides the derivation.
+const ANIMLABEL_NUMFMT = "auto"
+
 # Template for the label showing the current value of the sliced/animated
 # axes. Placeholders: {name} (long_name or dim name), {value} (formatted
 # value including its unit), {rawvalue} (value without unit), {unit} and

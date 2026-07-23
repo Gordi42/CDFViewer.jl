@@ -69,15 +69,17 @@ repl(session, "del animlabel", "animlabelpos=:overlay, animlabelcorner=:rt, anim
 plot_figure(session) # hide
 ```
 
-Numeric axes are formatted with `animlabelnumfmt` and date axes with
-`animlabeldateformat`, so you can pin the number of decimals, switch to
-scientific notation, or shorten a timestamp.
+Numeric axes derive their format from the axis itself, so every frame
+renders with the same number of digits — `0.5`, `1.0`, `1.5` rather than
+`0.5`, `1`, `1.5`, whose changing widths would make the value wobble in
+place. Set `animlabelnumfmt` to a printf spec to override it, and
+`animlabeldateformat` to shorten the timestamps of date axes.
 
 | Keyword | Default | Effect |
 |:--------|:--------|:-------|
 | `animlabel=true` | `true` | `false` hides the label; a string sets the template |
 | `animlabelpos=:title` | `:title` | `:title` (right of the title) or `:overlay` |
-| `animlabelnumfmt="%.1f"` | `"%g"` | printf format for numeric axes |
+| `animlabelnumfmt="%.1f"` | `"auto"` | printf format for numeric axes (auto: derived from the axis) |
 | `animlabeldateformat="yyyy-mm-dd"` | `"yyyy-mm-dd HH:MM:SS"` | date format for time axes |
 | `animlabelcorner=:lt` | `:lt` | corner used by `:overlay`: `:lt`, `:rt`, `:lb`, `:rb` |
 | `animlabelbg=true` | `true` | box behind the `:overlay` label; a color overrides it |

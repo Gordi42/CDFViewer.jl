@@ -104,7 +104,7 @@ struct FigureSettings
         Observable(110),          # scale
         Observable{Union{Bool, String}}(true),          # animlabel
         Observable(Constants.ANIMLABEL_POSITION),       # animlabelpos
-        Observable(Constants.NUMBER_FORMAT),            # animlabelnumfmt
+        Observable(Constants.ANIMLABEL_NUMFMT),        # animlabelnumfmt
         Observable(Constants.DATETIME_FORMAT),          # animlabeldateformat
         Observable(Constants.ANIMLABEL_CORNER),         # animlabelcorner
         Observable{Any}(Constants.ANIMLABEL_BACKGROUND),  # animlabelbg
@@ -215,6 +215,53 @@ function widest_slot_text(
         w > wmax && (widest = s; wmax = w)
     end
     widest
+end
+
+"Smallest decimal count that reproduces `x` to ~1e-4 relative error."
+function repr_decimals(x::Float64)::Int
+    for d in 0:10
+        abs(x - round(x; digits = d)) <= abs(x) * 1e-4 && return d
+    end
+    6
+end
+
+"""
+    uniform_numfmt(values)
+
+One printf spec that renders every value of an axis with the same number
+of digits, derived from the axis step and magnitude: fixed decimals for
+ordinary ranges ("0.5" -> "1.0" -> "1.5"), scientific with mantissa
+digits from the step otherwise ("1.5e-05" -> "1.6e-05"). Uniform widths
+keep a right-aligned value from dancing inside its slot.
+"""
+function uniform_numfmt(values)::String
+    vals = Float64[Float64(v) for v in values
+                   if v isa Number && isfinite(v)]
+    isempty(vals) && return Constants.NUMBER_FORMAT
+    magnitude = maximum(abs, vals)
+    magnitude == 0 && return "%.0f"
+    steps = [abs(vals[i + 1] - vals[i]) for i in 1:(length(vals) - 1)]
+    filter!(>(0.0), steps)
+    step = isempty(steps) ? magnitude : minimum(steps)
+    if step >= 1e-4 && magnitude < 1e7
+        return "%.$(repr_decimals(step))f"
+    end
+    # mantissa step relative to the leading decade
+    mantissa_step = step / exp10(floor(log10(magnitude)))
+    "%.$(min(repr_decimals(mantissa_step), 6))e"
+end
+
+"The concrete number format: the user's spec, or derived from the axis."
+function resolve_numfmt(
+    dataset::Data.CDFDataset, pdim::String, numfmt::String,
+)::String
+    numfmt == "auto" || return numfmt
+    values = try
+        Data.get_dim_values(dataset, pdim)
+    catch
+        return Constants.NUMBER_FORMAT
+    end
+    uniform_numfmt(values)
 end
 
 """
@@ -344,6 +391,8 @@ struct FigureData
     anim_slots::Vector{Observable{String}}
     anim_segments::Base.RefValue{Vector{AnimSegment}}
     anim_overlay::Base.RefValue{Vector{Any}}
+    # the resolved number format ("auto" -> a concrete printf spec)
+    anim_numfmt::Base.RefValue{String}
 end
 
 function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
@@ -400,6 +449,7 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         Observable{String}[],
         Ref(AnimSegment[]),
         Ref(Any[]),
+        Ref(String(Constants.NUMBER_FORMAT)),
     )
 
     # Rebuild the animated-axis label when its configuration changes;
@@ -456,10 +506,13 @@ end
 "Recompile the segments and rebuild both render targets."
 function update_animlabel!(fd::FigureData)::Nothing
     ui_state = fd.ui.state
+    fd.anim_numfmt[] = resolve_numfmt(
+        fd.plot_data.dataset, ui_state.pdim[],
+        fd.settings.animlabelnumfmt[])
     fd.anim_segments[] = compile_animlabel(
         fd.plot_data.dataset, ui_state.variable[], fd.plot_data.sel_dims[],
         ui_state.pdim[], fd.settings.animlabel[],
-        fd.settings.animlabelnumfmt[], fd.settings.animlabeldateformat[],
+        fd.anim_numfmt[], fd.settings.animlabeldateformat[],
         fd.settings.animlabelsize[])
     rebuild_animrow!(fd)
     rebuild_overlay!(fd)
@@ -480,7 +533,7 @@ function refresh_anim_values!(fd::FigureData)::Nothing
         slot <= length(fd.anim_slots) || break
         rendered = render_slot(
             fd.plot_data.dataset, pdim, idx, seg.template,
-            fd.settings.animlabelnumfmt[], fd.settings.animlabeldateformat[])
+            fd.anim_numfmt[], fd.settings.animlabeldateformat[])
         # never write an empty string (degenerate text extent, see above)
         fd.anim_slots[slot][] = isempty(rendered) ? " " : rendered
     end
@@ -966,7 +1019,7 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
             :coastlines => true,
             :animlabel => true,
             :animlabelpos => Constants.ANIMLABEL_POSITION,
-            :animlabelnumfmt => Constants.NUMBER_FORMAT,
+            :animlabelnumfmt => Constants.ANIMLABEL_NUMFMT,
             :animlabeldateformat => Constants.DATETIME_FORMAT,
             :animlabelcorner => Constants.ANIMLABEL_CORNER,
             :animlabelbg => Constants.ANIMLABEL_BACKGROUND,
