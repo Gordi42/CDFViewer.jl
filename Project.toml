@@ -1,6 +1,6 @@
 name = "CDFViewer"
 uuid = "50096eed-4867-42b1-b390-9381532214de"
-version = "2026.7.0"
+version = "2026.7.1"
 authors = ["Silvano <silvano98@hotmail.de>"]
 
 [deps]
