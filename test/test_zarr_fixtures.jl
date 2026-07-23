@@ -23,13 +23,16 @@ const ZARR_FIXTURE_DIR = joinpath(@__DIR__, "data", "zarr")
 
 open_fixture(name::String) = Data.CDFDataset([joinpath(ZARR_FIXTURE_DIR, name)])
 
-# The iteration axis replaces the bare `time` dimension as coordinate
-# (via the `coordinates` attribute) in every fixture.
-function check_iteration_coordinate(dataset::Data.CDFDataset, nsteps::Int)
-    @test "iteration" in dataset.coordinates
-    @test "iteration" ∉ dataset.variables
-    @test "time" ∉ dataset.coordinates
-    @test Data.get_dim_values(dataset, "iteration") == collect(0.0:nsteps-1)
+# Every fixture carries a 1-D `iteration(time)` auxiliary coordinate that the
+# data variables reference through the `coordinates` attribute. Because it
+# shares its whole axis with the `time` dimension coordinate, it must not
+# replace it: `time` stays the variables' coordinate and `iteration` is left
+# as a plain (still readable) variable.
+function check_time_coordinate(dataset::Data.CDFDataset, nsteps::Int)
+    @test "time" in dataset.coordinates
+    @test "iteration" ∉ dataset.coordinates
+    @test "iteration" in dataset.variables
+    @test length(Data.get_dim_values(dataset, "time")) == nsteps
 end
 
 @testset "Zarr fixtures (Python writer)" begin
@@ -38,9 +41,9 @@ end
         dataset = open_fixture("2d_scalar.zarr")
         check_zarr_store_basics(dataset)
         @test issetequal(dataset.dimensions, ["time", "x", "y"])
-        @test dataset.variables == ["temp"]
-        @test issetequal(dataset.coordinates, ["x", "y", "iteration"])
-        check_iteration_coordinate(dataset, 5)
+        @test issetequal(dataset.variables, ["temp", "iteration"])
+        @test issetequal(dataset.coordinates, ["x", "y", "time"])
+        check_time_coordinate(dataset, 5)
         # plain "seconds" time axis (no reference date) stays numeric
         @test eltype(dataset.ds["time"]) <: Float64
         @test Interpolate.convert_to_float64(dataset.ds, "time") ==
@@ -48,7 +51,7 @@ end
         # ground truth: Python temp[0,0,0]; Julia dims are (y, x, time)
         @test dataset.ds["temp"][1, 1, 1] == 0.19134171618254486
         @test Data.get_label(dataset, "temp") == "Temperature [k]"  # units are lowercased
-        @test size(Data.get_data(dataset, "temp", ["x", "y"], Dict("iteration" => 1))) ==
+        @test size(Data.get_data(dataset, "temp", ["x", "y"], Dict("time" => 1))) ==
             (16, 16)
         close(dataset.ds)
     end
@@ -56,15 +59,15 @@ end
     @testset "3d_vector (staggered C-grid)" begin
         dataset = open_fixture("3d_vector.zarr")
         check_zarr_store_basics(dataset)
-        @test issetequal(dataset.variables, ["u", "v", "w", "p"])
+        @test issetequal(dataset.variables, ["u", "v", "w", "p", "iteration"])
         @test issetequal(dataset.coordinates,
-            ["x", "x_right", "y", "y_right", "z", "z_outer", "iteration"])
-        check_iteration_coordinate(dataset, 3)
+            ["x", "x_right", "y", "y_right", "z", "z_outer", "time"])
+        check_time_coordinate(dataset, 3)
         # each velocity component lives on its own staggered axis
-        @test issetequal(dataset.var_coords["u"], ["x_right", "y", "z", "iteration"])
-        @test issetequal(dataset.var_coords["v"], ["x", "y_right", "z", "iteration"])
-        @test issetequal(dataset.var_coords["w"], ["x", "y", "z_outer", "iteration"])
-        @test issetequal(dataset.var_coords["p"], ["x", "y", "z", "iteration"])
+        @test issetequal(dataset.var_coords["u"], ["x_right", "y", "z", "time"])
+        @test issetequal(dataset.var_coords["v"], ["x", "y_right", "z", "time"])
+        @test issetequal(dataset.var_coords["w"], ["x", "y", "z_outer", "time"])
+        @test issetequal(dataset.var_coords["p"], ["x", "y", "z", "time"])
         g = dataset.interp.group_map
         @test g["x"] != g["x_right"]
         @test g["z"] != g["z_outer"]
@@ -80,12 +83,12 @@ end
     @testset "mixed_spaces" begin
         dataset = open_fixture("mixed_spaces.zarr")
         check_zarr_store_basics(dataset)
-        @test issetequal(dataset.variables, ["phi", "fx", "fy"])
-        check_iteration_coordinate(dataset, 2)
+        @test issetequal(dataset.variables, ["phi", "fx", "fy", "iteration"])
+        check_time_coordinate(dataset, 2)
         # unequal staggered dimension lengths side by side
         @test dataset.ds.dim["y"] == 6
         @test dataset.ds.dim["y_outer"] == 7
-        @test issetequal(dataset.var_coords["fy"], ["x", "y_outer", "iteration"])
+        @test issetequal(dataset.var_coords["fy"], ["x", "y_outer", "time"])
         # ground truth: Python fy[1,7,6] (time,x,y_outer)
         @test dataset.ds["fy"][7, 8, 2] == 2.523049865434822     # (y_outer,x,time)
         close(dataset.ds)
@@ -94,12 +97,12 @@ end
     @testset "1d_single_step" begin
         dataset = open_fixture("1d_single_step.zarr")
         check_zarr_store_basics(dataset)
-        @test dataset.variables == ["h"]
+        @test issetequal(dataset.variables, ["h", "iteration"])
         @test dataset.ds.dim["time"] == 1
-        check_iteration_coordinate(dataset, 1)
+        check_time_coordinate(dataset, 1)
         # ground truth: Python h[0,8] (time,x)
         @test dataset.ds["h"][9, 1] == -0.19509032201612836      # (x,time)
-        @test Data.get_data(dataset, "h", ["x"], Dict("iteration" => 1))[9] ==
+        @test Data.get_data(dataset, "h", ["x"], Dict("time" => 1))[9] ==
             -0.19509032201612836
         close(dataset.ds)
     end
@@ -107,11 +110,11 @@ end
     @testset "time_chunked_append" begin
         dataset = open_fixture("time_chunked_append.zarr")
         check_zarr_store_basics(dataset)
-        @test dataset.variables == ["c"]
+        @test issetequal(dataset.variables, ["c", "iteration"])
         # 5 steps written across two writer sessions (partial trailing chunk)
         @test dataset.ds.dim["time"] == 5
-        check_iteration_coordinate(dataset, 5)
-        @test size(Data.get_data(dataset, "c", ["x", "y"], Dict("iteration" => 5))) ==
+        check_time_coordinate(dataset, 5)
+        @test size(Data.get_data(dataset, "c", ["x", "y"], Dict("time" => 5))) ==
             (8, 8)
         # The CF time axis ("seconds since 2020-01-01T00:00:00", whole-second
         # reference date — the fridom Writer trims the nanoseconds CFTime
@@ -157,10 +160,10 @@ end
         @test isfile(joinpath(out_dir, "temp_fixture.png"))
         @test filesize(joinpath(out_dir, "temp_fixture.png")) > 0
 
-        # --record writes an MP4 over the first three iteration steps
+        # --record writes an MP4 over the first three time steps
         args = parse_args(
             [store, "-v", "temp", "-x", "x", "-y", "y", "-p", "heatmap",
-             "-a", "iteration", "--record",
+             "-a", "time", "--record",
              "-s", "filename=\"temp_fixture.mp4\", range=1:3"],
             CDFViewer.get_arg_parser())
         cd(out_dir) do

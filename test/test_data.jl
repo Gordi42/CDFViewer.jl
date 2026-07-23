@@ -70,6 +70,38 @@ using GLMakie
                 dataset.var_coords["mask"],
                 ["lon", "lat"])
         end
+
+        @testset "Auxiliary Coordinate on a Dimension Coordinate" begin
+            # A 1-D auxiliary coordinate (`iteration`) declared along the
+            # `time` dimension via a data variable's `coordinates` attribute
+            # must NOT evict the `time` dimension coordinate: it supplements
+            # it. (Regression for FRIDOM zarr output whose variables carry
+            # `coordinates="iteration"`, which used to make the viewer show
+            # an `iteration` axis instead of `time`.)
+            file = tempname() * ".nc"
+            NCDatasets.NCDataset(file, "c") do ds
+                NCDatasets.defVar(ds, "time", [0.0, 0.5, 1.0], ("time",),
+                    attrib = Dict("standard_name" => "time", "axis" => "T",
+                                  "units" => "seconds since 2000-01-01"))
+                NCDatasets.defVar(ds, "x", collect(1.0:4.0), ("x",))
+                NCDatasets.defVar(ds, "iteration", [0, 1, 2], ("time",),
+                    attrib = Dict("long_name" => "iteration"))
+                NCDatasets.defVar(ds, "u", rand(4, 3), ("x", "time"),
+                    attrib = Dict("long_name" => "velocity",
+                                  "coordinates" => "iteration"))
+            end
+            dataset = Data.CDFDataset([file])
+
+            # `time` survives as the variable's coordinate; `iteration` does
+            # not replace it, nor is it added as a duplicate axis.
+            @test issetequal(dataset.var_coords["u"], ["x", "time"])
+            @test "time" ∈ dataset.var_coords["u"]
+            @test "iteration" ∉ dataset.var_coords["u"]
+            @test "time" ∈ Data.get_var_dims(dataset, "u")
+            # `iteration` stays available as a standalone variable.
+            @test "iteration" ∈ dataset.variables
+            close(dataset.ds)
+        end
     end
 
     @testset "Group IDs of Variable Dimensions" begin

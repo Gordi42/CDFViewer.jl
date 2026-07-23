@@ -124,8 +124,21 @@ function get_var_coordinates(ds::AbstractDataset)::OrderedDict{String, Vector{St
             for c in att_coords
                 if c ∈ possible_coords
                     c_dims = collect(dimnames(ds[c]))
-                    # remove the dependent dimensions of the coordinate variable
-                    v_coords = setdiff(v_coords, c_dims)
+                    # Only evict the auxiliary coordinate's *bare* index
+                    # dimensions (those without a coordinate variable of
+                    # their own, e.g. `ncells`). A dimension that is itself
+                    # a coordinate variable — a dimension coordinate such as
+                    # `time` — must survive: a 1-D auxiliary coordinate like
+                    # an `iteration` counter along `time` supplements the
+                    # dimension coordinate, it does not replace it.
+                    removable = filter(d -> !haskey(ds, d), c_dims)
+                    if isempty(removable)
+                        # `c` shares its whole axis with existing dimension
+                        # coordinate(s); keep those and leave `c` as a plain
+                        # variable rather than adding a duplicate axis.
+                        continue
+                    end
+                    v_coords = setdiff(v_coords, removable)
                     push!(v_coords, c)
                 else
                     @warn "Coordinate '$c' listed in 'coordinates' attribute of variable '$var' not found in dataset"
