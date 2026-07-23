@@ -294,6 +294,38 @@ using GLMakie
         close(dataset.ds)
     end
 
+    @testset "Animated-axis value formatting" begin
+        dataset = make_temp_dataset()
+
+        # names and units come straight off the attributes
+        @test Data.get_dim_display_name(dataset, "only_long") == "Long"
+        @test Data.get_dim_display_name(dataset, "lon") == "lon"
+        @test Data.get_dim_unit(dataset, "only_unit") == "n/a"
+        @test Data.get_dim_unit(dataset, "lon") == ""
+
+        # numbers honour the printf spec, DateTimes the Dates format
+        @test Data.format_dim_value(dataset, "float_dim", 4) == "1.6"
+        @test Data.format_dim_value(dataset, "float_dim", 4; numfmt = "%.3f") == "1.600"
+        @test Data.format_dim_value(dataset, "float_dim", 4; numfmt = "%.1e") == "1.6e+00"
+        @test Data.format_dim_value(dataset, "time", 2) == "1951-01-03 00:00:00"
+        @test Data.format_dim_value(dataset, "time", 2;
+                                    dateformat = "yyyy/mm/dd") == "1951/01/03"
+        # a broken printf spec falls back to the default instead of throwing
+        @test Data.format_dim_value(dataset, "float_dim", 4; numfmt = "bogus") == "1.6"
+
+        # template placeholders
+        @test Data.format_dim_label(dataset, "only_unit", 1) == "only_unit: 1 n/a"
+        @test Data.format_dim_label(dataset, "only_unit", 1;
+            fmt = "{name}={rawvalue}|{unit}|#{index}") == "only_unit=1|n/a|#1"
+        # DateTime axes carry no unit suffix
+        @test Data.format_dim_label(dataset, "time", 2) == "time: 1951-01-03 00:00:00"
+
+        # the REPL label is unchanged by sharing the formatter
+        @test Data.get_dim_value_label(dataset, "time", 2) ==
+            "  → time: 1951-01-03 00:00:00"
+        close(dataset.ds)
+    end
+
     @testset "Dimension Observables" begin
         # Arrange
         dataset = make_temp_dataset()

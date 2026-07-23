@@ -31,6 +31,66 @@ a label showing the current coordinate value as the animation runs.
 You can also start animating right from the command line: appending
 `-a time` to the arguments opens the viewer with `time` already playing.
 
+## Labelling the current frame
+
+A recorded video carries no menu, so the frame itself has to say where in
+the animation it is. The current value of the play dimension is therefore
+shown on a line of its own, right underneath the title — on every axis
+type, 3D included.
+
+Nothing shifts while the animation runs: the label is compiled into static
+text and value slots, and each slot is exactly as wide as the widest value
+its axis can produce, so the text around a changing number stays pinned
+and the number grows into its own slot.
+
+The text is a template. `{name}` is the dimension's long name, `{value}`
+its current value including the unit, `{rawvalue}` the value without it,
+and `{unit}` and `{index}` the unit and the 1-based frame number. Every
+changing placeholder gets its own slot, so a template may mix several:
+
+```@example anim
+repl(session, "animlabel=\"t = {rawvalue} s (frame {index})\"") # hide
+```
+
+```@example anim
+plot_figure(session) # hide
+```
+
+`animlabelpos=:overlay` draws the label inside the plot area instead.
+`animlabelcorner` picks its corner, and `animlabelbg` controls the
+translucent box that keeps it readable over the data — `false` removes
+the box, any color replaces it:
+
+```@example anim
+repl(session, "del animlabel", "animlabelpos=:overlay, animlabelcorner=:rt, animlabelbg=(:black, 0.3)") # hide
+```
+
+```@example anim
+plot_figure(session) # hide
+```
+
+Numeric axes are formatted with `animlabelnumfmt` and date axes with
+`animlabeldateformat`, so you can pin the number of decimals, switch to
+scientific notation, or shorten a timestamp.
+
+| Keyword | Default | Effect |
+|:--------|:--------|:-------|
+| `animlabel=true` | `true` | `false` hides the label; a string sets the template |
+| `animlabelpos=:title` | `:title` | `:title` (own line under the title) or `:overlay` |
+| `animlabelnumfmt="%.1f"` | `"%g"` | printf format for numeric axes |
+| `animlabeldateformat="yyyy-mm-dd"` | `"yyyy-mm-dd HH:MM:SS"` | date format for time axes |
+| `animlabelcorner=:lt` | `:lt` | corner used by `:overlay`: `:lt`, `:rt`, `:lb`, `:rb` |
+| `animlabelbg=true` | `true` | box behind the `:overlay` label; a color overrides it |
+
+```@example anim
+repl(session, "reset") # hide
+```
+
+!!! note
+    Only the play dimension is labelled. Other dimensions held at a fixed
+    index are not shown, and nothing is drawn until `pdim` selects a
+    dimension. Set `animlabel=false` to turn the label off entirely.
+
 ## Recording an animation
 
 The `record` command captures one full cycle of the play dimension to a

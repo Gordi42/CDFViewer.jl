@@ -95,6 +95,10 @@ A few special keywords control the figure itself rather than the plot:
 | `land=false` | `false` | fill land masses (geographic mode) |
 | `earth=false` | `false` | satellite image background (geographic mode) |
 
+The label naming the dimensions that are not on a plot axis is configured
+the same way, through its own `animlabel...` keywords — see
+[Animation and Playback](animation.md#Labelling-the-current-frame).
+
 ## Geographic plots
 
 For 2D fields on longitude/latitude axes, `geographic=true` switches the

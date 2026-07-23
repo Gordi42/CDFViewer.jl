@@ -287,24 +287,101 @@ function get_label(dataset::CDFDataset, var::String)::String
     return label
 end
 
+"Render a number with a runtime printf spec, falling back to \"%g\"."
+function format_number(value::Number, numfmt::AbstractString)::String
+    try
+        return Printf.format(Printf.Format(String(numfmt)), value)
+    catch
+        return @sprintf("%g", value)
+    end
+end
+
+"""
+    get_dim_display_name(dataset, dim)
+
+The human-readable name of `dim`: its `long_name` attribute when present,
+otherwise the dimension name itself.
+"""
+function get_dim_display_name(dataset::CDFDataset, dim::String)::String
+    dim ∉ keys(dataset.ds) && return dim
+    atts = dataset.ds[dim].attrib
+    haskey(atts, "long_name") ? String(atts["long_name"]) : dim
+end
+
+"The (remapped) unit of `dim`, or an empty string when it has none."
+get_dim_unit(dataset::CDFDataset, dim::String)::String =
+    dim ∉ keys(dataset.ds) ? "" : RescaleUnits.get_remapped_unit(dataset.ds, dim)
+
+"""
+    format_dim_value(dataset, dim, idx; numfmt, dateformat)
+
+The value of `dim` at index `idx`, formatted for display and *without* its
+name or unit. Numbers use the printf spec `numfmt`, `DateTime` axes the
+`Dates` format `dateformat`; anything unreadable falls back to the index.
+"""
+function format_dim_value(
+    dataset::CDFDataset,
+    dim::String,
+    idx::Int;
+    numfmt::AbstractString = Constants.NUMBER_FORMAT,
+    dateformat::AbstractString = Constants.DATETIME_FORMAT,
+)::String
+    dim ∉ keys(dataset.ds) && return string(idx)
+    value = Interpolate.get_coord_value(dataset.interp, dim, idx)
+    isnothing(value) && return "Index $(idx) out of bounds"
+    value isa Dates.DateTime && return Dates.format(value, dateformat)
+    value isa AbstractString && return String(value)
+    value isa Number && return format_number(value, numfmt)
+    string(idx)
+end
+
+"""
+    format_dim_label(dataset, dim, idx; fmt, numfmt, dateformat)
+
+Render one axis' current value through the template `fmt`. Supported
+placeholders are `{name}`, `{value}` (formatted value plus unit),
+`{rawvalue}` (no unit), `{unit}` and `{index}`. `DateTime` axes never take
+a unit suffix.
+"""
+function format_dim_label(
+    dataset::CDFDataset,
+    dim::String,
+    idx::Int;
+    fmt::AbstractString = Constants.ANIMLABEL_FORMAT,
+    numfmt::AbstractString = Constants.NUMBER_FORMAT,
+    dateformat::AbstractString = Constants.DATETIME_FORMAT,
+)::String
+    raw = format_dim_value(dataset, dim, idx; numfmt = numfmt,
+                           dateformat = dateformat)
+    value_obj = dim ∈ keys(dataset.ds) ?
+        Interpolate.get_coord_value(dataset.interp, dim, idx) : nothing
+    unit = value_obj isa Dates.DateTime ? "" : get_dim_unit(dataset, dim)
+    replace(String(fmt),
+        "{name}" => get_dim_display_name(dataset, dim),
+        "{value}" => (unit == "" ? raw : raw * " " * unit),
+        "{rawvalue}" => raw,
+        "{unit}" => unit,
+        "{index}" => string(idx))
+end
+
 function get_dim_value_label(dataset::CDFDataset, dim::String, idx::Int)::String
     base = "  → "
     # Check if the dimension is selected
     dim === Constants.NOT_SELECTED_LABEL && return Constants.NO_DIM_SELECTED_LABEL
     # some dimensions may not be stored as variables in the dataset
     dim ∉ keys(dataset.ds) && return base * "$(dim): $(idx)"
-    # get name and unit attributes
-    atts = dataset.ds[dim].attrib
-    var_name = haskey(atts, "long_name") ? atts["long_name"] : dim
-    unit = RescaleUnits.get_remapped_unit(dataset.ds, dim)
-    unit = unit == "" ? "" : " " * unit
 
-    base = base * var_name * ": "
+    base = base * get_dim_display_name(dataset, dim) * ": "
     value = Interpolate.get_coord_value(dataset.interp, dim, idx)
     isnothing(value) && return base * "Index $(idx) out of bounds"
-    value isa Dates.DateTime && return base * Dates.format(value, Constants.DATETIME_FORMAT)
+    # DateTimes carry their own formatting and take no unit suffix
+    value isa Dates.DateTime &&
+        return base * Dates.format(value, Constants.DATETIME_FORMAT)
+    unit = get_dim_unit(dataset, dim)
+    unit = unit == "" ? "" : " " * unit
     value isa AbstractString && return base * value * unit
-    value isa Number && return base * @sprintf("%g", value) * unit
+    value isa Number &&
+        return base * format_number(value, Constants.NUMBER_FORMAT) * unit
     return base * string(idx)
 end
 

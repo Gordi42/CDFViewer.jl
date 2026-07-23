@@ -67,6 +67,50 @@ function get_dimension_plot(ndims::Int)::String
 end
 
 # ============================================================
+#  Figure Settings
+# ============================================================
+
+struct FigureSettings
+    figsize::Observable{Tuple{Int, Int}}
+    cbar::Observable{Bool}
+    moveable::Observable{Union{Bool, Nothing}}  # limits the interactivity of the axis
+    geographic::Observable{Bool}
+    proj::Observable{Union{String, Nothing}}
+    coastlines::Observable{Bool}
+    land::Observable{Bool}
+    earth::Observable{Bool}
+    scale::Observable{Int}
+    # Label showing the current value of the sliced/animated axes.
+    animlabel::Observable{Union{Bool, String}}
+    animlabelpos::Observable{Symbol}
+    animlabelnumfmt::Observable{String}
+    animlabeldateformat::Observable{String}
+    animlabelcorner::Observable{Symbol}
+    animlabelbg::Observable{Any}
+    # nothing = automatic (the variable label); a string overrides it
+    title::Observable{Union{Nothing, String}}
+
+    FigureSettings() = new(
+        Observable(Constants.FIGSIZE),
+        Observable(true),         # colorbar
+        Observable(nothing),      # moveable
+        Observable(false),        # geographic
+        Observable(nothing),      # projection
+        Observable(true),         # coastlines
+        Observable(false),        # land
+        Observable(false),        # earth
+        Observable(110),          # scale
+        Observable{Union{Bool, String}}(true),          # animlabel
+        Observable(Constants.ANIMLABEL_POSITION),       # animlabelpos
+        Observable(Constants.NUMBER_FORMAT),            # animlabelnumfmt
+        Observable(Constants.DATETIME_FORMAT),          # animlabeldateformat
+        Observable(Constants.ANIMLABEL_CORNER),         # animlabelcorner
+        Observable{Any}(Constants.ANIMLABEL_BACKGROUND),  # animlabelbg
+        Observable{Union{Nothing, String}}(nothing),      # title override
+    )
+end
+
+# ============================================================
 #  Figure labels
 # ============================================================
 
@@ -86,6 +130,131 @@ function FigureLabels(ui_state::UI.State, dataset::Data.CDFDataset)::FigureLabel
 end
 
 # ============================================================
+#  Animated-axis label segments
+# ============================================================
+#
+# The label naming the current value of the playback dimension is not one
+# string: its template is compiled into a sequence of segments -- static
+# text and dynamic value slots. Each varying number lives in its own
+# fixed-width slot, sized to the widest value the axis can produce
+# (pixel-measured in the actual font), so nothing moves between animation
+# frames: the static text around a slot is pinned, and the value grows
+# leftward into its slot (right-aligned). Placeholders that cannot change
+# during playback ({name}, {unit}) are substituted up front.
+
+"One compiled piece of the label: static text, or a right-aligned slot."
+struct AnimSegment
+    template::String   # the placeholder ("{value}") for a slot; "" otherwise
+    dynamic::Bool
+    text::String       # the static text, or the slot's widest rendering
+    width::Float64     # measured pixel width (the slot width for a slot)
+end
+
+# the placeholders that change from frame to frame
+const ANIM_DYNAMIC_PLACEHOLDER = r"\{(?:value|rawvalue|index)\}"
+
+"The template in `animlabel`, or `\"\"` when the label is switched off."
+function animlabel_format(animlabel::Union{Bool, String})::String
+    animlabel === false && return ""
+    animlabel isa AbstractString ? String(animlabel) : Constants.ANIMLABEL_FORMAT
+end
+
+"The font the animated-axis label renders in (the theme's regular font)."
+function animlabel_font()
+    try
+        Makie.to_font(Makie.to_value(Makie.theme(:fonts).regular))
+    catch
+        Makie.to_font("TeX Gyre Heros Makie")
+    end
+end
+
+"Measured pixel width of `s` at the label fontsize."
+measure_text(s::String)::Float64 = isempty(s) ? 0.0 :
+    Float64(Makie.widths(Makie.text_bb(s, animlabel_font(), Constants.LABELSIZE))[1])
+
+"Measured pixel height of `s` at the label fontsize."
+measure_height(s::String)::Float64 =
+    Float64(Makie.widths(Makie.text_bb(isempty(s) ? "Ag" : s, animlabel_font(),
+                                       Constants.LABELSIZE))[2])
+
+"Render one dynamic placeholder for the current index."
+render_slot(dataset::Data.CDFDataset, pdim::String, idx::Int,
+            placeholder::String, numfmt::String, dateformat::String)::String =
+    Data.format_dim_label(dataset, pdim, idx; fmt = placeholder,
+                          numfmt = numfmt, dateformat = dateformat)
+
+"""
+    widest_slot_text(dataset, pdim, placeholder, numfmt, dateformat)
+
+The widest rendering a placeholder can produce over the whole axis
+(pixel-measured; long axes are sampled). The slot is sized from it, so the
+slot never changes width during playback.
+"""
+function widest_slot_text(
+    dataset::Data.CDFDataset, pdim::String, placeholder::String,
+    numfmt::String, dateformat::String,
+)::String
+    n = try
+        length(Data.get_dim_values(dataset, pdim))
+    catch
+        return ""
+    end
+    n <= 0 && return ""
+    idxs = n <= Constants.ANIMLABEL_WIDTH_SAMPLES ? (1:n) :
+        round.(Int, range(1, n; length = Constants.ANIMLABEL_WIDTH_SAMPLES))
+    widest, wmax = "", -1.0
+    for i in idxs
+        s = render_slot(dataset, pdim, i, placeholder, numfmt, dateformat)
+        w = measure_text(s)
+        w > wmax && (widest = s; wmax = w)
+    end
+    widest
+end
+
+"""
+    compile_animlabel(dataset, variable, sel_dims, pdim, animlabel,
+                      numfmt, dateformat)
+
+Compile the label template into its segment sequence, or `[]` when no
+label applies: the label is off, no playback dimension is selected, the
+playback dimension is drawn as a plot axis, or the variable lacks it.
+"""
+function compile_animlabel(
+    dataset::Data.CDFDataset,
+    variable::String,
+    sel_dims::Vector{String},
+    pdim::String,
+    animlabel::Union{Bool, String},
+    numfmt::String,
+    dateformat::String,
+)::Vector{AnimSegment}
+    fmt = animlabel_format(animlabel)
+    isempty(fmt) && return AnimSegment[]
+    pdim == Constants.NOT_SELECTED_LABEL && return AnimSegment[]
+    pdim ∈ sel_dims && return AnimSegment[]
+    haskey(dataset.var_coords, variable) || return AnimSegment[]
+    pdim ∈ Data.get_var_dims(dataset, variable) || return AnimSegment[]
+    # placeholders that cannot change during playback become static text
+    fmt = replace(fmt,
+        "{name}" => Data.get_dim_display_name(dataset, pdim),
+        "{unit}" => Data.get_dim_unit(dataset, pdim))
+    static(txt) = AnimSegment("", false, txt, measure_text(txt))
+    segments = AnimSegment[]
+    pos = 1
+    for m in eachmatch(ANIM_DYNAMIC_PLACEHOLDER, fmt)
+        m.offset > pos &&
+            push!(segments, static(fmt[pos:prevind(fmt, m.offset)]))
+        widest = widest_slot_text(dataset, pdim, String(m.match),
+                                  numfmt, dateformat)
+        push!(segments, AnimSegment(String(m.match), true, widest,
+                                    measure_text(widest)))
+        pos = m.offset + ncodeunits(m.match)
+    end
+    pos <= ncodeunits(fmt) && push!(segments, static(fmt[pos:end]))
+    segments
+end
+
+# ============================================================
 #  Plot data
 # ============================================================
 
@@ -99,9 +268,16 @@ struct PlotData
     update_data_switch::Observable{Bool}
     labels::FigureLabels
     dataset::Data.CDFDataset
+    # Owned here so the labels and the FigureData share one settings object:
+    # the title lifts the animated-axis label straight out of it.
+    settings::FigureSettings
 end
 
-function PlotData(ui_state::UI.State, dataset::Data.CDFDataset)::PlotData
+function PlotData(
+    ui_state::UI.State,
+    dataset::Data.CDFDataset,
+    settings::FigureSettings = FigureSettings(),
+)::PlotData
     # Observable for the plot_type
     plot_type = @lift(PLOT_TYPES[$(ui_state.plot_type_name)])
 
@@ -133,36 +309,8 @@ function PlotData(ui_state::UI.State, dataset::Data.CDFDataset)::PlotData
     labels = FigureLabels(ui_state, dataset)
 
     # Construct and return the PlotData
-    PlotData(plot_type, sel_dims, x, y, z, d, update_switch, labels, dataset)
-end
-
-
-# ======================================================
-#  Figure Settings
-# ======================================================
-
-struct FigureSettings
-    figsize::Observable{Tuple{Int, Int}}
-    cbar::Observable{Bool}
-    moveable::Observable{Union{Bool, Nothing}}  # limits the interactivity of the axis
-    geographic::Observable{Bool}
-    proj::Observable{Union{String, Nothing}}
-    coastlines::Observable{Bool}
-    land::Observable{Bool}
-    earth::Observable{Bool}
-    scale::Observable{Int}
-
-    FigureSettings() = new(
-        Observable(Constants.FIGSIZE),
-        Observable(true),         # colorbar
-        Observable(nothing),      # moveable
-        Observable(false),        # geographic
-        Observable(nothing),      # projection
-        Observable(true),         # coastlines
-        Observable(false),        # land
-        Observable(false),        # earth
-        Observable(110),          # scale
-    )
+    PlotData(plot_type, sel_dims, x, y, z, d, update_switch, labels, dataset,
+             settings)
 end
 
 # ============================================================
@@ -183,13 +331,36 @@ struct FigureData
     settings::FigureSettings
     range_control::Observable{Interpolate.RangeControl}
     ui::UI.UIElements
+    # layout-title machinery: title Label row + animated-label row
+    title_label::Label
+    animrow::GridLayout
+    anim_slots::Vector{Observable{String}}
+    anim_segments::Base.RefValue{Vector{AnimSegment}}
+    anim_overlay::Base.RefValue{Vector{Any}}
 end
 
 function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
     ui_state = ui.state
+    # one settings object, shared with the labels that lift out of it
+    settings = plot_data.settings
     # Create axis, plot object, and colorbar observables
     figsize = Observable(Constants.FIGSIZE)
     fig = create_figure(figsize[])
+    # Row 1: the figure title. The native axis title is disabled: a layout
+    # Label reserves exactly the height it needs on every axis type (Axis3
+    # reserves a single-line strip only, so a taller native title clips).
+    # Row 2: the animated-axis label. Row 3: the axis body (+ colorbar).
+    title_text = @lift begin
+        override = $(settings.title)
+        override === nothing ? $(plot_data.labels.title) : override
+    end
+    title_label = Label(fig[1, 1], title_text;
+        fontsize = Constants.TITLESIZE, font = :bold, tellwidth = false)
+    animrow = GridLayout(fig[2, 1]; tellwidth = false, halign = :center)
+    # keep a zero-size placeholder: trim! on a contentless layout collapses
+    # it to zero rows, whose NaN sizes poison the whole figure solve (an
+    # empty-string Label is just as poisonous -- hence the single space)
+    Label(animrow[1, 1], " "; fontsize = 1, visible = false)
     ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
     plot_obj = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
     cbar = Observable{Union{Colorbar, Nothing}}(nothing)
@@ -210,10 +381,30 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         coastlines,
         earth,
         Observable(Task[]),
-        FigureSettings(),
+        settings,
         ui_state.range_control,
-        ui
+        ui,
+        title_label,
+        animrow,
+        Observable{String}[],
+        Ref(AnimSegment[]),
+        Ref(Any[]),
     )
+
+    # Rebuild the animated-axis label when its configuration changes;
+    # per-frame value updates only touch the slot text observables.
+    for trigger in (ui_state.variable, plot_data.sel_dims, ui_state.pdim,
+                    settings.animlabel, settings.animlabelnumfmt,
+                    settings.animlabeldateformat, settings.animlabelpos,
+                    settings.animlabelcorner, settings.animlabelbg)
+        on(trigger) do _
+            update_animlabel!(fd)
+        end
+    end
+    on(ui_state.dim_obs) do _
+        refresh_anim_values!(fd)
+    end
+    update_animlabel!(fd)
 
     # Setup a listener to create the plot if the axis changes
     on(ax) do a
@@ -232,6 +423,8 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         add_earth!(fd)
         add_land!(fd)
         add_coastlines!(fd)
+        rebuild_overlay!(fd)
+        refresh_anim_values!(fd)
         apply_kwargs!(fd, ui_state.kwargs[])
     end
 
@@ -244,9 +437,165 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
     fd
 end
 
+# ============================================================
+#  Animated-axis label rendering (title row / overlay)
+# ============================================================
+
+"Recompile the segments and rebuild both render targets."
+function update_animlabel!(fd::FigureData)::Nothing
+    ui_state = fd.ui.state
+    fd.anim_segments[] = compile_animlabel(
+        fd.plot_data.dataset, ui_state.variable[], fd.plot_data.sel_dims[],
+        ui_state.pdim[], fd.settings.animlabel[],
+        fd.settings.animlabelnumfmt[], fd.settings.animlabeldateformat[])
+    rebuild_animrow!(fd)
+    rebuild_overlay!(fd)
+    refresh_anim_values!(fd)
+    nothing
+end
+
+"Per-frame: push the current value into each slot's text observable."
+function refresh_anim_values!(fd::FigureData)::Nothing
+    ui_state = fd.ui.state
+    pdim = ui_state.pdim[]
+    idx = get(ui_state.dim_obs[], pdim, nothing)
+    idx === nothing && return nothing
+    slot = 0
+    for seg in fd.anim_segments[]
+        seg.dynamic || continue
+        slot += 1
+        slot <= length(fd.anim_slots) || break
+        rendered = render_slot(
+            fd.plot_data.dataset, pdim, idx, seg.template,
+            fd.settings.animlabelnumfmt[], fd.settings.animlabeldateformat[])
+        # never write an empty string (degenerate text extent, see above)
+        fd.anim_slots[slot][] = isempty(rendered) ? " " : rendered
+    end
+    nothing
+end
+
+"Grow the persistent slot-observable pool to at least `n` entries."
+function ensure_slots!(fd::FigureData, n::Int)::Nothing
+    while length(fd.anim_slots) < n
+        # a slot is never empty: an empty-string Label has a degenerate
+        # text extent whose NaN size poisons the whole figure solve
+        push!(fd.anim_slots, Observable(" "))
+    end
+    nothing
+end
+
+"Rebuild the title-row segment labels (configuration-level change)."
+function rebuild_animrow!(fd::FigureData)::Nothing
+    gl = fd.animrow
+    foreach(delete!, contents(gl))
+    segments = fd.anim_segments[]
+    if fd.settings.animlabelpos[] !== :title || isempty(segments)
+        # never leave the layout contentless after trim! (zero rows), and
+        # never use an empty-string Label (degenerate text extent): both
+        # report NaN sizes that poison the whole figure solve
+        Label(gl[1, 1], " "; fontsize = 1, visible = false)
+        trim!(gl)
+        return nothing
+    end
+    slot = 0
+    for (i, seg) in enumerate(segments)
+        if seg.dynamic
+            slot += 1
+            ensure_slots!(fd, slot)
+            Label(gl[1, i], fd.anim_slots[slot];
+                  fontsize = Constants.LABELSIZE, width = seg.width,
+                  halign = :right)
+        else
+            Label(gl[1, i], seg.text;
+                  fontsize = Constants.LABELSIZE, width = seg.width,
+                  halign = :left)
+        end
+    end
+    colgap!(gl, 0)
+    trim!(gl)
+    nothing
+end
+
+"Overlay geometry: the background rect for a corner, in scene pixels."
+function animlabel_overlay_rect(
+    viewport_widths, corner::Symbol, boxw::Float64, boxh::Float64,
+)::Rect2f
+    W, H = Float64(viewport_widths[1]), Float64(viewport_widths[2])
+    inset = Float64(Constants.ANIMLABEL_PADDING)
+    x = corner in (:lt, :lb) ? inset : W - inset - boxw
+    y = corner in (:lb, :rb) ? inset : H - inset - boxh
+    Rect2f(x, y, boxw, boxh)
+end
+
+"Delete the overlay plots of the previous configuration."
+function clear_overlay!(fd::FigureData)::Nothing
+    for (scene, plt) in fd.anim_overlay[]
+        try
+            delete!(scene, plt)
+        catch
+        end
+    end
+    fd.anim_overlay[] = Any[]
+    nothing
+end
+
+"""
+    rebuild_overlay!(fd)
+
+Rebuild the in-plot overlay: the background box first, then one text per
+segment, all in scene-pixel space so the geometry is exact. Slot texts are
+right-aligned at their slot's trailing edge, so the static text around
+them cannot move as the value changes length.
+"""
+function rebuild_overlay!(fd::FigureData)::Nothing
+    clear_overlay!(fd)
+    fd.settings.animlabelpos[] === :overlay || return nothing
+    ax = fd.ax[]
+    ax === nothing && return nothing
+    segments = fd.anim_segments[]
+    isempty(segments) && return nothing
+    scene = ax.scene
+    bpad = Float64(Constants.ANIMLABEL_BACKGROUND_PADDING)
+    boxw = sum(seg.width for seg in segments) + 2bpad
+    boxh = maximum(measure_height(seg.text) for seg in segments) + 2bpad
+    corner = fd.settings.animlabelcorner[]
+    bg = fd.settings.animlabelbg[]
+    rect = @lift(animlabel_overlay_rect(
+        $(scene.viewport).widths, corner, boxw, boxh))
+    box = poly!(scene, rect; space = :pixel,
+                color = animlabel_background_color(bg),
+                strokecolor = (:black, 0.8),
+                strokewidth = animlabel_background_stroke(bg),
+                inspectable = false)
+    push!(fd.anim_overlay[], (scene, box))
+    slot, xoff = 0, 0.0
+    for seg in segments
+        # the anchor: a slot anchors at its trailing edge (right-aligned),
+        # static text at its leading edge
+        anchor = seg.dynamic ? xoff + seg.width : xoff
+        pos = @lift(begin
+            r = animlabel_overlay_rect(
+                $(scene.viewport).widths, corner, boxw, boxh)
+            Point2f(r.origin[1] + bpad + anchor, r.origin[2] + bpad)
+        end)
+        text_content = if seg.dynamic
+            slot += 1
+            ensure_slots!(fd, slot)
+            fd.anim_slots[slot]
+        else
+            seg.text
+        end
+        plt = text!(scene, pos; text = text_content, space = :pixel,
+                    align = (seg.dynamic ? :right : :left, :bottom),
+                    fontsize = Constants.LABELSIZE, inspectable = false)
+        push!(fd.anim_overlay[], (scene, plt))
+        xoff += seg.width
+    end
+    nothing
+end
+
 function create_figure(figsize::Tuple{Int, Int})::Figure
     GLMakie.activate!()
-    fig = Figure(size = figsize)
     # create a theme
     cust_theme = Theme(
         Axis = (
@@ -264,9 +613,12 @@ function create_figure(figsize::Tuple{Int, Int})::Figure
     )
     theme = merge(theme_latexfonts(), theme_minimal())
     theme = merge(theme, cust_theme)
+    # the theme must be active BEFORE the Figure is constructed: a figure
+    # snapshots the global theme at creation, so setting it afterwards
+    # left the first figure of a session in the default (sans) fonts
     set_theme!(theme)
 
-    fig
+    Figure(size = figsize)
 end
 
 function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
@@ -333,7 +685,7 @@ function add_colorbar!(fd::FigureData)::Nothing
         fd.cbar[] = nothing
     end
     if fd.plot_data.plot_type[].colorbar && fd.plot_obj[] !== nothing && fd.settings.cbar[]
-        fd.cbar[] = Colorbar(fd.fig[1, 2], fd.plot_obj[],
+        fd.cbar[] = Colorbar(fd.fig[3, 2], fd.plot_obj[],
             width = 30, tellwidth = false, tellheight = false)
         colsize!(fd.fig.layout, 2, Relative(0.05))
     end
@@ -446,6 +798,65 @@ struct FigureSettingsHandler
     handler::Function
 end
 
+"The background colour of the overlay label; fully transparent when off."
+animlabel_background_color(bg) =
+    bg === false ? (:white, 0.0) :
+    bg === true ? Constants.ANIMLABEL_BACKGROUND_COLOR : bg
+
+"The background outline width; no outline when the background is off."
+animlabel_background_stroke(bg)::Int = bg === false ? 0 : 1
+
+# ------------------------------------------------------------
+#  Animated-axis label settings
+#
+#  All of these only feed observables the title/overlay lift from, so none
+#  of them needs a redraw: updating the observable re-renders the label.
+# ------------------------------------------------------------
+function set_animlabel!(fd::FigureData, value::Union{Bool, AbstractString})::Bool
+    fd.settings.animlabel[] = value isa AbstractString ? String(value) : value
+    false
+end
+
+function set_animlabelpos!(fd::FigureData, value::Union{Symbol, AbstractString})::Bool
+    pos = Symbol(value)
+    if pos ∉ Constants.ANIMLABEL_POSITIONS
+        @error "animlabelpos must be one of $(Constants.ANIMLABEL_POSITIONS), got :$(pos)"
+        return false
+    end
+    fd.settings.animlabelpos[] = pos
+    false
+end
+
+function set_animlabelcorner!(fd::FigureData, value::Union{Symbol, AbstractString})::Bool
+    corner = Symbol(value)
+    if corner ∉ Constants.ANIMLABEL_CORNERS
+        @error "animlabelcorner must be one of $(Constants.ANIMLABEL_CORNERS), got :$(corner)"
+        return false
+    end
+    fd.settings.animlabelcorner[] = corner
+    false
+end
+
+function set_animlabelbg!(fd::FigureData, value::Any)::Bool
+    fd.settings.animlabelbg[] = value
+    false
+end
+
+function set_title!(fd::FigureData, value::Union{Nothing, AbstractString})::Bool
+    fd.settings.title[] = value === nothing ? nothing : String(value)
+    false
+end
+
+function set_animlabelnumfmt!(fd::FigureData, value::AbstractString)::Bool
+    fd.settings.animlabelnumfmt[] = String(value)
+    false
+end
+
+function set_animlabeldateformat!(fd::FigureData, value::AbstractString)::Bool
+    fd.settings.animlabeldateformat[] = String(value)
+    false
+end
+
 const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
     :figsize => FigureSettingsHandler(:figsize, Tuple{Int, Int}, resize_figure!),
     :cbar => FigureSettingsHandler(:cbar, Bool, set_colorbar!),
@@ -456,6 +867,19 @@ const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
     :earth => FigureSettingsHandler(:earth, Bool, set_earth!),
     :land => FigureSettingsHandler(:land, Bool, set_land!),
     :coastlines => FigureSettingsHandler(:coastlines, Bool, set_coastlines!),
+    :animlabel => FigureSettingsHandler(
+        :animlabel, Union{Bool, AbstractString}, set_animlabel!),
+    :animlabelpos => FigureSettingsHandler(
+        :animlabelpos, Union{Symbol, AbstractString}, set_animlabelpos!),
+    :animlabelcorner => FigureSettingsHandler(
+        :animlabelcorner, Union{Symbol, AbstractString}, set_animlabelcorner!),
+    :animlabelnumfmt => FigureSettingsHandler(
+        :animlabelnumfmt, AbstractString, set_animlabelnumfmt!),
+    :animlabeldateformat => FigureSettingsHandler(
+        :animlabeldateformat, AbstractString, set_animlabeldateformat!),
+    :animlabelbg => FigureSettingsHandler(:animlabelbg, Any, set_animlabelbg!),
+    :title => FigureSettingsHandler(
+        :title, Union{Nothing, AbstractString}, set_title!),
 )
     
 
@@ -505,11 +929,17 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
             :earth => false,
             :land => false,
             :coastlines => true,
+            :animlabel => true,
+            :animlabelpos => Constants.ANIMLABEL_POSITION,
+            :animlabelnumfmt => Constants.NUMBER_FORMAT,
+            :animlabeldateformat => Constants.DATETIME_FORMAT,
+            :animlabelcorner => Constants.ANIMLABEL_CORNER,
+            :animlabelbg => Constants.ANIMLABEL_BACKGROUND,
+            :title => nothing,
         )
         return haskey(defaults, property) ? defaults[property] : :delete
     elseif isa(target_object, Makie.AbstractAxis)
         defaults = Dict(
-            :title => fd.plot_data.labels.title[],
             :xlabel => fd.plot_data.labels.xlabel[],
             :ylabel => fd.plot_data.labels.ylabel[],
             :zlabel => fd.plot_data.labels.zlabel[],
@@ -527,6 +957,9 @@ function get_property_mappings(kwargs::OrderedDict{Symbol, Any}, fig_data::Figur
         found_targets = 0
         for target_obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[], fig_data.settings, fig_data.range_control[])
             target_obj === nothing && continue
+            # the figure title lives in a layout Label; never touch
+            # the axis' native (empty) title
+            property === :title && target_obj isa Makie.AbstractAxis && continue
             property ∉ propertynames(target_obj) && continue
             
             # Get the current value of the property
@@ -905,11 +1338,10 @@ function create_regular_2d_axis(fd::FigureData)::Axis
     end
 
     ax = Axis(
-        fd.fig[1, 1],
+        fd.fig[3, 1],
         xlabel = fd.plot_data.labels.xlabel,
         ylabel = fd.plot_data.plot_type[].ndims > 1 ? fd.plot_data.labels.ylabel : "",
         aspect = aspect,
-        title = fd.plot_data.labels.title,
         limits = compute_2d_limits(fd),
     )
 
@@ -924,18 +1356,16 @@ function create_geographic_2d_axis(fd::FigureData)::GeoAxis
 
     ax = if fd.settings.proj[] === nothing
         GeoAxis(
-            fd.fig[1, 1],
+            fd.fig[3, 1],
             xlabel = fd.plot_data.labels.xlabel,
             ylabel = fd.plot_data.labels.ylabel,
-            title = fd.plot_data.labels.title,
             limits = compute_2d_limits(fd),
         )
     else
         GeoAxis(
-            fd.fig[1, 1],
+            fd.fig[3, 1],
             xlabel = fd.plot_data.labels.xlabel,
             ylabel = fd.plot_data.labels.ylabel,
-            title = fd.plot_data.labels.title,
             dest = fd.settings.proj[],
             limits = compute_2d_limits(fd),
         )
@@ -966,7 +1396,7 @@ end
 
 function create_3d_axis(fd::FigureData)::Axis3
     plot_data = fd.plot_data
-    ax_layout = fd.fig[1, 1]
+    ax_layout = fd.fig[3, 1]
 
     Axis3(
         ax_layout,
@@ -976,7 +1406,6 @@ function create_3d_axis(fd::FigureData)::Axis3
         aspect = @lift(compute_aspect3d(
             fd, $(fd.plot_data.x), $(fd.plot_data.y), $(fd.plot_data.z))
         ),
-        title = plot_data.labels.title,
     )
 end
 

@@ -38,6 +38,122 @@ using CDFViewer.Plotting
     #  Plot Struct
     # ============================================
 
+    @testset "Animated-axis label" begin
+        @testset "Template compilation" begin
+            dataset = make_temp_dataset()
+            nf, df = Constants.NUMBER_FORMAT, Constants.DATETIME_FORMAT
+            compile(var, sel, pdim, animlabel = true) =
+                Plotting.compile_animlabel(dataset, var, sel, pdim,
+                                           animlabel, nf, df)
+
+            # the default template: one static piece, one value slot
+            segs = compile("3d_float", ["lon", "lat"], "time")
+            @test [seg.dynamic for seg in segs] == [false, true]
+            @test segs[1].text == "time: "
+            @test segs[2].template == "{value}"
+            @test all(seg.width > 0 for seg in segs)
+
+            # several dynamic placeholders each get their own slot
+            segs = compile("3d_float", ["lon", "lat"], "time",
+                           "t = {rawvalue} s (frame {index})")
+            @test [seg.dynamic for seg in segs] ==
+                [false, true, false, true, false]
+            @test [seg.template for seg in segs if seg.dynamic] ==
+                ["{rawvalue}", "{index}"]
+            @test [seg.text for seg in segs if !seg.dynamic] ==
+                ["t = ", " s (frame ", ")"]
+
+            # frame-independent placeholders become static text
+            segs = compile("5d_float", ["lon", "lat"], "only_unit",
+                           "{name} [{unit}]: {rawvalue}")
+            @test segs[1].text == "only_unit [n/a]: "
+            @test segs[2].template == "{rawvalue}"
+
+            # nothing to label -> no segments
+            @test isempty(compile("3d_float", ["lon", "lat"],
+                                  Constants.NOT_SELECTED_LABEL))
+            @test isempty(compile("3d_float", ["lon", "time"], "time"))
+            @test isempty(compile("2d_float", ["lon", "lat"], "time"))
+            @test isempty(compile("3d_float", ["lon", "lat"], "time", false))
+            @test isempty(compile("3d_float", ["lon", "lat"], "time", ""))
+            close(dataset.ds)
+        end
+
+        @testset "Slot rendering and sizing" begin
+            dataset = make_temp_dataset()
+            nf, df = Constants.NUMBER_FORMAT, Constants.DATETIME_FORMAT
+
+            @test Plotting.render_slot(dataset, "float_dim", 4,
+                "{rawvalue}", nf, df) == "1.6"
+            @test Plotting.render_slot(dataset, "float_dim", 4,
+                "{index}", nf, df) == "4"
+            # a DateTime axis renders without a unit suffix
+            @test Plotting.render_slot(dataset, "time", 2,
+                "{value}", nf, df) == "1951-01-03 00:00:00"
+
+            # the slot is sized from the widest rendering over the axis
+            widest = Plotting.widest_slot_text(dataset, "float_dim",
+                "{rawvalue}", nf, df)
+            @test length(widest) == 3          # "1.2" beats "1"/"2"
+            # an unknown dimension yields an empty (zero-width) slot
+            @test Plotting.widest_slot_text(dataset, "nope",
+                "{rawvalue}", nf, df) == ""
+
+            @test Plotting.measure_text("time: ") > 0
+            @test Plotting.measure_text("") == 0.0
+            close(dataset.ds)
+        end
+
+        @testset "Settings defaults" begin
+            settings = Plotting.FigureSettings()
+            @test settings.animlabel[] == true
+            @test settings.animlabelpos[] === Constants.ANIMLABEL_POSITION
+            @test Constants.ANIMLABEL_POSITION === :title
+            @test settings.animlabelnumfmt[] == Constants.NUMBER_FORMAT
+            @test settings.animlabeldateformat[] == Constants.DATETIME_FORMAT
+            @test settings.animlabelcorner[] === Constants.ANIMLABEL_CORNER
+            @test settings.animlabelbg[] === Constants.ANIMLABEL_BACKGROUND
+            @test settings.title[] === nothing
+        end
+
+        @testset "Overlay geometry and background" begin
+            # each corner insets the box from its own axes corner
+            wp = (800, 600)
+            inset = Float64(Constants.ANIMLABEL_PADDING)
+            r = Plotting.animlabel_overlay_rect(wp, :lt, 100.0, 30.0)
+            @test r.origin[1] == inset && r.origin[2] == 600 - inset - 30
+            r = Plotting.animlabel_overlay_rect(wp, :rb, 100.0, 30.0)
+            @test r.origin[1] == 800 - inset - 100 && r.origin[2] == inset
+            @test Plotting.animlabel_overlay_rect(wp, :lt, 100.0, 30.0).widths ==
+                Vec2f(100, 30)
+
+            # the background box is transparent and unstroked when disabled
+            @test Plotting.animlabel_background_color(false) == (:white, 0.0)
+            @test Plotting.animlabel_background_stroke(false) == 0
+            @test Plotting.animlabel_background_color(true) ==
+                Constants.ANIMLABEL_BACKGROUND_COLOR
+            @test Plotting.animlabel_background_stroke(true) == 1
+            # an explicit colour overrides the translucent default
+            @test Plotting.animlabel_background_color((:black, 0.4)) == (:black, 0.4)
+        end
+
+        @testset "Label row integration" begin
+            (fig_data, state, dataset) = arrange_and_create_axis(
+                "3d_float", ["lon", "lat"], "heatmap")
+            # selecting a playback dimension builds the row
+            state.pdim[] = "time"
+            @test length(contents(fig_data.animrow)) == 2
+            # a frame change updates only the slot text observable
+            state.dim_obs[]["time"] = 2
+            notify(state.dim_obs)
+            @test fig_data.anim_slots[1][] == "1951-01-03 00:00:00"
+            # deselecting collapses the row to its placeholder
+            state.pdim[] = Constants.NOT_SELECTED_LABEL
+            @test length(contents(fig_data.animrow)) == 1
+            cleanup(dataset)
+        end
+    end
+
     @testset "Plot Struct" begin
 
         @testset "Number of Plot Options" begin
@@ -244,7 +360,8 @@ using CDFViewer.Plotting
         function init_figure_labels()
             dataset = make_temp_dataset()
             ui = UI.UIElements(dataset)
-            labels = Plotting.FigureLabels(ui.state, dataset)
+            # built through PlotData so the labels share its settings object
+            labels = Plotting.PlotData(ui.state, dataset).labels
             (labels, ui.state, dataset)
         end
 
@@ -510,7 +627,8 @@ using CDFViewer.Plotting
             @test fig_data.ax[] isa Axis
             @test fig_data.ax[].xlabel[] == "lat"
             @test fig_data.ax[].ylabel[] == ""
-            @test fig_data.ax[].title[] == "5d_float"
+            # the title lives in the layout Label, not on the axis
+            @test fig_data.title_label.text[] == "5d_float"
             @test fig_data.plot_obj[] isa Lines
             @test fig_data.cbar[] === nothing
 
@@ -519,7 +637,7 @@ using CDFViewer.Plotting
             state.variable[] = "both_atts_var"
 
             # Assert
-            @test fig_data.ax[].title[] == "Both [m/s]"
+            @test fig_data.title_label.text[] == "Both [m/s]"
             @test fig_data.ax[].xlabel[] == "lon"
 
             # Cleanup
@@ -541,7 +659,8 @@ using CDFViewer.Plotting
             @test fig_data.ax[] isa Axis
             @test fig_data.ax[].xlabel[] == "lon"
             @test fig_data.ax[].ylabel[] == "lat"
-            @test fig_data.ax[].title[] == "5d_float"
+            # the title lives in the layout Label, not on the axis
+            @test fig_data.title_label.text[] == "5d_float"
             @test fig_data.plot_obj[] isa Heatmap
             @test fig_data.cbar[] isa Colorbar
 
@@ -551,7 +670,7 @@ using CDFViewer.Plotting
             state.variable[] = "2d_gap"
 
             # Assert
-            @test fig_data.ax[].title[] == "2d_gap"
+            @test fig_data.title_label.text[] == "2d_gap"
             @test fig_data.ax[].xlabel[] == "lon"
             @test fig_data.ax[].ylabel[] == "float_dim"
 
@@ -575,7 +694,7 @@ using CDFViewer.Plotting
             @test fig_data.ax[].xlabel[] == "lon"
             @test fig_data.ax[].ylabel[] == "float_dim"
             @test fig_data.ax[].zlabel[] == ""
-            @test fig_data.ax[].title[] == "2d_gap"
+            @test fig_data.title_label.text[] == "2d_gap"
             @test fig_data.plot_obj[] isa Surface
             @test fig_data.cbar[] isa Colorbar
 
@@ -600,7 +719,8 @@ using CDFViewer.Plotting
             @test fig_data.ax[].xlabel[] == "lon"
             @test fig_data.ax[].ylabel[] == "lat"
             @test fig_data.ax[].zlabel[] == "Long"
-            @test fig_data.ax[].title[] == "5d_float"
+            # the title lives in the layout Label, not on the axis
+            @test fig_data.title_label.text[] == "5d_float"
             @test fig_data.plot_obj[] isa Volume
             @test fig_data.cbar[] isa Colorbar
 

@@ -270,6 +270,8 @@ struct State
     kwargs::Observable{OrderedDict{Symbol, Any}}
     output_settings::Observable{Output.OutputSettings}
     range_control::Observable{Union{Nothing, Interpolate.RangeControl}}
+    # the dimension selected for playback, mirrored off the playback menu
+    pdim::Observable{String}
 end
 
 function State(main_menu::MainMenu)::State
@@ -293,6 +295,14 @@ function State(main_menu::MainMenu)::State
     end
         
 
+    # Mirror the playback menu's selection so the plotting layer can label
+    # the dimension that is being animated.
+    as_dim(v) = v isa AbstractString ? String(v) : Constants.NOT_SELECTED_LABEL
+    pdim = Observable(as_dim(main_menu.playback_menu.var.selection[]))
+    on(main_menu.playback_menu.var.selection) do v
+        pdim[] = as_dim(v)
+    end
+
     State(
         Observable(main_menu.variable_menu.selection[]),
         Observable(main_menu.plot_menu.plot_type.selection[]),
@@ -303,6 +313,7 @@ function State(main_menu::MainMenu)::State
         Observable(OrderedDict{Symbol, Any}()),
         output_settings,
         Observable(nothing),
+        pdim,
     )
 end
 
