@@ -53,6 +53,9 @@ const ANIMLABEL_CORNERS = (:lt, :rt, :lb, :rb)
 const ANIMLABEL_CORNER = :lt
 const ANIMLABEL_PADDING = 10
 
+# Vertical gap between the plot box and the scene-anchored header text.
+const HEADER_GAP = 8
+
 # How many indices to sample when measuring the widest label a playback
 # dimension can produce. Labels are padded to that width so they do not
 # shift between frames; long axes are sampled rather than scanned in full.

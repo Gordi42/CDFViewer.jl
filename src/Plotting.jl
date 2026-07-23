@@ -385,9 +385,9 @@ struct FigureData
     settings::FigureSettings
     range_control::Observable{Interpolate.RangeControl}
     ui::UI.UIElements
-    # layout-title machinery: title Label row + animated-label row
-    title_label::Label
-    animrow::GridLayout
+    # scene-anchored header: the resolved title text + its drawn plots
+    title_text::Observable{String}
+    anim_header::Base.RefValue{Vector{Any}}
     anim_slots::Vector{Observable{String}}
     anim_segments::Base.RefValue{Vector{AnimSegment}}
     anim_overlay::Base.RefValue{Vector{Any}}
@@ -402,25 +402,22 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
     # Create axis, plot object, and colorbar observables
     figsize = Observable(Constants.FIGSIZE)
     fig = create_figure(figsize[])
-    # Row 1, the header: the figure title on the left, the animated-axis
-    # label on the right of the same row. The native axis title is disabled:
-    # a layout Label reserves exactly the height it needs on every axis type
-    # (Axis3 reserves a single-line strip only, so a taller native title
-    # clips). Row 2: the axis body (+ colorbar).
-    header = GridLayout(fig[1, 1])
+    # Row 1 is only a spacer: the header itself (title left, animated
+    # label right) is drawn scene-anchored to the axis' plot box, so it
+    # hugs an aspect-letterboxed plot instead of leaving a band of
+    # whitespace under a figure-top title (a letterboxed axis floats
+    # centred in its cell -- block valign cannot reach it). The spacer
+    # keeps the band reserved for an axis that fills its whole cell. The
+    # native axis title stays disabled (Axis3 clips multi-line titles).
     title_text = @lift begin
         override = $(settings.title)
         override === nothing ? $(plot_data.labels.title) : override
     end
-    title_label = Label(header[1, 1], title_text;
-        fontsize = settings.titlesize, font = :bold,
-        halign = :left, tellwidth = false)
-    animrow = GridLayout(header[1, 2]; tellwidth = true,
-                         halign = :right, valign = :bottom)
-    # keep a zero-size placeholder: trim! on a contentless layout collapses
-    # it to zero rows, whose NaN sizes poison the whole figure solve (an
-    # empty-string Label is just as poisonous -- hence the single space)
-    Label(animrow[1, 1], " "; fontsize = 1, visible = false)
+    header_height = @lift(Constants.HEADER_GAP + 4 +
+        measure_height("Ag", max($(settings.titlesize),
+                                 $(settings.animlabelsize))))
+    Box(fig[1, 1]; visible = false, height = header_height,
+        tellheight = true, tellwidth = false)
     ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
     plot_obj = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
     cbar = Observable{Union{Colorbar, Nothing}}(nothing)
@@ -444,8 +441,8 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         settings,
         ui_state.range_control,
         ui,
-        title_label,
-        animrow,
+        title_text,
+        Ref(Any[]),
         Observable{String}[],
         Ref(AnimSegment[]),
         Ref(Any[]),
@@ -485,6 +482,7 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         add_earth!(fd)
         add_land!(fd)
         add_coastlines!(fd)
+        rebuild_header!(fd)
         rebuild_overlay!(fd)
         refresh_anim_values!(fd)
         apply_kwargs!(fd, ui_state.kwargs[])
@@ -514,7 +512,7 @@ function update_animlabel!(fd::FigureData)::Nothing
         ui_state.pdim[], fd.settings.animlabel[],
         fd.anim_numfmt[], fd.settings.animlabeldateformat[],
         fd.settings.animlabelsize[])
-    rebuild_animrow!(fd)
+    rebuild_header!(fd)
     rebuild_overlay!(fd)
     refresh_anim_values!(fd)
     nothing
@@ -550,42 +548,66 @@ function ensure_slots!(fd::FigureData, n::Int)::Nothing
     nothing
 end
 
-"Rebuild the title-row segment labels (configuration-level change)."
-function rebuild_animrow!(fd::FigureData)::Nothing
-    gl = fd.animrow
-    foreach(delete!, contents(gl))
-    segments = fd.anim_segments[]
-    if fd.settings.animlabelpos[] !== :title || isempty(segments)
-        # never leave the layout contentless after trim! (zero rows), and
-        # never use an empty-string Label (degenerate text extent): both
-        # report NaN sizes that poison the whole figure solve
-        Label(gl[1, 1], " "; fontsize = 1, visible = false)
-        trim!(gl)
-        colsize!(gl, 1, Auto())
-        return nothing
+"Delete the scene-anchored header plots (title + label segments)."
+function clear_header!(fd::FigureData)::Nothing
+    for (scene, plt) in fd.anim_header[]
+        try
+            delete!(scene, plt)
+        catch
+        end
     end
-    slot = 0
-    for (i, seg) in enumerate(segments)
-        # The Label auto-sizes to its text and is aligned inside a column
-        # of FIXED width. Fixing the Label's own width instead does NOT
-        # align the text: Label halign places the block in its cell, so a
-        # block as wide as the cell leaves the text at its left edge --
-        # and the unit after a growing value visibly crawls.
-        if seg.dynamic
+    fd.anim_header[] = Any[]
+    nothing
+end
+
+"""
+    rebuild_header!(fd)
+
+Draw the header -- the title on the left, the animated-axis label on the
+right -- anchored to the top edge of the axis' plot box instead of laid
+out at the figure top: an aspect-letterboxed axis floats centred in its
+cell, and a layout header would leave a band of whitespace between the
+title and the plot. Everything is positioned from the axis viewport, so
+the header follows the plot wherever the layout puts it.
+"""
+function rebuild_header!(fd::FigureData)::Nothing
+    clear_header!(fd)
+    ax = fd.ax[]
+    ax === nothing && return nothing
+    scene = fd.fig.scene
+    vp = ax.scene.viewport
+    gap = Float64(Constants.HEADER_GAP)
+    titlepos = @lift(Point2f($vp.origin[1],
+                             $vp.origin[2] + $vp.widths[2] + gap))
+    plt = text!(scene, titlepos; text = fd.title_text,
+                align = (:left, :bottom), font = :bold,
+                fontsize = fd.settings.titlesize, space = :pixel,
+                inspectable = false)
+    push!(fd.anim_header[], (scene, plt))
+    fd.settings.animlabelpos[] === :title || return nothing
+    segments = fd.anim_segments[]
+    isempty(segments) && return nothing
+    fontsize = fd.settings.animlabelsize[]
+    total = sum(seg.width for seg in segments)
+    slot, xoff = 0, 0.0
+    for seg in segments
+        anchor = seg.dynamic ? xoff + seg.width : xoff
+        pos = @lift(Point2f(
+            $vp.origin[1] + $vp.widths[1] - total + anchor,
+            $vp.origin[2] + $vp.widths[2] + gap))
+        text_content = if seg.dynamic
             slot += 1
             ensure_slots!(fd, slot)
-            Label(gl[1, i], fd.anim_slots[slot];
-                  fontsize = fd.settings.animlabelsize[],
-                  halign = :right, tellwidth = false)
+            fd.anim_slots[slot]
         else
-            Label(gl[1, i], seg.text;
-                  fontsize = fd.settings.animlabelsize[],
-                  halign = :left, tellwidth = false)
+            seg.text
         end
-        colsize!(gl, i, Fixed(seg.width))
+        plt = text!(scene, pos; text = text_content, space = :pixel,
+                    align = (seg.dynamic ? :right : :left, :bottom),
+                    fontsize = fontsize, inspectable = false)
+        push!(fd.anim_header[], (scene, plt))
+        xoff += seg.width
     end
-    colgap!(gl, 0)
-    trim!(gl)
     nothing
 end
 

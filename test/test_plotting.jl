@@ -184,16 +184,16 @@ using CDFViewer.Plotting
         @testset "Label row integration" begin
             (fig_data, state, dataset) = arrange_and_create_axis(
                 "3d_float", ["lon", "lat"], "heatmap")
-            # selecting a playback dimension builds the row
+            # selecting a playback dimension draws title + two segments
             state.pdim[] = "time"
-            @test length(contents(fig_data.animrow)) == 2
+            @test length(fig_data.anim_header[]) == 3
             # a frame change updates only the slot text observable
             state.dim_obs[]["time"] = 2
             notify(state.dim_obs)
             @test fig_data.anim_slots[1][] == "1951-01-03 00:00:00"
-            # deselecting collapses the row to its placeholder
+            # deselecting leaves only the title
             state.pdim[] = Constants.NOT_SELECTED_LABEL
-            @test length(contents(fig_data.animrow)) == 1
+            @test length(fig_data.anim_header[]) == 1
             cleanup(dataset)
         end
     end
@@ -672,7 +672,7 @@ using CDFViewer.Plotting
             @test fig_data.ax[].xlabel[] == "lat"
             @test fig_data.ax[].ylabel[] == ""
             # the title lives in the layout Label, not on the axis
-            @test fig_data.title_label.text[] == "5d_float"
+            @test fig_data.title_text[] == "5d_float"
             @test fig_data.plot_obj[] isa Lines
             @test fig_data.cbar[] === nothing
 
@@ -681,7 +681,7 @@ using CDFViewer.Plotting
             state.variable[] = "both_atts_var"
 
             # Assert
-            @test fig_data.title_label.text[] == "Both [m/s]"
+            @test fig_data.title_text[] == "Both [m/s]"
             @test fig_data.ax[].xlabel[] == "lon"
 
             # Cleanup
@@ -704,7 +704,7 @@ using CDFViewer.Plotting
             @test fig_data.ax[].xlabel[] == "lon"
             @test fig_data.ax[].ylabel[] == "lat"
             # the title lives in the layout Label, not on the axis
-            @test fig_data.title_label.text[] == "5d_float"
+            @test fig_data.title_text[] == "5d_float"
             @test fig_data.plot_obj[] isa Heatmap
             @test fig_data.cbar[] isa Colorbar
 
@@ -714,7 +714,7 @@ using CDFViewer.Plotting
             state.variable[] = "2d_gap"
 
             # Assert
-            @test fig_data.title_label.text[] == "2d_gap"
+            @test fig_data.title_text[] == "2d_gap"
             @test fig_data.ax[].xlabel[] == "lon"
             @test fig_data.ax[].ylabel[] == "float_dim"
 
@@ -738,7 +738,7 @@ using CDFViewer.Plotting
             @test fig_data.ax[].xlabel[] == "lon"
             @test fig_data.ax[].ylabel[] == "float_dim"
             @test fig_data.ax[].zlabel[] == ""
-            @test fig_data.title_label.text[] == "2d_gap"
+            @test fig_data.title_text[] == "2d_gap"
             @test fig_data.plot_obj[] isa Surface
             @test fig_data.cbar[] isa Colorbar
 
@@ -764,7 +764,7 @@ using CDFViewer.Plotting
             @test fig_data.ax[].ylabel[] == "lat"
             @test fig_data.ax[].zlabel[] == "Long"
             # the title lives in the layout Label, not on the axis
-            @test fig_data.title_label.text[] == "5d_float"
+            @test fig_data.title_text[] == "5d_float"
             @test fig_data.plot_obj[] isa Volume
             @test fig_data.cbar[] isa Colorbar
 
