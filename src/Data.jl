@@ -273,7 +273,8 @@ function get_var_dims(dataset::CDFDataset, var::String)::Vector{String}
     return sort_coordinates(dataset.ds, dataset.var_coords[var])
 end
 
-function get_label(dataset::CDFDataset, var::String)::String
+function get_label(dataset::CDFDataset, var::String;
+                   target_unit::Union{Nothing, String} = nothing)::String
     # some dimensions may not be stored as variables in the dataset
     var ∉ keys(dataset.ds) && return var
     # Get the attributes of the variable
@@ -281,6 +282,13 @@ function get_label(dataset::CDFDataset, var::String)::String
     # Get the long name and units
     label = haskey(atts, "long_name") ? atts["long_name"] : var
     unit = RescaleUnits.get_remapped_unit(dataset.ds, var)
+    # An axis rendered in a converted display unit labels that unit instead
+    if target_unit !== nothing
+        native = RescaleUnits.get_unit(dataset.ds, var)
+        if RescaleUnits.display_factor(native, target_unit) !== nothing
+            unit = RescaleUnits.display_unit(target_unit).canonical
+        end
+    end
     if unit != ""
         label *= " [" * unit * "]"
     end

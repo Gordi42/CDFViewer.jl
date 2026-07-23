@@ -91,6 +91,10 @@ struct FigureSettings
     title::Observable{Union{Nothing, String}}
     titlesize::Observable{Float64}
     animlabelsize::Observable{Float64}
+    # Display unit per axis (nothing = native); tick rendering only
+    xunit::Observable{Union{Nothing, String}}
+    yunit::Observable{Union{Nothing, String}}
+    zunit::Observable{Union{Nothing, String}}
 
     FigureSettings() = new(
         Observable(Constants.FIGSIZE),
@@ -111,6 +115,9 @@ struct FigureSettings
         Observable{Union{Nothing, String}}(nothing),      # title override
         Observable(Float64(Constants.TITLESIZE)),         # titlesize
         Observable(Float64(Constants.LABELSIZE)),         # animlabelsize
+        Observable{Union{Nothing, String}}(nothing),      # xunit
+        Observable{Union{Nothing, String}}(nothing),      # yunit
+        Observable{Union{Nothing, String}}(nothing),      # zunit
     )
 end
 
@@ -125,11 +132,15 @@ struct FigureLabels
     zlabel::Observable{String}
 end
 
-function FigureLabels(ui_state::UI.State, dataset::Data.CDFDataset)::FigureLabels
+function FigureLabels(ui_state::UI.State, dataset::Data.CDFDataset,
+                      settings::FigureSettings)::FigureLabels
     title = @lift(Data.get_label(dataset, $(ui_state.variable)))
-    xlabel = @lift(Data.get_label(dataset, $(ui_state.x_name)))
-    ylabel = @lift(Data.get_label(dataset, $(ui_state.y_name)))
-    zlabel = @lift(Data.get_label(dataset, $(ui_state.z_name)))
+    xlabel = @lift(Data.get_label(dataset, $(ui_state.x_name);
+                                  target_unit = $(settings.xunit)))
+    ylabel = @lift(Data.get_label(dataset, $(ui_state.y_name);
+                                  target_unit = $(settings.yunit)))
+    zlabel = @lift(Data.get_label(dataset, $(ui_state.z_name);
+                                  target_unit = $(settings.zunit)))
     FigureLabels(title, xlabel, ylabel, zlabel)
 end
 
@@ -360,7 +371,7 @@ function PlotData(
     end
 
     # Figure labels
-    labels = FigureLabels(ui_state, dataset)
+    labels = FigureLabels(ui_state, dataset, settings)
 
     # Construct and return the PlotData
     PlotData(plot_type, sel_dims, x, y, z, d, update_switch, labels, dataset,
@@ -974,6 +985,40 @@ function set_animlabeldateformat!(fd::FigureData, value::AbstractString)::Bool
     false
 end
 
+# ------------------------------------------------------------
+#  Axis display units
+#
+#  Changing a unit returns true (redraw): the axis is recreated with the
+#  converted ticks and label, and the user's kwargs reapply on top.
+# ------------------------------------------------------------
+function set_axis_unit!(fd::FigureData, which::Symbol, unit_obs::Observable,
+                        name_obs::Observable,
+                        value::Union{Nothing, AbstractString})::Bool
+    unit = value === nothing ? nothing : String(value)
+    if unit !== nothing
+        if RescaleUnits.display_unit(unit) === nothing
+            supported = join(RescaleUnits.display_unit_names(), ", ")
+            @error "$which must be one of ($supported), got \"$unit\""
+            return false
+        end
+        if axis_unit_factor(fd, name_obs[], unit) === nothing
+            native = RescaleUnits.get_unit(fd.plot_data.dataset.ds, name_obs[])
+            native_str = native == "" ? "no unit" : "unit \"$native\""
+            @warn ("The $(name_obs[]) axis ($native_str) cannot be " *
+                   "displayed in \"$unit\"; keeping native ticks")
+        end
+    end
+    unit_obs[] = unit
+    true
+end
+
+set_xunit!(fd::FigureData, value::Union{Nothing, AbstractString})::Bool =
+    set_axis_unit!(fd, :xunit, fd.settings.xunit, fd.ui.state.x_name, value)
+set_yunit!(fd::FigureData, value::Union{Nothing, AbstractString})::Bool =
+    set_axis_unit!(fd, :yunit, fd.settings.yunit, fd.ui.state.y_name, value)
+set_zunit!(fd::FigureData, value::Union{Nothing, AbstractString})::Bool =
+    set_axis_unit!(fd, :zunit, fd.settings.zunit, fd.ui.state.z_name, value)
+
 const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
     :figsize => FigureSettingsHandler(:figsize, Tuple{Int, Int}, resize_figure!),
     :cbar => FigureSettingsHandler(:cbar, Bool, set_colorbar!),
@@ -1000,6 +1045,12 @@ const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
     :titlesize => FigureSettingsHandler(:titlesize, Real, set_titlesize!),
     :animlabelsize => FigureSettingsHandler(
         :animlabelsize, Real, set_animlabelsize!),
+    :xunit => FigureSettingsHandler(
+        :xunit, Union{Nothing, AbstractString}, set_xunit!),
+    :yunit => FigureSettingsHandler(
+        :yunit, Union{Nothing, AbstractString}, set_yunit!),
+    :zunit => FigureSettingsHandler(
+        :zunit, Union{Nothing, AbstractString}, set_zunit!),
 )
     
 
@@ -1058,13 +1109,21 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
             :title => nothing,
             :titlesize => Float64(Constants.TITLESIZE),
             :animlabelsize => Float64(Constants.LABELSIZE),
+            :xunit => nothing,
+            :yunit => nothing,
+            :zunit => nothing,
         )
         return haskey(defaults, property) ? defaults[property] : :delete
     elseif isa(target_object, Makie.AbstractAxis)
+        unit_ticks = unit_ticks_kwargs(fd)
         defaults = Dict(
             :xlabel => fd.plot_data.labels.xlabel[],
             :ylabel => fd.plot_data.labels.ylabel[],
             :zlabel => fd.plot_data.labels.zlabel[],
+            # deleting a user xticks override restores the unit ticks
+            :xticks => get(unit_ticks, :xticks, Makie.automatic),
+            :yticks => get(unit_ticks, :yticks, Makie.automatic),
+            :zticks => get(unit_ticks, :zticks, Makie.automatic),
         )
         return haskey(defaults, property) ? defaults[property] : :delete
     end
@@ -1452,6 +1511,59 @@ function compute_2d_limits(fd::FigureData)::Observable{Tuple{OPT_FLOAT, OPT_FLOA
 end
 
 
+# ============================================================
+#  Axis display units
+# ============================================================
+#
+# xunit/yunit/zunit render an axis in another unit of its coordinate's
+# family (meters shown as km) without touching the data: tick positions
+# are chosen in *display* space -- so they land on round display values
+# even for factors like 60 s/min -- and mapped back to native
+# coordinates for placement; only the tick strings and the unit bracket
+# of the label change. Limits, ranges, and the data inspector stay in
+# native units.
+
+"Tick locator rendering a native-unit axis in a converted display unit."
+struct UnitTicks
+    factor::Float64  # native value * factor == displayed value
+end
+
+function Makie.get_ticks(t::UnitTicks, scale, formatter, vmin, vmax)
+    display_values = Makie.get_tickvalues(
+        Makie.automatic, scale, vmin * t.factor, vmax * t.factor)
+    # The automatic formatter labels the round display values directly; a
+    # user formatter keeps Makie's semantics and receives native values.
+    labels = formatter isa Makie.Automatic ?
+        Makie.get_ticklabels(Makie.automatic, display_values) :
+        Makie.get_ticklabels(formatter, display_values ./ t.factor)
+    (display_values ./ t.factor, labels)
+end
+
+"The native-to-display factor for one axis, or nothing when off."
+function axis_unit_factor(fd::FigureData, dim_name::String,
+                          target::Union{Nothing, String})::Union{Float64, Nothing}
+    target === nothing && return nothing
+    native = RescaleUnits.get_unit(fd.plot_data.dataset.ds, dim_name)
+    RescaleUnits.display_factor(native, target)
+end
+
+"Constructor kwargs (xticks = UnitTicks(...), ...) for the active conversions."
+function unit_ticks_kwargs(fd::FigureData)::NamedTuple
+    state = fd.ui.state
+    ndims = fd.plot_data.plot_type[].ndims
+    axes = [(:xticks, state.x_name, fd.settings.xunit)]
+    # beyond ndims the axis shows the variable, not a coordinate
+    ndims > 1 && push!(axes, (:yticks, state.y_name, fd.settings.yunit))
+    ndims > 2 && push!(axes, (:zticks, state.z_name, fd.settings.zunit))
+    pairs = Pair{Symbol, Any}[]
+    for (key, name_obs, unit_obs) in axes
+        factor = axis_unit_factor(fd, name_obs[], unit_obs[])
+        factor === nothing && continue
+        push!(pairs, key => UnitTicks(factor))
+    end
+    (; pairs...)
+end
+
 function create_regular_2d_axis(fd::FigureData)::Axis
     aspect = Observable{Any}(compute_aspect2d(fd, fd.plot_data.x[], fd.plot_data.y[]))
     for trigger in (fd.plot_data.x, fd.plot_data.y)
@@ -1461,11 +1573,12 @@ function create_regular_2d_axis(fd::FigureData)::Axis
     end
 
     ax = Axis(
-        fd.fig[2, 1],
+        fd.fig[2, 1];
         xlabel = fd.plot_data.labels.xlabel,
         ylabel = fd.plot_data.plot_type[].ndims > 1 ? fd.plot_data.labels.ylabel : "",
         aspect = aspect,
         limits = compute_2d_limits(fd),
+        unit_ticks_kwargs(fd)...,
     )
 
     # Enable moveable by default except if explicitly disabled
@@ -1522,13 +1635,14 @@ function create_3d_axis(fd::FigureData)::Axis3
     ax_layout = fd.fig[2, 1]
 
     Axis3(
-        ax_layout,
+        ax_layout;
         xlabel = plot_data.labels.xlabel,
         ylabel = plot_data.labels.ylabel,
         zlabel = plot_data.plot_type[].ndims > 2 ? plot_data.labels.zlabel : "",
         aspect = @lift(compute_aspect3d(
             fd, $(fd.plot_data.x), $(fd.plot_data.y), $(fd.plot_data.z))
         ),
+        unit_ticks_kwargs(fd)...,
     )
 end
 

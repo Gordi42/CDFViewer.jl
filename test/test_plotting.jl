@@ -2,6 +2,7 @@ using Test
 using DataStructures
 using GLMakie
 using GeoMakie
+using Suppressor
 using CDFViewer.Constants
 using CDFViewer.Plotting
 
@@ -194,6 +195,165 @@ using CDFViewer.Plotting
             # deselecting leaves only the title
             state.pdim[] = Constants.NOT_SELECTED_LABEL
             @test length(fig_data.anim_header[]) == 1
+            cleanup(dataset)
+        end
+    end
+
+    @testset "Axis display units" begin
+
+        # Arrange - helpers: a dataset with x/y coordinates in meters
+        function make_meter_dataset()
+            file = tempname() * ".nc"
+            NCDataset(file, "c") do ds
+                defVar(ds, "x", collect(range(0.0, 2.0e6, 41)), ("x",),
+                    attrib = OrderedDict("units" => "m"))
+                defVar(ds, "y", collect(range(0.0, 1.0e6, 21)), ("y",),
+                    attrib = OrderedDict("units" => "m"))
+                defVar(ds, "eta", rand(41, 21), ("x", "y"),
+                    attrib = OrderedDict(
+                        "units" => "cm", "long_name" => "Surface elevation"))
+            end
+            Data.CDFDataset([file])
+        end
+
+        function init_meter_figure(plot_type::String)
+            dataset = make_meter_dataset()
+            ui = UI.UIElements(dataset)
+            plot_data = Plotting.PlotData(ui.state, dataset)
+            fd = Plotting.FigureData(plot_data, ui)
+            state = ui.state
+            state.variable[] = "eta"
+            state.x_name[] = "x"
+            state.y_name[] = "y"
+            state.plot_type_name[] = plot_type
+            Plotting.create_axis!(fd, state)
+            (fd, state, dataset)
+        end
+
+        kw(pairs...) = OrderedDict{Symbol, Any}(pairs...)
+
+        @testset "UnitTicks placement and labels" begin
+            # Act: meters rendered as km over 0..2000 km
+            vals, labels = Makie.get_ticks(
+                Plotting.UnitTicks(1e-3), identity, Makie.automatic, 0.0, 2.0e6)
+
+            # Assert: ticks sit on round display values, mapped back to native
+            @test vals == [0.0, 5.0e5, 1.0e6, 1.5e6, 2.0e6]
+            @test labels == ["0", "500", "1000", "1500", "2000"]
+
+            # Act: a non-power-of-ten factor (seconds rendered as minutes)
+            vals, labels = Makie.get_ticks(
+                Plotting.UnitTicks(1 / 60), identity, Makie.automatic,
+                0.0, 7200.0)
+
+            # Assert: placement happens in display space, so minutes are round
+            @test labels == ["0", "20", "40", "60", "80", "100", "120"]
+            @test vals ≈ 60.0 .* [0.0, 20.0, 40.0, 60.0, 80.0, 100.0, 120.0]
+
+            # Act & Assert: a user formatter keeps native values
+            fmt = vs -> [string(round(Int, v)) for v in vs]
+            _, labels = Makie.get_ticks(
+                Plotting.UnitTicks(1e-3), identity, fmt, 0.0, 2.0e6)
+            @test labels == ["0", "500000", "1000000", "1500000", "2000000"]
+        end
+
+        @testset "Unit settings on the axis" begin
+            # Arrange
+            (fd, state, dataset) = init_meter_figure("heatmap")
+            @test fd.ax[].xticks[] == Makie.automatic
+            @test fd.plot_data.labels.xlabel[] == "x [m]"
+
+            # Act: enable km on both axes through the kwargs path
+            Plotting.update_kwargs!(fd, kw(:xunit => "km", :yunit => "km"))
+
+            # Assert: unit ticks and converted label brackets
+            @test fd.settings.xunit[] == "km"
+            @test fd.ax[].xticks[] == Plotting.UnitTicks(1e-3)
+            @test fd.ax[].yticks[] == Plotting.UnitTicks(1e-3)
+            @test fd.plot_data.labels.xlabel[] == "x [km]"
+            @test fd.ax[].xlabel[] == "x [km]"
+
+            # Act: removing the kwargs restores native rendering
+            Plotting.update_kwargs!(fd, kw())
+
+            # Assert
+            @test fd.settings.xunit[] === nothing
+            @test fd.ax[].xticks[] == Makie.automatic
+            @test fd.plot_data.labels.xlabel[] == "x [m]"
+
+            # Assert: the settings default is off
+            @test Plotting.get_default_value(fd, fd.settings, :xunit) === nothing
+
+            cleanup(dataset)
+        end
+
+        @testset "Rejected units" begin
+            # Arrange
+            (fd, state, dataset) = init_meter_figure("heatmap")
+
+            # Act & Assert: unknown spellings error and change nothing
+            res = @test_logs (:error,) match_mode = :any begin
+                Plotting.set_xunit!(fd, "furlong")
+            end
+            @test res == false
+            @test fd.settings.xunit[] === nothing
+
+            # Act & Assert: a known unit of the wrong family warns
+            res = @test_logs (:warn,) match_mode = :any begin
+                Plotting.set_xunit!(fd, "bar")
+            end
+            @test res == true
+            Plotting.set_xunit!(fd, nothing)
+
+            # Act & Assert: through the kwargs path the warning reverts it
+            @suppress Plotting.update_kwargs!(fd, kw(:xunit => "furlong"))
+            @test fd.settings.xunit[] === nothing
+            @test fd.ax[].xticks[] == Makie.automatic
+
+            cleanup(dataset)
+        end
+
+        @testset "Variable axes stay native" begin
+            # Arrange: a 1D line plot shows the variable on the y axis
+            (fd, state, dataset) = init_meter_figure("line")
+
+            # Act
+            Plotting.update_kwargs!(fd, kw(:xunit => "km", :yunit => "km"))
+
+            # Assert: the coordinate axis converts, the variable axis does not
+            @test fd.ax[].xticks[] == Plotting.UnitTicks(1e-3)
+            @test fd.ax[].yticks[] == Makie.automatic
+            cleanup(dataset)
+
+            # Arrange: a surface plot shows the variable on the z axis
+            (fd, state, dataset) = init_meter_figure("surface")
+
+            # Act (zunit would warn here: no z coordinate is selected)
+            Plotting.update_kwargs!(fd, kw(:xunit => "km"))
+
+            # Assert
+            @test fd.ax[] isa Axis3
+            @test fd.ax[].xticks[] == Plotting.UnitTicks(1e-3)
+            @test !(fd.ax[].zticks[] isa Plotting.UnitTicks)
+            cleanup(dataset)
+        end
+
+        @testset "User tick overrides win" begin
+            # Arrange
+            (fd, state, dataset) = init_meter_figure("heatmap")
+
+            # Act: an explicit xticks kwarg beats the unit ticks
+            Plotting.update_kwargs!(fd, kw(:xunit => "km",
+                                           :xticks => [0.0, 1.0e6, 2.0e6]))
+
+            # Assert
+            @test fd.ax[].xticks[] == [0.0, 1.0e6, 2.0e6]
+
+            # Act: deleting the override restores the unit ticks
+            Plotting.update_kwargs!(fd, kw(:xunit => "km"))
+
+            # Assert
+            @test fd.ax[].xticks[] == Plotting.UnitTicks(1e-3)
             cleanup(dataset)
         end
     end

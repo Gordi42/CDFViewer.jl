@@ -1,4 +1,6 @@
 using Test
+using DataStructures
+using NCDatasets
 using CDFViewer.Constants
 using CDFViewer.Data
 using GLMakie
@@ -217,6 +219,39 @@ using GLMakie
         @test Data.get_label(dataset, "both_atts") == "Both [m/s]"
         @test Data.get_label(dataset, "untaken") == "untaken"
         @test Data.get_label(dataset, "both_atts_var") == "Both [m/s]"
+
+        # Assert: a target unit only replaces convertible native units
+        @test Data.get_label(dataset, "both_atts";
+                             target_unit = "km") == "Both [m/s]"
+        @test Data.get_label(dataset, "lon"; target_unit = "km") == "lon"
+    end
+
+    @testset "Labels with display units" begin
+        # Arrange: a coordinate in meters
+        file = tempname() * ".nc"
+        NCDataset(file, "c") do ds
+            defVar(ds, "x", collect(0.0:10.0), ("x",), attrib = OrderedDict(
+                "units" => "m", "long_name" => "Distance"))
+            defVar(ds, "eta", rand(11), ("x",), attrib = OrderedDict(
+                "units" => "cm"))
+        end
+        dataset = Data.CDFDataset([file])
+
+        # Assert: convertible units label the display unit instead
+        @test Data.get_label(dataset, "x") == "Distance [m]"
+        @test Data.get_label(dataset, "x"; target_unit = "km") ==
+            "Distance [km]"
+        @test Data.get_label(dataset, "x"; target_unit = "cm") ==
+            "Distance [cm]"
+
+        # Assert: incompatible or unknown target units keep the native unit
+        @test Data.get_label(dataset, "x"; target_unit = "bar") ==
+            "Distance [m]"
+        @test Data.get_label(dataset, "x"; target_unit = "furlong") ==
+            "Distance [m]"
+
+        # Cleanup
+        close(dataset.ds)
     end
 
     @testset "Dimension Value Labels" begin

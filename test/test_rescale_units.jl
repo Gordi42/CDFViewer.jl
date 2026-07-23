@@ -136,4 +136,44 @@ using NCDatasets
 
     end
 
+    @testset "Display units" begin
+        @testset "Unit lookup" begin
+            # Act & Assert: canonical spellings, aliases, case-insensitivity
+            @test RescaleUnits.display_unit("km").canonical == "km"
+            @test RescaleUnits.display_unit("Kilometers").canonical == "km"
+            @test RescaleUnits.display_unit("metre").canonical == "m"
+            @test RescaleUnits.display_unit(" hPa ").canonical == "hPa"
+            @test RescaleUnits.display_unit("hours").canonical == "h"
+
+            # Act & Assert: unknown spellings
+            @test RescaleUnits.display_unit("furlong") === nothing
+            @test RescaleUnits.display_unit("") === nothing
+            @test RescaleUnits.display_unit("degrees_east") === nothing
+
+            # Act & Assert: every canonical name resolves to itself
+            for name in RescaleUnits.display_unit_names()
+                @test RescaleUnits.display_unit(name).canonical == name
+            end
+        end
+
+        @testset "Conversion factors" begin
+            # Act & Assert: within-family factors
+            @test RescaleUnits.display_factor("m", "km") == 1e-3
+            @test RescaleUnits.display_factor("km", "m") == 1e3
+            @test RescaleUnits.display_factor("cm", "mm") == 10.0
+            @test RescaleUnits.display_factor("s", "min") == 1 / 60
+            @test RescaleUnits.display_factor("seconds", "h") == 1 / 3600
+            @test RescaleUnits.display_factor("Pa", "bar") == 1e-5
+            @test RescaleUnits.display_factor("dbar", "hPa") == 100.0
+            @test RescaleUnits.display_factor("m", "m") == 1.0
+
+            # Act & Assert: cross-family and unknown units do not convert
+            @test RescaleUnits.display_factor("m", "s") === nothing
+            @test RescaleUnits.display_factor("m", "furlong") === nothing
+            @test RescaleUnits.display_factor("", "km") === nothing
+            @test RescaleUnits.display_factor(
+                "days since 2000-01-01", "d") === nothing
+        end
+    end
+
 end

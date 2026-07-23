@@ -87,6 +87,7 @@ A few special keywords control the figure itself rather than the plot:
 |:--------|:--------|:-------|
 | `figsize=(800, 600)` | `(800, 600)` | size of the figure in pixels |
 | `titlesize=28` | `24` | fontsize of the figure title |
+| `xunit="km"` | – | render an axis in another unit — see [Axis units](@ref) |
 | `cbar=true` | `true` | show or hide the colorbar |
 | `moveable=true` | `true` | allow drag-panning with the mouse |
 | `geographic=false` | `false` | draw on a geographic map projection |
@@ -125,6 +126,47 @@ plot_figure(session) # hide
 ```
 
 ```@example cst
+close_viewer!(session) # hide
+nothing # hide
+```
+
+## Axis units
+
+Coordinates are often stored in base units — meters, seconds, pascals —
+while the domain is better read in a larger one: a field spanning
+hundreds of kilometers draws meter ticks in scientific notation. The
+`xunit`, `yunit`, and `zunit` keywords render an axis in another unit of
+the same family:
+
+```@example cstu
+using Main.DocHelpers # hide
+session = open_viewer(demo_file("wave.nc")) # hide
+run!(session, "v eta", "x x", "y y", "p heatmap") # hide
+repl(session, "xunit=\"km\", yunit=\"km\"") # hide
+```
+
+```@example cstu
+plot_figure(session) # hide
+```
+
+Tick values are chosen to be round in the displayed unit, and the axis
+label switches to it. Everything else stays in native coordinates: axis
+`limits`, interpolation ranges, and the values shown by the data
+inspector are unaffected — the conversion is purely visual.
+
+Units convert only within their family:
+
+| Family   | Units |
+|:---------|:------|
+| length   | `mm`, `cm`, `m`, `km` |
+| time     | `s`, `min`, `h`, `d` |
+| pressure | `Pa`, `hPa`, `mbar`, `kPa`, `dbar`, `bar` |
+
+Asking for a unit the axis cannot convert to (say `xunit="bar"` on a
+meter axis) keeps the native ticks and reports why; `del xunit` returns
+to the native unit.
+
+```@example cstu
 close_viewer!(session) # hide
 nothing # hide
 ```
