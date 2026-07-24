@@ -1366,7 +1366,10 @@ function pin_levels!(fd::FigureData, lo::Float64, hi::Float64)::Nothing
     count = user_levels(fd) isa Int ? user_levels(fd) : scan.base_levels
     # an Int means band boundaries for contourf, line values for contour
     edges = fd.plot_data.plot_type[].type == "contourf" ? count + 1 : count
-    plot.levels[] = collect(range(lo, hi; length = edges))
+    # a range, not a vector: Makie's compute graph types the levels edge
+    # from its first render, and Base converts between range types where
+    # a vector would not convert into a frozen range-typed edge
+    plot.levels[] = range(lo, hi; length = edges)
     nothing
 end
 

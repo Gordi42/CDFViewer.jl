@@ -397,16 +397,25 @@ using CDFViewer.Plotting
         end
 
         @testset "Contour levels" begin
-            (fd, state, dataset) = init_anim_figure("contourf")
+            (fd, state, dataset) = arrange_and_create_axis(
+                "3d_float", ["lon", "lat"], "contourf")
+            # render once BEFORE the pin: Makie's compute graph types the
+            # levels edge from this first resolve, and the pin must
+            # convert into it (regression: a Vector could not)
+            Makie.colorbuffer(fd.fig)
+            fd.ui.main_menu.playback_menu.var.selection[] = "time"
+            wait_scan(fd)
             vals = dataset.ds["3d_float"][:, :, :]
             levels = fd.plot_obj[].levels[]
             @test levels isa AbstractVector
             @test first(levels) == minimum(vals)
             @test last(levels) == maximum(vals)
+            Makie.colorbuffer(fd.fig)   # the pinned levels must render
 
             # frame mode hands the plot its own Int levels back
             Plotting.update_kwargs!(fd, kwc(:colorrange => "frame"))
             @test fd.plot_obj[].levels[] isa Int
+            Makie.colorbuffer(fd.fig)   # and that must render as well
             cleanup(dataset)
         end
 
