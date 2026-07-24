@@ -167,12 +167,40 @@ using NCDatasets
             @test RescaleUnits.display_factor("dbar", "hPa") == 100.0
             @test RescaleUnits.display_factor("m", "m") == 1.0
 
+            # Act & Assert: sub-second units and the Julian year
+            @test RescaleUnits.display_factor("s", "ms") == 1e3
+            @test RescaleUnits.display_factor("us", "s") == 1e-6
+            @test RescaleUnits.display_unit("microseconds").canonical == "µs"
+            @test RescaleUnits.display_factor("s", "yr") == 1 / 3.15576e7
+            @test RescaleUnits.display_unit("years").canonical == "yr"
+            @test RescaleUnits.display_factor("d", "yr") == 1 / 365.25
+
             # Act & Assert: cross-family and unknown units do not convert
             @test RescaleUnits.display_factor("m", "s") === nothing
             @test RescaleUnits.display_factor("m", "furlong") === nothing
             @test RescaleUnits.display_factor("", "km") === nothing
             @test RescaleUnits.display_factor(
                 "days since 2000-01-01", "d") === nothing
+        end
+
+        @testset "Automatic unit choice" begin
+            # Act & Assert: the largest unit keeping the maximum >= 1
+            @test RescaleUnits.auto_display_unit("s", 5e6) == "d"
+            @test RescaleUnits.auto_display_unit("s", 4e8) == "yr"
+            @test RescaleUnits.auto_display_unit("s", 90.0) == "min"
+            @test RescaleUnits.auto_display_unit("s", 30.0) == "s"
+            @test RescaleUnits.auto_display_unit("m", 2.5e6) == "km"
+            @test RescaleUnits.auto_display_unit("days", 0.5) == "h"
+
+            # Act & Assert: below every family unit, the smallest one wins
+            @test RescaleUnits.auto_display_unit("s", 0.5) == "ms"
+            @test RescaleUnits.auto_display_unit("s", 1e-12) == "ns"
+
+            # Act & Assert: unknown units or degenerate magnitudes pick nothing
+            @test RescaleUnits.auto_display_unit("furlong", 10.0) === nothing
+            @test RescaleUnits.auto_display_unit("s", 0.0) === nothing
+            @test RescaleUnits.auto_display_unit("s", NaN) === nothing
+            @test RescaleUnits.auto_display_unit("s", Inf) === nothing
         end
     end
 

@@ -138,6 +138,9 @@ struct PlaybackMenu
     speed::Slider
     var::Menu
     label::Label
+    # display unit of the readout (resolved by the plotting layer;
+    # nothing = native)
+    anim_unit::Observable{Union{Nothing, String}}
     fig::Figure
 end
 
@@ -149,9 +152,10 @@ function PlaybackMenu(fig::Figure, dataset::Data.CDFDataset, coord_sliders::Dict
                     tellwidth = false)
     # Create the label that shows the current value of the selected dimension
     label = Label(fig, Constants.NO_DIM_SELECTED_LABEL, halign = :left, tellwidth = false)
+    anim_unit = Observable{Union{Nothing, String}}(nothing)
     slider_values = [slider.value for slider in values(coord_sliders)]
 
-    for trigger in (var_menu.selection, slider_values...)
+    for trigger in (var_menu.selection, anim_unit, slider_values...)
         on(trigger) do _
             dim = var_menu.selection[]
             if isnothing(dim)
@@ -160,12 +164,13 @@ function PlaybackMenu(fig::Figure, dataset::Data.CDFDataset, coord_sliders::Dict
                 label.text[] = Constants.NO_DIM_SELECTED_LABEL
             else
                 idx = coord_sliders[dim].value[]
-                label.text[] = Data.get_dim_value_label(dataset, dim, idx)
+                label.text[] = Data.get_dim_value_label(
+                    dataset, dim, idx; target_unit = anim_unit[])
             end
         end
     end
     notify(var_menu.selection)
-    PlaybackMenu(toggle, speed_slider, var_menu, label, fig)
+    PlaybackMenu(toggle, speed_slider, var_menu, label, anim_unit, fig)
 end
 
 function layout(playback_menu::PlaybackMenu)::GridLayout
@@ -272,6 +277,9 @@ struct State
     range_control::Observable{Union{Nothing, Interpolate.RangeControl}}
     # the dimension selected for playback, mirrored off the playback menu
     pdim::Observable{String}
+    # the playback readout's display unit -- the *same* observable as the
+    # playback menu's, so the plotting layer's writes reach its label
+    anim_unit::Observable{Union{Nothing, String}}
 end
 
 function State(main_menu::MainMenu)::State
@@ -314,6 +322,7 @@ function State(main_menu::MainMenu)::State
         output_settings,
         Observable(nothing),
         pdim,
+        main_menu.playback_menu.anim_unit,
     )
 end
 

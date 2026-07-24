@@ -361,6 +361,76 @@ using GLMakie
         close(dataset.ds)
     end
 
+    @testset "Display-unit conversion and durations" begin
+        # Arrange: a time span in plain seconds and a depth axis in meters
+        file = tempname() * ".nc"
+        NCDatasets.NCDataset(file, "c") do ds
+            NCDatasets.defVar(ds, "t", [0.0, 43200.0, 86400.0], ("t",),
+                attrib = Dict("units" => "s"))
+            NCDatasets.defVar(ds, "depth", [0.0, 100.0, 200.0], ("depth",),
+                attrib = Dict("units" => "m"))
+            NCDatasets.defVar(ds, "u", rand(3, 3), ("t", "depth"))
+        end
+        dataset = Data.CDFDataset([file])
+
+        # Act & Assert: conversion factors resolve per dimension
+        @test Data.dim_unit_factor(dataset, "t", "d") == 1 / 86400
+        @test Data.dim_unit_factor(dataset, "t", "km") === nothing
+        @test Data.dim_unit_factor(dataset, "t", nothing) === nothing
+        @test Data.dim_unit_factor(dataset, "nope", "d") === nothing
+
+        # Act & Assert: the displayed unit follows an active conversion
+        @test Data.get_dim_display_unit(dataset, "t", "min") == "min"
+        @test Data.get_dim_display_unit(dataset, "t", nothing) == "s"
+        @test Data.get_dim_display_unit(dataset, "t", "km") == "s"
+
+        # Act & Assert: values render converted, native stays the fallback
+        @test Data.format_dim_value(dataset, "t", 2; target_unit = "h") == "12"
+        @test Data.format_dim_value(dataset, "t", 2; numfmt = "%.2f",
+                                    target_unit = "d") == "0.50"
+        @test Data.format_dim_label(dataset, "t", 3; fmt = "{value}",
+                                    target_unit = "d") == "1 d"
+        @test Data.format_dim_label(dataset, "t", 2; fmt = "{rawvalue}|{unit}",
+                                    target_unit = "h") == "12|h"
+        @test Data.format_dim_label(dataset, "t", 2; fmt = "{value}",
+                                    target_unit = "km") == "43200 s"
+
+        # Act & Assert: the readout label converts the same way
+        @test Data.get_dim_value_label(dataset, "t", 2) == "  → t: 43200 s"
+        @test Data.get_dim_value_label(dataset, "t", 2;
+                                       target_unit = "h") == "  → t: 12 h"
+
+        # Act & Assert: duration shapes derived from maximum and step
+        @test Data.derive_duration_spec([0.0, 43200.0, 86400.0]) ==
+            Data.DurationSpec(:d, :h, 0)
+        @test Data.derive_duration_spec([0.0, 90.0, 180.0]) ==
+            Data.DurationSpec(:m, :s, 0)
+        @test Data.derive_duration_spec([0.0, 0.5, 1.0]) ==
+            Data.DurationSpec(:s, :s, 1)
+        @test Data.derive_duration_spec(Float64[]) == Data.DurationSpec(:s, :s, 0)
+
+        # Act & Assert: compound rendering, stable shape per spec
+        @test Data.format_duration(129600.0, Data.DurationSpec(:d, :h, 0)) ==
+            "1d 12h"
+        @test Data.format_duration(45240.0, Data.DurationSpec(:d, :m, 0)) ==
+            "0d 12:34"
+        @test Data.format_duration(3661.0, Data.DurationSpec(:h, :s, 0)) ==
+            "01:01:01"
+        @test Data.format_duration(-90.0, Data.DurationSpec(:m, :s, 0)) ==
+            "-01:30"
+        @test Data.format_duration(0.5, Data.DurationSpec(:s, :s, 1)) == "00.5s"
+
+        # Act & Assert: {duration} renders time spans, and degrades to the
+        # value rendering without a spec or outside the time family
+        @test Data.format_dim_label(dataset, "t", 2; fmt = "{duration}",
+            durspec = Data.DurationSpec(:d, :h, 0)) == "0d 12h"
+        @test Data.format_dim_label(dataset, "t", 2;
+                                    fmt = "{duration}") == "43200 s"
+        @test Data.format_dim_label(dataset, "depth", 2; fmt = "{duration}",
+            durspec = Data.DurationSpec(:d, :h, 0)) == "100 m"
+        close(dataset.ds)
+    end
+
     @testset "Dimension Observables" begin
         # Arrange
         dataset = make_temp_dataset()

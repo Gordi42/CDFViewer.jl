@@ -11,6 +11,7 @@ import ..Constants
 import ..RescaleUnits
 import ..Interpolate
 import ..Data
+import ..DataLimits
 import ..UI
 import ..Parsing
 
@@ -87,6 +88,9 @@ struct FigureSettings
     animlabeldateformat::Observable{String}
     animlabelcorner::Observable{Symbol}
     animlabelbg::Observable{Any}
+    # Display unit of the playback dimension in the animated-axis label
+    # (nothing = native, "auto" = derived from the axis magnitude)
+    animunit::Observable{Union{Nothing, String}}
     # nothing = automatic (the variable label); a string overrides it
     title::Observable{Union{Nothing, String}}
     titlesize::Observable{Float64}
@@ -95,6 +99,14 @@ struct FigureSettings
     xunit::Observable{Union{Nothing, String}}
     yunit::Observable{Union{Nothing, String}}
     zunit::Observable{Union{Nothing, String}}
+    # Axis3 camera rotation in degrees per second (0 = off); the
+    # vertical rotation bounces between the elevation limits
+    rotate::Observable{Float64}
+    rotatev::Observable{Float64}
+    # Rotation bounds in degrees: azimuth sector (nothing = full orbit)
+    # and elevation bounce range
+    rotatelim::Observable{Union{Nothing, NTuple{2, Float64}}}
+    rotatevlim::Observable{NTuple{2, Float64}}
 
     FigureSettings() = new(
         Observable(Constants.FIGSIZE),
@@ -112,12 +124,17 @@ struct FigureSettings
         Observable(Constants.DATETIME_FORMAT),          # animlabeldateformat
         Observable(Constants.ANIMLABEL_CORNER),         # animlabelcorner
         Observable{Any}(Constants.ANIMLABEL_BACKGROUND),  # animlabelbg
+        Observable{Union{Nothing, String}}(nothing),      # animunit
         Observable{Union{Nothing, String}}(nothing),      # title override
         Observable(Float64(Constants.TITLESIZE)),         # titlesize
         Observable(Float64(Constants.LABELSIZE)),         # animlabelsize
         Observable{Union{Nothing, String}}(nothing),      # xunit
         Observable{Union{Nothing, String}}(nothing),      # yunit
         Observable{Union{Nothing, String}}(nothing),      # zunit
+        Observable(0.0),                                  # rotate
+        Observable(0.0),                                  # rotatev
+        Observable{Union{Nothing, NTuple{2, Float64}}}(nothing),  # rotatelim
+        Observable((0.0, 80.0)),                          # rotatevlim
     )
 end
 
@@ -166,7 +183,25 @@ struct AnimSegment
 end
 
 # the placeholders that change from frame to frame
-const ANIM_DYNAMIC_PLACEHOLDER = r"\{(?:value|rawvalue|index)\}"
+const ANIM_DYNAMIC_PLACEHOLDER = r"\{(?:value|rawvalue|index|duration)\}"
+
+"""
+Resolved per-axis rendering state of the animated-axis label, derived
+once per recompile so the per-frame path only formats: the concrete
+number format ("auto" resolved against the *displayed* values), the
+concrete display unit ("auto" resolved against the axis magnitude,
+nothing = native), and the shape of a `{duration}` rendering (nothing
+when the axis is not a time span).
+"""
+struct AnimLabelConfig
+    numfmt::String
+    dateformat::String
+    unit::Union{Nothing, String}
+    durspec::Union{Nothing, Data.DurationSpec}
+end
+
+AnimLabelConfig(numfmt::AbstractString, dateformat::AbstractString) =
+    AnimLabelConfig(String(numfmt), String(dateformat), nothing, nothing)
 
 "The template in `animlabel`, or `\"\"` when the label is switched off."
 function animlabel_format(animlabel::Union{Bool, String})::String
@@ -195,12 +230,15 @@ measure_height(s::String, fontsize::Real = Constants.LABELSIZE)::Float64 =
 
 "Render one dynamic placeholder for the current index."
 render_slot(dataset::Data.CDFDataset, pdim::String, idx::Int,
-            placeholder::String, numfmt::String, dateformat::String)::String =
+            placeholder::String, config::AnimLabelConfig)::String =
     Data.format_dim_label(dataset, pdim, idx; fmt = placeholder,
-                          numfmt = numfmt, dateformat = dateformat)
+                          numfmt = config.numfmt,
+                          dateformat = config.dateformat,
+                          target_unit = config.unit,
+                          durspec = config.durspec)
 
 """
-    widest_slot_text(dataset, pdim, placeholder, numfmt, dateformat)
+    widest_slot_text(dataset, pdim, placeholder, config)
 
 The widest rendering a placeholder can produce over the whole axis
 (pixel-measured; long axes are sampled). The slot is sized from it, so the
@@ -208,7 +246,7 @@ slot never changes width during playback.
 """
 function widest_slot_text(
     dataset::Data.CDFDataset, pdim::String, placeholder::String,
-    numfmt::String, dateformat::String,
+    config::AnimLabelConfig,
     fontsize::Real = Constants.LABELSIZE,
 )::String
     n = try
@@ -221,7 +259,7 @@ function widest_slot_text(
         round.(Int, range(1, n; length = Constants.ANIMLABEL_WIDTH_SAMPLES))
     widest, wmax = "", -1.0
     for i in idxs
-        s = render_slot(dataset, pdim, i, placeholder, numfmt, dateformat)
+        s = render_slot(dataset, pdim, i, placeholder, config)
         w = measure_text(s, fontsize)
         w > wmax && (widest = s; wmax = w)
     end
@@ -276,8 +314,58 @@ function resolve_numfmt(
 end
 
 """
+    resolve_animunit(dataset, pdim, setting, values)
+
+The concrete display unit of the playback dimension, or nothing (native):
+"auto" picks the family unit fitting the axis magnitude; an explicit unit
+applies only when the native unit converts into it.
+"""
+function resolve_animunit(
+    dataset::Data.CDFDataset, pdim::String,
+    setting::Union{Nothing, String}, values::Vector{Float64},
+)::Union{Nothing, String}
+    setting === nothing && return nothing
+    pdim ∈ keys(dataset.ds) || return nothing
+    native = RescaleUnits.get_unit(dataset.ds, pdim)
+    if setting == "auto"
+        magnitude = maximum(abs, filter(isfinite, values); init = 0.0)
+        return RescaleUnits.auto_display_unit(native, magnitude)
+    end
+    RescaleUnits.display_factor(native, setting) === nothing ? nothing : setting
+end
+
+"""
+    resolve_anim_config(dataset, pdim, settings)
+
+Resolve the label's per-axis rendering state in dependency order: the
+display unit first, then the number format from the *converted* values
+(so "auto" digit counts fit what is actually shown), and the duration
+shape from the axis in seconds.
+"""
+function resolve_anim_config(
+    dataset::Data.CDFDataset, pdim::String, settings::FigureSettings,
+)::AnimLabelConfig
+    values = try
+        Data.get_dim_values(dataset, pdim)
+    catch
+        Float64[]
+    end
+    unit = resolve_animunit(dataset, pdim, settings.animunit[], values)
+    factor = Data.dim_unit_factor(dataset, pdim, unit)
+    displayed = factor === nothing ? values : values .* factor
+    numfmt = settings.animlabelnumfmt[] != "auto" ?
+        settings.animlabelnumfmt[] :
+        isempty(displayed) ? String(Constants.NUMBER_FORMAT) :
+        uniform_numfmt(displayed)
+    seconds_factor = Data.dim_unit_factor(dataset, pdim, "s")
+    durspec = seconds_factor === nothing || isempty(values) ? nothing :
+        Data.derive_duration_spec(values .* seconds_factor)
+    AnimLabelConfig(numfmt, settings.animlabeldateformat[], unit, durspec)
+end
+
+"""
     compile_animlabel(dataset, variable, sel_dims, pdim, animlabel,
-                      numfmt, dateformat)
+                      config)
 
 Compile the label template into its segment sequence, or `[]` when no
 label applies: the label is off, no playback dimension is selected, the
@@ -289,8 +377,7 @@ function compile_animlabel(
     sel_dims::Vector{String},
     pdim::String,
     animlabel::Union{Bool, String},
-    numfmt::String,
-    dateformat::String,
+    config::AnimLabelConfig,
     fontsize::Real = Constants.LABELSIZE,
 )::Vector{AnimSegment}
     fmt = animlabel_format(animlabel)
@@ -299,10 +386,13 @@ function compile_animlabel(
     pdim ∈ sel_dims && return AnimSegment[]
     haskey(dataset.var_coords, variable) || return AnimSegment[]
     pdim ∈ Data.get_var_dims(dataset, variable) || return AnimSegment[]
+    # a duration slot on a non-time-span axis degrades to a value slot, so
+    # one template stays valid while the playback dimension changes
+    config.durspec === nothing && (fmt = replace(fmt, "{duration}" => "{value}"))
     # placeholders that cannot change during playback become static text
     fmt = replace(fmt,
         "{name}" => Data.get_dim_display_name(dataset, pdim),
-        "{unit}" => Data.get_dim_unit(dataset, pdim))
+        "{unit}" => Data.get_dim_display_unit(dataset, pdim, config.unit))
     static(txt) = AnimSegment("", false, txt, measure_text(txt, fontsize))
     segments = AnimSegment[]
     pos = 1
@@ -310,7 +400,7 @@ function compile_animlabel(
         m.offset > pos &&
             push!(segments, static(fmt[pos:prevind(fmt, m.offset)]))
         widest = widest_slot_text(dataset, pdim, String(m.match),
-                                  numfmt, dateformat, fontsize)
+                                  config, fontsize)
         push!(segments, AnimSegment(String(m.match), true, widest,
                                     measure_text(widest, fontsize)))
         pos = m.offset + ncodeunits(m.match)
@@ -379,6 +469,38 @@ function PlotData(
 end
 
 # ============================================================
+#  Pinned color range
+# ============================================================
+#
+# Makie derives an unset colorrange from the data of the current frame,
+# so playback rescales the colors on every step. The scanner pins the
+# range to the extrema of everything the animation can show instead:
+# with a playback dimension selected, a background task scans the
+# variable's native hyperslab over the whole playback axis (other sliced
+# dimensions stay fixed) and applies the result once -- colors and
+# colorbar hold still while the data moves. The mode comes through the
+# `colorrange` keyword: a (lo, hi) tuple pins manually, "cycle" (the
+# default) pins to the playback cycle, "data" to the whole variable, and
+# "frame" restores Makie's per-frame autoscaling.
+
+const CRANGE_MODES = ("cycle", "frame", "data")
+
+"Mutable scan state: what is pinned, what is in flight, and past results."
+mutable struct ColorRangeScan
+    generation::Int                   # bumped to abort superseded scans
+    pending_key::Any                  # key of the scan in flight
+    applied_key::Any                  # key of the currently applied pin
+    task::Union{Nothing, Task}
+    cache::Dict{Any, NTuple{2, Float64}}
+    base_levels::Union{Nothing, Int}  # the plot's own Int `levels`
+    hinted::Bool                      # size-gate hint already shown
+end
+
+ColorRangeScan() = ColorRangeScan(0, nothing, nothing, nothing,
+                                  Dict{Any, NTuple{2, Float64}}(), nothing,
+                                  false)
+
+# ============================================================
 #  Figure data structure
 # ============================================================
 
@@ -402,8 +524,12 @@ struct FigureData
     anim_slots::Vector{Observable{String}}
     anim_segments::Base.RefValue{Vector{AnimSegment}}
     anim_overlay::Base.RefValue{Vector{Any}}
-    # the resolved number format ("auto" -> a concrete printf spec)
-    anim_numfmt::Base.RefValue{String}
+    # the label's resolved rendering state (numfmt/unit/duration shape)
+    anim_config::Base.RefValue{AnimLabelConfig}
+    crange_scan::ColorRangeScan
+    # +1/-1: which way the bouncing camera rotations are heading
+    camera_vdir::Base.RefValue{Float64}
+    camera_hdir::Base.RefValue{Float64}
 end
 
 function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
@@ -457,7 +583,10 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         Observable{String}[],
         Ref(AnimSegment[]),
         Ref(Any[]),
-        Ref(String(Constants.NUMBER_FORMAT)),
+        Ref(AnimLabelConfig(Constants.NUMBER_FORMAT, Constants.DATETIME_FORMAT)),
+        ColorRangeScan(),
+        Ref(1.0),
+        Ref(1.0),
     )
 
     # Rebuild the animated-axis label when its configuration changes;
@@ -466,7 +595,7 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
                     settings.animlabel, settings.animlabelnumfmt,
                     settings.animlabeldateformat, settings.animlabelpos,
                     settings.animlabelcorner, settings.animlabelbg,
-                    settings.animlabelsize)
+                    settings.animlabelsize, settings.animunit)
         on(trigger) do _
             update_animlabel!(fd)
         end
@@ -475,6 +604,15 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         refresh_anim_values!(fd)
     end
     update_animlabel!(fd)
+
+    # Keep the pinned color range reconciled; during playback only the
+    # playback index changes, which leaves the scan key untouched.
+    for trigger in (ui_state.variable, plot_data.sel_dims, ui_state.pdim,
+                    ui_state.dim_obs)
+        on(trigger) do _
+            update_colorrange!(fd)
+        end
+    end
 
     # Setup a listener to create the plot if the axis changes
     on(ax) do a
@@ -496,7 +634,11 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         rebuild_header!(fd)
         rebuild_overlay!(fd)
         refresh_anim_values!(fd)
+        # a fresh plot carries no pin and owns its levels again
+        fd.crange_scan.applied_key = nothing
+        fd.crange_scan.base_levels = nothing
         apply_kwargs!(fd, ui_state.kwargs[])
+        update_colorrange!(fd)
     end
 
     # Setup listeners to apply axis and plot keyword arguments
@@ -515,14 +657,15 @@ end
 "Recompile the segments and rebuild both render targets."
 function update_animlabel!(fd::FigureData)::Nothing
     ui_state = fd.ui.state
-    fd.anim_numfmt[] = resolve_numfmt(
-        fd.plot_data.dataset, ui_state.pdim[],
-        fd.settings.animlabelnumfmt[])
+    fd.anim_config[] = resolve_anim_config(
+        fd.plot_data.dataset, ui_state.pdim[], fd.settings)
+    # share the resolved unit with the UI so the playback readout matches
+    isequal(ui_state.anim_unit[], fd.anim_config[].unit) ||
+        (ui_state.anim_unit[] = fd.anim_config[].unit)
     fd.anim_segments[] = compile_animlabel(
         fd.plot_data.dataset, ui_state.variable[], fd.plot_data.sel_dims[],
         ui_state.pdim[], fd.settings.animlabel[],
-        fd.anim_numfmt[], fd.settings.animlabeldateformat[],
-        fd.settings.animlabelsize[])
+        fd.anim_config[], fd.settings.animlabelsize[])
     rebuild_header!(fd)
     rebuild_overlay!(fd)
     refresh_anim_values!(fd)
@@ -541,8 +684,7 @@ function refresh_anim_values!(fd::FigureData)::Nothing
         slot += 1
         slot <= length(fd.anim_slots) || break
         rendered = render_slot(
-            fd.plot_data.dataset, pdim, idx, seg.template,
-            fd.anim_numfmt[], fd.settings.animlabeldateformat[])
+            fd.plot_data.dataset, pdim, idx, seg.template, fd.anim_config[])
         # never write an empty string (degenerate text extent, see above)
         fd.anim_slots[slot][] = isempty(rendered) ? " " : rendered
     end
@@ -1012,6 +1154,80 @@ function set_axis_unit!(fd::FigureData, which::Symbol, unit_obs::Observable,
     true
 end
 
+"""
+Set the display unit of the animated-axis label. Unknown spellings are
+rejected; a unit the current playback dimension cannot convert into is
+stored anyway (it applies once a compatible dimension is selected) but
+warned about, and the label keeps native values meanwhile. No redraw:
+the label rebuilds reactively.
+"""
+function set_animunit!(fd::FigureData, value::Union{Nothing, AbstractString})::Bool
+    unit = value === nothing ? nothing : String(value)
+    if unit !== nothing && unit != "auto"
+        if RescaleUnits.display_unit(unit) === nothing
+            supported = join(RescaleUnits.display_unit_names(), ", ")
+            @error "animunit must be \"auto\" or one of ($supported), got \"$unit\""
+            return false
+        end
+        pdim = fd.ui.state.pdim[]
+        if pdim != Constants.NOT_SELECTED_LABEL &&
+           Data.dim_unit_factor(fd.plot_data.dataset, pdim, unit) === nothing
+            native = RescaleUnits.get_unit(fd.plot_data.dataset.ds, pdim)
+            native_str = native == "" ? "no unit" : "unit \"$native\""
+            @warn ("The playback dimension $pdim ($native_str) cannot be " *
+                   "displayed in \"$unit\"; keeping native values")
+        end
+    end
+    fd.settings.animunit[] = unit
+    false
+end
+
+# Camera rotation speeds; stored even without a 3D axis (a warning here
+# would trip the kwargs path's revert-on-stderr machinery), so the value
+# simply starts applying once an Axis3 plot type is active. A negative
+# speed seeds the initial direction of a bounded (bouncing) motion.
+function set_rotate!(fd::FigureData, value::Real)::Bool
+    fd.settings.rotate[] = Float64(value)
+    fd.camera_hdir[] = value < 0 ? -1.0 : 1.0
+    false
+end
+function set_rotatev!(fd::FigureData, value::Real)::Bool
+    fd.settings.rotatev[] = Float64(value)
+    fd.camera_vdir[] = value < 0 ? -1.0 : 1.0
+    false
+end
+
+"Set the azimuth sector for horizontal rotation; nothing = full orbit."
+function set_rotatelim!(fd::FigureData, value::Union{Nothing, Tuple})::Bool
+    if value !== nothing
+        ok = length(value) == 2 && all(x -> x isa Real && isfinite(x), value) &&
+             value[1] < value[2]
+        if !ok
+            @error ("rotatelim must be an increasing (lo, hi) azimuth " *
+                    "tuple in degrees, got $value")
+            return false
+        end
+    end
+    fd.settings.rotatelim[] = value === nothing ? nothing :
+        (Float64(value[1]), Float64(value[2]))
+    false
+end
+
+"Set the elevation range the vertical rotation bounces in (degrees)."
+function set_rotatevlim!(fd::FigureData, value::Tuple)::Bool
+    ok = length(value) == 2 && all(x -> x isa Real && isfinite(x), value)
+    # at exactly ±90° the azimuth becomes degenerate, so stay inside
+    lo = ok ? clamp(Float64(value[1]), -89.0, 89.0) : 0.0
+    hi = ok ? clamp(Float64(value[2]), -89.0, 89.0) : 0.0
+    if !ok || lo >= hi
+        @error ("rotatevlim must be an increasing (lo, hi) elevation " *
+                "tuple within ±89 degrees, got $value")
+        return false
+    end
+    fd.settings.rotatevlim[] = (lo, hi)
+    false
+end
+
 set_xunit!(fd::FigureData, value::Union{Nothing, AbstractString})::Bool =
     set_axis_unit!(fd, :xunit, fd.settings.xunit, fd.ui.state.x_name, value)
 set_yunit!(fd::FigureData, value::Union{Nothing, AbstractString})::Bool =
@@ -1040,6 +1256,8 @@ const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
     :animlabeldateformat => FigureSettingsHandler(
         :animlabeldateformat, AbstractString, set_animlabeldateformat!),
     :animlabelbg => FigureSettingsHandler(:animlabelbg, Any, set_animlabelbg!),
+    :animunit => FigureSettingsHandler(
+        :animunit, Union{Nothing, AbstractString}, set_animunit!),
     :title => FigureSettingsHandler(
         :title, Union{Nothing, AbstractString}, set_title!),
     :titlesize => FigureSettingsHandler(:titlesize, Real, set_titlesize!),
@@ -1051,6 +1269,11 @@ const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
         :yunit, Union{Nothing, AbstractString}, set_yunit!),
     :zunit => FigureSettingsHandler(
         :zunit, Union{Nothing, AbstractString}, set_zunit!),
+    :rotate => FigureSettingsHandler(:rotate, Real, set_rotate!),
+    :rotatev => FigureSettingsHandler(:rotatev, Real, set_rotatev!),
+    :rotatelim => FigureSettingsHandler(
+        :rotatelim, Union{Nothing, Tuple}, set_rotatelim!),
+    :rotatevlim => FigureSettingsHandler(:rotatevlim, Tuple, set_rotatevlim!),
 )
     
 
@@ -1068,6 +1291,261 @@ function apply_figure_settings!(fd::FigureData, property::Symbol, value::Any)::B
         @error "Property $property not recognized in FigureData"
     end
     redraw
+end
+
+# ============================================================
+#  Pinned color range: reconciliation
+# ============================================================
+
+"The colorrange mode of the current kwargs: :manual, or a mode symbol."
+function colorrange_mode(fd::FigureData)::Symbol
+    value = get(fd.ui.state.kwargs[], :colorrange, nothing)
+    value === nothing && return :cycle
+    if value isa AbstractString || value isa Symbol
+        s = String(value)
+        s in CRANGE_MODES && return Symbol(s)
+        return :cycle  # invalid mode strings were rejected with an error
+    end
+    :manual
+end
+
+"Whether the user chose the mode (an explicit choice bypasses the gate)."
+colorrange_explicit(fd::FigureData)::Bool =
+    haskey(fd.ui.state.kwargs[], :colorrange)
+
+"The playback dimension when it is actually animatable, else nothing."
+function scan_pdim(fd::FigureData, variable::String)::Union{Nothing, String}
+    pdim = fd.ui.state.pdim[]
+    pdim == Constants.NOT_SELECTED_LABEL && return nothing
+    pdim ∈ fd.plot_data.sel_dims[] && return nothing
+    pdim ∈ Data.get_var_dims(fd.plot_data.dataset, variable) || return nothing
+    pdim
+end
+
+"The hyperslab key the active mode wants pinned, or nothing (autoscale)."
+function colorrange_key(fd::FigureData, mode::Symbol)::Any
+    state = fd.ui.state
+    variable = state.variable[]
+    dataset = fd.plot_data.dataset
+    haskey(dataset.var_coords, variable) || return nothing
+    keep = if mode === :data
+        copy(dataset.var_coords[variable])
+    else
+        pdim = scan_pdim(fd, variable)
+        # without an animatable dimension there is nothing to stabilize
+        pdim === nothing && return nothing
+        vcat(fd.plot_data.sel_dims[], [pdim])
+    end
+    indexing = try
+        DataLimits.scan_indexing(dataset, variable, keep, state.dim_obs[])
+    catch
+        return nothing
+    end
+    (variable, Tuple(indexing))
+end
+
+# contour plots re-bin an Int `levels` from each frame's extrema, so the
+# pin must hand them concrete boundaries; a colorrange alone won't hold
+is_contour_type(fd::FigureData)::Bool =
+    fd.plot_data.plot_type[].type in ("contour", "contourf", "contour3d")
+
+"The user's `levels` kwarg (an explicit vector always wins over the pin)."
+user_levels(fd::FigureData)::Any = get(fd.ui.state.kwargs[], :levels, nothing)
+
+function pin_levels!(fd::FigureData, lo::Float64, hi::Float64)::Nothing
+    is_contour_type(fd) || return nothing
+    user_levels(fd) isa AbstractVector && return nothing
+    plot = fd.plot_obj[]
+    (plot === nothing || :levels ∉ propertynames(plot)) && return nothing
+    scan = fd.crange_scan
+    if scan.base_levels === nothing
+        current = plot.levels[]
+        current isa Int || return nothing  # someone else owns the levels
+        scan.base_levels = current
+    end
+    count = user_levels(fd) isa Int ? user_levels(fd) : scan.base_levels
+    # an Int means band boundaries for contourf, line values for contour
+    edges = fd.plot_data.plot_type[].type == "contourf" ? count + 1 : count
+    plot.levels[] = collect(range(lo, hi; length = edges))
+    nothing
+end
+
+"Hand a pinned Int `levels` back to the plot."
+function restore_levels!(fd::FigureData)::Nothing
+    scan = fd.crange_scan
+    scan.base_levels === nothing && return nothing
+    plot = fd.plot_obj[]
+    if plot !== nothing && :levels ∈ propertynames(plot)
+        count = user_levels(fd) isa Int ? user_levels(fd) : scan.base_levels
+        plot.levels[] = count
+    end
+    scan.base_levels = nothing
+    nothing
+end
+
+"Apply a computed range to the plot, remembering what is pinned."
+function apply_colorrange_pin!(fd::FigureData, key::Any,
+                               range::NTuple{2, Float64})::Nothing
+    plot = fd.plot_obj[]
+    plot === nothing && return nothing
+    lo, hi = range
+    lo == hi && ((lo, hi) = (lo - 0.5, hi + 0.5))  # degenerate data
+    fd.crange_scan.applied_key = key
+    :colorrange ∈ propertynames(plot) && (plot.colorrange[] = (lo, hi))
+    pin_levels!(fd, lo, hi)
+    nothing
+end
+
+"Return the plot to Makie's own autoscaling and its own levels."
+function unpin_colorrange!(fd::FigureData)::Nothing
+    fd.crange_scan.applied_key = nothing
+    plot = fd.plot_obj[]
+    plot === nothing && return nothing
+    :colorrange ∈ propertynames(plot) && (plot.colorrange[] = Makie.automatic)
+    restore_levels!(fd)
+    nothing
+end
+
+"""
+    update_colorrange!(fd; sync = false)
+
+Reconcile the plot's color range with the active mode. Cheap when
+nothing changed (the per-frame path during playback): the target key is
+recomputed and compared before any work happens. A cache miss starts a
+background scan -- or runs it inline with `sync = true`, which record
+uses so a video never rescales mid-file. The previous pin stays applied
+until its replacement is ready.
+"""
+function update_colorrange!(fd::FigureData; sync::Bool = false)::Nothing
+    plot = fd.plot_obj[]
+    plot === nothing && return nothing
+    scan = fd.crange_scan
+    mode = colorrange_mode(fd)
+    if mode === :manual
+        value = fd.ui.state.kwargs[][:colorrange]
+        key = (:manual, value)
+        key == scan.applied_key && return nothing
+        scan.generation += 1
+        scan.pending_key = nothing
+        # the kwargs path sets the plot's colorrange; only the contour
+        # levels need pinning here
+        restore_levels!(fd)
+        value isa Tuple && length(value) == 2 && all(x -> x isa Real, value) &&
+            pin_levels!(fd, Float64(value[1]), Float64(value[2]))
+        scan.applied_key = key
+        return nothing
+    end
+    key = mode === :frame ? nothing : colorrange_key(fd, mode)
+    key !== nothing && key == scan.applied_key && return nothing
+    # The default pin never starts an expensive scan uninvited: past the
+    # gate the range stays per-frame until the user explicitly asks.
+    if key !== nothing && !haskey(scan.cache, key) && !colorrange_explicit(fd)
+        elements = DataLimits.hyperslab_elements(
+            fd.plot_data.dataset, key[1], collect(Union{Colon, Int}, key[2]))
+        if elements > DataLimits.AUTO_SCAN_ELEMENTS[]
+            if !scan.hinted
+                scan.hinted = true
+                @info ("Automatic color-range pinning skipped: this view " *
+                       "spans $elements values. Set colorrange=\"cycle\" " *
+                       "to scan anyway, or pin a manual colorrange=(lo, hi).")
+            end
+            key = nothing
+        end
+    end
+    if key === nothing
+        scan.applied_key === nothing && return nothing
+        scan.generation += 1
+        scan.pending_key = nothing
+        unpin_colorrange!(fd)
+        return nothing
+    end
+    if haskey(scan.cache, key)
+        scan.generation += 1
+        scan.pending_key = nothing
+        apply_colorrange_pin!(fd, key, scan.cache[key])
+        return nothing
+    end
+    !sync && key == scan.pending_key && return nothing  # already scanning
+    scan.generation += 1
+    generation = scan.generation
+    scan.pending_key = key
+    dataset = fd.plot_data.dataset
+    runner = () -> begin
+        result = DataLimits.hyperslab_extrema(
+            dataset, key[1], collect(Union{Colon, Int}, key[2]);
+            abort = () -> scan.generation != generation)
+        scan.generation == generation || return
+        scan.pending_key = nothing
+        result === nothing && return
+        scan.cache[key] = result
+        apply_colorrange_pin!(fd, key, result)
+    end
+    sync ? runner() : (scan.task = @async runner())
+    nothing
+end
+
+# ============================================================
+#  Camera rotation (Axis3)
+# ============================================================
+
+"""
+    bounce_step(value, step, lo, hi, direction)
+
+One step of a bouncing motion between `lo` and `hi`: `direction`
+reverses at the bounds, and a value starting outside them (a dragged
+camera, tightened limits) travels smoothly back toward the range
+instead of snapping into it.
+"""
+function bounce_step(value::Float64, step::Float64, lo::Float64, hi::Float64,
+                     direction::Base.RefValue{Float64})::Float64
+    value > hi && (direction[] = -1.0)
+    value < lo && (direction[] = 1.0)
+    new = value + direction[] * step
+    # bounce only when crossing a bound from inside
+    if new > hi && value <= hi
+        direction[] = -1.0
+        new = hi
+    elseif new < lo && value >= lo
+        direction[] = 1.0
+        new = lo
+    end
+    new
+end
+
+"""
+    rotate_camera!(fd, dt)
+
+Advance the Axis3 camera by `dt` seconds of the configured rotation.
+Driven by the render tick; during recording Makie emits one tick per
+frame with dt = 1/framerate, so videos rotate at exactly the set speed.
+The elevation bounces inside `rotatevlim`; the azimuth orbits freely
+unless `rotatelim` bounds it to a sector.
+"""
+function rotate_camera!(fd::FigureData, dt::Real)::Nothing
+    horizontal = fd.settings.rotate[]
+    vertical = fd.settings.rotatev[]
+    horizontal == 0.0 && vertical == 0.0 && return nothing
+    ax = fd.ax[]
+    ax isa Axis3 || return nothing
+    (isfinite(dt) && dt > 0) || return nothing
+    dt = min(Float64(dt), 0.1)  # a lag spike must not jolt the camera
+    if horizontal != 0.0
+        hlim = fd.settings.rotatelim[]
+        if hlim === nothing
+            ax.azimuth[] += deg2rad(horizontal) * dt
+        else
+            ax.azimuth[] = bounce_step(
+                Float64(ax.azimuth[]), deg2rad(abs(horizontal)) * dt,
+                deg2rad(hlim[1]), deg2rad(hlim[2]), fd.camera_hdir)
+        end
+    end
+    if vertical != 0.0
+        vlim = fd.settings.rotatevlim[]
+        ax.elevation[] = bounce_step(
+            Float64(ax.elevation[]), deg2rad(abs(vertical)) * dt,
+            deg2rad(vlim[1]), deg2rad(vlim[2]), fd.camera_vdir)
+    end
+    nothing
 end
 
 # ============================================================
@@ -1106,12 +1584,17 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
             :animlabeldateformat => Constants.DATETIME_FORMAT,
             :animlabelcorner => Constants.ANIMLABEL_CORNER,
             :animlabelbg => Constants.ANIMLABEL_BACKGROUND,
+            :animunit => nothing,
             :title => nothing,
             :titlesize => Float64(Constants.TITLESIZE),
             :animlabelsize => Float64(Constants.LABELSIZE),
             :xunit => nothing,
             :yunit => nothing,
             :zunit => nothing,
+            :rotate => 0.0,
+            :rotatev => 0.0,
+            :rotatelim => nothing,
+            :rotatevlim => (0.0, 80.0),
         )
         return haskey(defaults, property) ? defaults[property] : :delete
     elseif isa(target_object, Makie.AbstractAxis)
@@ -1135,6 +1618,16 @@ end
 function get_property_mappings(kwargs::OrderedDict{Symbol, Any}, fig_data::FigureData)::Vector{PropertyMapping}
     mappings = Vector{PropertyMapping}()
     for (property, intended_value) in kwargs
+        # colorrange mode strings configure the range scanner; Makie only
+        # ever sees tuples
+        if property === :colorrange && intended_value !== :delete &&
+           (intended_value isa AbstractString || intended_value isa Symbol)
+            String(intended_value) in CRANGE_MODES ||
+                @error ("colorrange must be a (lo, hi) tuple or one of " *
+                        "(" * join(CRANGE_MODES, ", ") *
+                        "), got \"$intended_value\"")
+            continue
+        end
         found_targets = 0
         for target_obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[], fig_data.settings, fig_data.range_control[])
             target_obj === nothing && continue
@@ -1305,6 +1798,8 @@ function apply_kwargs!(fig_data::FigureData, kwargs::OrderedDict{Symbol, Any})::
         end
     # end
     # push!(fig_data.tasks[], task)
+    # kwargs may have changed the colorrange mode or the fixed indices
+    update_colorrange!(fig_data)
     nothing
 end
 

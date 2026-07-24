@@ -321,11 +321,40 @@ get_dim_unit(dataset::CDFDataset, dim::String)::String =
     dim ∉ keys(dataset.ds) ? "" : RescaleUnits.get_remapped_unit(dataset.ds, dim)
 
 """
-    format_dim_value(dataset, dim, idx; numfmt, dateformat)
+    dim_unit_factor(dataset, dim, target_unit)
+
+Multiplier taking native values of `dim` to values displayed in
+`target_unit`, or nothing when no conversion applies (no target, unknown
+dimension, or units from different families).
+"""
+function dim_unit_factor(
+    dataset::CDFDataset, dim::String,
+    target_unit::Union{Nothing, AbstractString},
+)::Union{Float64, Nothing}
+    target_unit === nothing && return nothing
+    dim ∉ keys(dataset.ds) && return nothing
+    RescaleUnits.display_factor(RescaleUnits.get_unit(dataset.ds, dim),
+                                String(target_unit))
+end
+
+"The unit `dim` is displayed in: the converted unit when active, else native."
+function get_dim_display_unit(
+    dataset::CDFDataset, dim::String,
+    target_unit::Union{Nothing, AbstractString},
+)::String
+    dim_unit_factor(dataset, dim, target_unit) === nothing &&
+        return get_dim_unit(dataset, dim)
+    RescaleUnits.display_unit(String(target_unit)).canonical
+end
+
+"""
+    format_dim_value(dataset, dim, idx; numfmt, dateformat, target_unit)
 
 The value of `dim` at index `idx`, formatted for display and *without* its
 name or unit. Numbers use the printf spec `numfmt`, `DateTime` axes the
 `Dates` format `dateformat`; anything unreadable falls back to the index.
+A number is converted into `target_unit` when the dimension's native unit
+allows it, and stays native otherwise.
 """
 function format_dim_value(
     dataset::CDFDataset,
@@ -333,23 +362,145 @@ function format_dim_value(
     idx::Int;
     numfmt::AbstractString = Constants.NUMBER_FORMAT,
     dateformat::AbstractString = Constants.DATETIME_FORMAT,
+    target_unit::Union{Nothing, AbstractString} = nothing,
 )::String
     dim ∉ keys(dataset.ds) && return string(idx)
     value = Interpolate.get_coord_value(dataset.interp, dim, idx)
     isnothing(value) && return "Index $(idx) out of bounds"
     value isa Dates.DateTime && return Dates.format(value, dateformat)
     value isa AbstractString && return String(value)
-    value isa Number && return format_number(value, numfmt)
+    if value isa Number
+        factor = dim_unit_factor(dataset, dim, target_unit)
+        factor !== nothing && (value *= factor)
+        return format_number(value, numfmt)
+    end
     string(idx)
 end
 
+# ---------------------------------------------------
+#  Compound durations
+# ---------------------------------------------------
+
+# component sizes in seconds, largest first
+const DURATION_COMPONENTS = (
+    (:d, 86400.0), (:h, 3600.0), (:m, 60.0), (:s, 1.0))
+
+duration_component_index(c::Symbol)::Int =
+    findfirst(p -> p[1] === c, DURATION_COMPONENTS)
+
 """
-    format_dim_label(dataset, dim, idx; fmt, numfmt, dateformat)
+Shape of a compound-duration rendering ("12d 07:36"): the component the
+label starts at, the one it stops at, and the decimals on a trailing
+seconds component. Derived once per axis so every frame renders the same
+shape and only the digits change.
+"""
+struct DurationSpec
+    largest::Symbol    # :d, :h, :m or :s
+    smallest::Symbol
+    decimals::Int
+end
+
+# `r` counts of a component; integral up to formatting tolerance
+near_multiple(r::Float64)::Bool = abs(r - round(r)) <= 1e-6 + abs(r) * 1e-12
+
+"""
+    derive_duration_spec(seconds)
+
+The DurationSpec fitting an axis given its values in seconds: the leading
+component covers the axis maximum, the trailing one is the largest
+component every value is a whole number of (hourly data spanning years ->
+"123d 07h"). Sub-second axes put their decimals on the seconds component.
+"""
+function derive_duration_spec(seconds)::DurationSpec
+    vals = Float64[Float64(v) for v in seconds if v isa Number && isfinite(v)]
+    isempty(vals) && return DurationSpec(:s, :s, 0)
+    magnitude = maximum(abs, vals)
+    steps = [abs(vals[i + 1] - vals[i]) for i in 1:(length(vals) - 1)]
+    filter!(>(0.0), steps)
+    step = isempty(steps) ? max(magnitude, 1.0) : minimum(steps)
+    largest = :s
+    for (c, f) in DURATION_COMPONENTS
+        magnitude >= f && (largest = c; break)
+    end
+    smallest, decimals = :s, 0
+    for (c, f) in DURATION_COMPONENTS
+        f <= step * (1 + 1e-9) || continue     # must resolve the step
+        if all(v -> near_multiple(v / f), vals)
+            smallest = c
+            break
+        end
+    end
+    if smallest === :s && !all(v -> near_multiple(v), vals)
+        for d in 1:9
+            decimals = d
+            all(v -> near_multiple(v * exp10(d)), vals) && break
+        end
+    end
+    # the trailing component never precedes the leading one
+    if duration_component_index(smallest) < duration_component_index(largest)
+        smallest = largest
+    end
+    DurationSpec(largest, smallest, decimals)
+end
+
+"""
+    format_duration(seconds, spec)
+
+Render a length of time as a compound duration: days carry a "d" suffix,
+the h/m/s chain is colon-joined and zero-padded ("12d 07:36:00"). A
+chain of a single component keeps its unit letter ("12d 07h", "36m").
+"""
+function format_duration(seconds::Real, spec::DurationSpec)::String
+    isfinite(seconds) || return string(seconds)
+    li = duration_component_index(spec.largest)
+    si = duration_component_index(spec.smallest)
+    li = min(li, si)
+    # decompose exactly, in integer counts of the finest resolution
+    res = DURATION_COMPONENTS[si][2] *
+        (spec.smallest === :s ? exp10(-spec.decimals) : 1.0)
+    total = round(abs(Float64(seconds)) / res)
+    total >= 9.2e18 && return format_number(seconds, "%g") * " s"
+    n = Int64(total)
+    texts = String[]
+    for i in li:si
+        per = round(Int64, DURATION_COMPONENTS[i][2] / res)
+        q, n = divrem(n, per)
+        c = DURATION_COMPONENTS[i][1]
+        if c === :d
+            push!(texts, "$(q)d")
+        elseif c === :s && spec.decimals > 0
+            push!(texts, @sprintf("%02d", q) * "." *
+                         lpad(string(n), spec.decimals, '0'))
+        else
+            push!(texts, @sprintf("%02d", q))
+        end
+    end
+    has_days = DURATION_COMPONENTS[li][1] === :d
+    dstr = has_days ? texts[1] : ""
+    chain = has_days ? texts[2:end] : texts
+    body = if isempty(chain)
+        dstr
+    elseif length(chain) == 1
+        letter = spec.smallest === :s && spec.decimals > 0 ? "s" :
+            String(spec.smallest)
+        (isempty(dstr) ? "" : dstr * " ") * chain[1] * letter
+    else
+        (isempty(dstr) ? "" : dstr * " ") * join(chain, ":")
+    end
+    (seconds < 0 && total > 0 ? "-" : "") * body
+end
+
+"""
+    format_dim_label(dataset, dim, idx; fmt, numfmt, dateformat,
+                     target_unit, durspec)
 
 Render one axis' current value through the template `fmt`. Supported
 placeholders are `{name}`, `{value}` (formatted value plus unit),
-`{rawvalue}` (no unit), `{unit}` and `{index}`. `DateTime` axes never take
-a unit suffix.
+`{rawvalue}` (no unit), `{unit}`, `{index}` and `{duration}` (the value
+as a compound time span, shaped by `durspec`). `DateTime` axes never take
+a unit suffix. `target_unit` renders the value in a converted display
+unit; `{duration}` falls back to the `{value}` rendering when `durspec`
+is nothing or the axis is not a time span.
 """
 function format_dim_label(
     dataset::CDFDataset,
@@ -358,21 +509,36 @@ function format_dim_label(
     fmt::AbstractString = Constants.ANIMLABEL_FORMAT,
     numfmt::AbstractString = Constants.NUMBER_FORMAT,
     dateformat::AbstractString = Constants.DATETIME_FORMAT,
+    target_unit::Union{Nothing, AbstractString} = nothing,
+    durspec::Union{Nothing, DurationSpec} = nothing,
 )::String
     raw = format_dim_value(dataset, dim, idx; numfmt = numfmt,
-                           dateformat = dateformat)
+                           dateformat = dateformat, target_unit = target_unit)
     value_obj = dim ∈ keys(dataset.ds) ?
         Interpolate.get_coord_value(dataset.interp, dim, idx) : nothing
-    unit = value_obj isa Dates.DateTime ? "" : get_dim_unit(dataset, dim)
+    unit = value_obj isa Dates.DateTime ? "" :
+        get_dim_display_unit(dataset, dim, target_unit)
+    value_str = unit == "" ? raw : raw * " " * unit
+    duration = value_str
+    if durspec !== nothing && value_obj isa Number
+        seconds_factor = dim_unit_factor(dataset, dim, "s")
+        seconds_factor !== nothing &&
+            (duration = format_duration(Float64(value_obj) * seconds_factor,
+                                        durspec))
+    end
     replace(String(fmt),
         "{name}" => get_dim_display_name(dataset, dim),
-        "{value}" => (unit == "" ? raw : raw * " " * unit),
+        "{value}" => value_str,
         "{rawvalue}" => raw,
         "{unit}" => unit,
-        "{index}" => string(idx))
+        "{index}" => string(idx),
+        "{duration}" => duration)
 end
 
-function get_dim_value_label(dataset::CDFDataset, dim::String, idx::Int)::String
+function get_dim_value_label(
+    dataset::CDFDataset, dim::String, idx::Int;
+    target_unit::Union{Nothing, AbstractString} = nothing,
+)::String
     base = "  → "
     # Check if the dimension is selected
     dim === Constants.NOT_SELECTED_LABEL && return Constants.NO_DIM_SELECTED_LABEL
@@ -385,11 +551,14 @@ function get_dim_value_label(dataset::CDFDataset, dim::String, idx::Int)::String
     # DateTimes carry their own formatting and take no unit suffix
     value isa Dates.DateTime &&
         return base * Dates.format(value, Constants.DATETIME_FORMAT)
-    unit = get_dim_unit(dataset, dim)
+    unit = get_dim_display_unit(dataset, dim, target_unit)
     unit = unit == "" ? "" : " " * unit
     value isa AbstractString && return base * value * unit
-    value isa Number &&
+    if value isa Number
+        factor = dim_unit_factor(dataset, dim, target_unit)
+        factor !== nothing && (value *= factor)
         return base * format_number(value, Constants.NUMBER_FORMAT) * unit
+    end
     return base * string(idx)
 end
 

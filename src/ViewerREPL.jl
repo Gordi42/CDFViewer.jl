@@ -151,14 +151,22 @@ function select_value(state:: REPLState, command:: String)::String
     Data.get_dim_value_label(dataset, String(dim), idx)
 end
 
-function toggle_play(state:: REPLState, command:: String)::String
+function start_play(state:: REPLState, command:: String)::String
     parts = split(command, ' ', limit=2)
     if length(parts) > 1
         set_play_dimension(state, command)
     end
     toggle = state.controller.ui.main_menu.playback_menu.toggle
-    toggle.active[] = !toggle.active[]
-    toggle.active[] ? "Playing." : "Paused."
+    toggle.active[] && return "Already playing."
+    toggle.active[] = true
+    "Playing."
+end
+
+function stop_play(state:: REPLState, command:: String)::String
+    toggle = state.controller.ui.main_menu.playback_menu.toggle
+    toggle.active[] || return "Not playing."
+    toggle.active[] = false
+    "Stopped."
 end
 
 function set_play_speed(state:: REPLState, command:: String)::String
@@ -517,7 +525,8 @@ function __init_commands!()
     r(REPLCommand("z", "Select z-axis variable", "z [variable_name]", select_z_axis))
     r(REPLCommand("isel", "Select index for a dimension", "isel <dim_name> <index>", select_index))
     r(REPLCommand("sel", "Select value for a dimension", "sel <dim_name> <value>", select_value))
-    r(REPLCommand("play", "Toggle play/pause for animations", "play [dim_name]", toggle_play))
+    r(REPLCommand("play", "Start playing an animation", "play [dim_name]", start_play))
+    r(REPLCommand("stop", "Stop a playing animation", "stop", stop_play))
     r(REPLCommand("speed", "Set play speed", "speed [value]", set_play_speed))
     r(REPLCommand("pdim", "Set play dimension", "pdim [dim_name]", set_play_dimension))
     r(REPLCommand("savefig", "Save the current figure",

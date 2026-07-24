@@ -42,10 +42,11 @@ using CDFViewer.Plotting
     @testset "Animated-axis label" begin
         @testset "Template compilation" begin
             dataset = make_temp_dataset()
-            nf, df = Constants.NUMBER_FORMAT, Constants.DATETIME_FORMAT
+            cfg = Plotting.AnimLabelConfig(
+                Constants.NUMBER_FORMAT, Constants.DATETIME_FORMAT)
             compile(var, sel, pdim, animlabel = true) =
                 Plotting.compile_animlabel(dataset, var, sel, pdim,
-                                           animlabel, nf, df)
+                                           animlabel, cfg)
 
             # the default template: one static piece, one value slot
             segs = compile("3d_float", ["lon", "lat"], "time")
@@ -82,23 +83,24 @@ using CDFViewer.Plotting
 
         @testset "Slot rendering and sizing" begin
             dataset = make_temp_dataset()
-            nf, df = Constants.NUMBER_FORMAT, Constants.DATETIME_FORMAT
+            cfg = Plotting.AnimLabelConfig(
+                Constants.NUMBER_FORMAT, Constants.DATETIME_FORMAT)
 
             @test Plotting.render_slot(dataset, "float_dim", 4,
-                "{rawvalue}", nf, df) == "1.6"
+                "{rawvalue}", cfg) == "1.6"
             @test Plotting.render_slot(dataset, "float_dim", 4,
-                "{index}", nf, df) == "4"
+                "{index}", cfg) == "4"
             # a DateTime axis renders without a unit suffix
             @test Plotting.render_slot(dataset, "time", 2,
-                "{value}", nf, df) == "1951-01-03 00:00:00"
+                "{value}", cfg) == "1951-01-03 00:00:00"
 
             # the slot is sized from the widest rendering over the axis
             widest = Plotting.widest_slot_text(dataset, "float_dim",
-                "{rawvalue}", nf, df)
+                "{rawvalue}", cfg)
             @test length(widest) == 3          # "1.2" beats "1"/"2"
             # an unknown dimension yields an empty (zero-width) slot
             @test Plotting.widest_slot_text(dataset, "nope",
-                "{rawvalue}", nf, df) == ""
+                "{rawvalue}", cfg) == ""
 
             @test Plotting.measure_text("time: ") > 0
             @test Plotting.measure_text("") == 0.0
@@ -132,6 +134,135 @@ using CDFViewer.Plotting
             # an unknown dimension falls back to the plain default
             @test Plotting.resolve_numfmt(dataset, "nope", "auto") ==
                 Constants.NUMBER_FORMAT
+            close(dataset.ds)
+        end
+
+        @testset "Animation display units" begin
+            # Arrange: a playback dimension in plain seconds (5 days span)
+            function make_seconds_dataset()
+                file = tempname() * ".nc"
+                NCDataset(file, "c") do ds
+                    defVar(ds, "t", collect(0.0:43200.0:432000.0), ("t",),
+                        attrib = OrderedDict("units" => "s"))
+                    defVar(ds, "x", collect(1.0:5.0), ("x",))
+                    defVar(ds, "u", rand(5, 11), ("x", "t"))
+                end
+                Data.CDFDataset([file])
+            end
+
+            dataset = make_seconds_dataset()
+            settings = Plotting.FigureSettings()
+
+            # Act & Assert: native by default, duration shape always derived
+            config = Plotting.resolve_anim_config(dataset, "t", settings)
+            @test config.unit === nothing
+            @test config.numfmt == "%.0f"
+            @test config.durspec == Data.DurationSpec(:d, :h, 0)
+
+            # Act & Assert: an explicit unit converts the derived numfmt too
+            settings.animunit[] = "d"
+            config = Plotting.resolve_anim_config(dataset, "t", settings)
+            @test config.unit == "d"
+            @test config.numfmt == "%.1f"      # 0.0, 0.5, ... 5.0 days
+
+            # Act & Assert: "auto" picks the unit from the axis magnitude
+            settings.animunit[] = "auto"
+            config = Plotting.resolve_anim_config(dataset, "t", settings)
+            @test config.unit == "d"
+
+            # Act & Assert: a family mismatch keeps native rendering
+            settings.animunit[] = "km"
+            config = Plotting.resolve_anim_config(dataset, "t", settings)
+            @test config.unit === nothing
+            @test config.numfmt == "%.0f"
+
+            # Act & Assert: converted slots render through the shared config
+            settings.animunit[] = "h"
+            config = Plotting.resolve_anim_config(dataset, "t", settings)
+            @test Plotting.render_slot(dataset, "t", 2, "{value}", config) ==
+                "12 h"
+            @test Plotting.render_slot(dataset, "t", 4, "{duration}",
+                                       config) == "1d 12h"
+
+            # Act & Assert: the static {unit} placeholder converts as well
+            segs = Plotting.compile_animlabel(dataset, "u", ["x"], "t",
+                "{name} [{unit}]: {rawvalue}", config)
+            @test segs[1].text == "t [h]: "
+
+            # Act & Assert: on a non-time axis a duration slot degrades to
+            # a value slot, so the template survives pdim switches
+            config = Plotting.resolve_anim_config(dataset, "x", settings)
+            @test config.durspec === nothing
+            segs = Plotting.compile_animlabel(dataset, "u", ["t"], "x",
+                "{duration}", config)
+            @test [seg.template for seg in segs if seg.dynamic] == ["{value}"]
+            segs = Plotting.compile_animlabel(dataset, "u", ["x"], "t",
+                "{duration}", Plotting.resolve_anim_config(dataset, "t", settings))
+            @test [seg.template for seg in segs if seg.dynamic] == ["{duration}"]
+
+            close(dataset.ds)
+        end
+
+        @testset "animunit setting" begin
+            # Arrange: a full figure over the seconds dataset
+            file = tempname() * ".nc"
+            NCDataset(file, "c") do ds
+                defVar(ds, "t", collect(0.0:43200.0:432000.0), ("t",),
+                    attrib = OrderedDict("units" => "s"))
+                defVar(ds, "x", collect(1.0:5.0), ("x",))
+                defVar(ds, "u", rand(5, 11), ("x", "t"))
+            end
+            dataset = Data.CDFDataset([file])
+            ui = UI.UIElements(dataset)
+            plot_data = Plotting.PlotData(ui.state, dataset)
+            fd = Plotting.FigureData(plot_data, ui)
+            state = ui.state
+            state.variable[] = "u"
+            state.x_name[] = "x"
+            playback = ui.main_menu.playback_menu
+            playback.var.selection[] = "t"
+
+            # Assert: the readout starts native
+            @test playback.label.text[] == "  → t: 0 s"
+
+            # Act & Assert: unknown spellings error and change nothing
+            res = @test_logs (:error,) match_mode = :any begin
+                Plotting.set_animunit!(fd, "furlong")
+            end
+            @test res == false
+            @test fd.settings.animunit[] === nothing
+
+            # Act & Assert: a wrong-family unit warns but is stored (it
+            # applies once a compatible playback dimension is selected)
+            res = @test_logs (:warn,) match_mode = :any begin
+                Plotting.set_animunit!(fd, "km")
+            end
+            @test res == false
+            @test fd.settings.animunit[] == "km"
+            @test fd.anim_config[].unit === nothing
+            @test playback.label.text[] == "  → t: 0 s"
+
+            # Act & Assert: a valid unit reaches the label and the readout
+            Plotting.set_animunit!(fd, "h")
+            @test fd.anim_config[].unit == "h"
+            @test state.anim_unit[] == "h"
+            @test playback.label.text[] == "  → t: 0 h"
+
+            # Act & Assert: "auto" resolves against the axis magnitude
+            Plotting.set_animunit!(fd, "auto")
+            @test fd.anim_config[].unit == "d"
+            @test playback.label.text[] == "  → t: 0 d"
+
+            # Act & Assert: switching off restores native values
+            Plotting.set_animunit!(fd, nothing)
+            @test fd.anim_config[].unit === nothing
+            @test playback.label.text[] == "  → t: 0 s"
+
+            # Assert: the settings default is off
+            @test Plotting.get_default_value(fd, fd.settings, :animunit) ===
+                nothing
+
+            GLMakie.closeall()
             close(dataset.ds)
         end
 
@@ -196,6 +327,205 @@ using CDFViewer.Plotting
             state.pdim[] = Constants.NOT_SELECTED_LABEL
             @test length(fig_data.anim_header[]) == 1
             cleanup(dataset)
+        end
+    end
+
+    @testset "Pinned color range" begin
+        kwc(pairs...) = OrderedDict{Symbol, Any}(pairs...)
+        wait_scan(fd) = let t = fd.crange_scan.task
+            t === nothing || wait(t)
+        end
+        # Makie stores the attribute as a Vec2f; compare in Float32
+        crange(fd) = Tuple(fd.plot_obj[].colorrange[])
+        function init_anim_figure(plot_type::String, var::String = "3d_float")
+            (fd, state, dataset) = arrange_and_create_axis(
+                var, ["lon", "lat"], plot_type)
+            fd.ui.main_menu.playback_menu.var.selection[] = "time"
+            wait_scan(fd)
+            (fd, state, dataset)
+        end
+
+        @testset "Cycle pin" begin
+            (fd, state, dataset) = init_anim_figure("heatmap")
+            vals = dataset.ds["3d_float"][:, :, :]
+            expected = Float32.((minimum(vals), maximum(vals)))
+            @test crange(fd) == expected
+
+            # advancing the playback frame leaves the pin untouched
+            fd.ui.main_menu.coord_sliders.sliders["time"].value[] = 2
+            @test crange(fd) == expected
+            cleanup(dataset)
+        end
+
+        @testset "Modes" begin
+            (fd, state, dataset) = init_anim_figure("heatmap")
+            vals = dataset.ds["3d_float"][:, :, :]
+            expected = Float32.((minimum(vals), maximum(vals)))
+
+            # "frame" restores Makie's per-frame autoscaling
+            Plotting.update_kwargs!(fd, kwc(:colorrange => "frame"))
+            @test fd.plot_obj[].colorrange[] == Makie.automatic
+
+            # deleting the keyword returns to the cycle pin (cached)
+            Plotting.update_kwargs!(fd, kwc())
+            @test crange(fd) == expected
+
+            # a manual tuple always wins
+            Plotting.update_kwargs!(fd, kwc(:colorrange => (0.2, 0.8)))
+            @test crange(fd) == (0.2f0, 0.8f0)
+            Plotting.update_kwargs!(fd, kwc())
+            @test crange(fd) == expected
+
+            # unknown mode strings are rejected and change nothing
+            @test_logs (:error,) match_mode = :any begin
+                Plotting.update_kwargs!(fd, kwc(:colorrange => "bogus"))
+            end
+            @test crange(fd) == expected
+            cleanup(dataset)
+        end
+
+        @testset "Cycle vs data" begin
+            (fd, state, dataset) = init_anim_figure("heatmap", "4d_float")
+            all_vals = dataset.ds["4d_float"][:, :, :, :]
+            slab = all_vals[:, :, :, 1]     # float_dim fixed at index 1
+            @test crange(fd) == Float32.((minimum(slab), maximum(slab)))
+
+            Plotting.update_kwargs!(fd, kwc(:colorrange => "data"))
+            wait_scan(fd)
+            @test crange(fd) == Float32.((minimum(all_vals), maximum(all_vals)))
+            cleanup(dataset)
+        end
+
+        @testset "Contour levels" begin
+            (fd, state, dataset) = init_anim_figure("contourf")
+            vals = dataset.ds["3d_float"][:, :, :]
+            levels = fd.plot_obj[].levels[]
+            @test levels isa AbstractVector
+            @test first(levels) == minimum(vals)
+            @test last(levels) == maximum(vals)
+
+            # frame mode hands the plot its own Int levels back
+            Plotting.update_kwargs!(fd, kwc(:colorrange => "frame"))
+            @test fd.plot_obj[].levels[] isa Int
+            cleanup(dataset)
+        end
+
+        @testset "No playback dimension" begin
+            (fd, state, dataset) = arrange_and_create_axis(
+                "2d_float", ["lon", "lat"], "heatmap")
+            @test fd.crange_scan.applied_key === nothing
+            @test fd.plot_obj[].colorrange[] == Makie.automatic
+            cleanup(dataset)
+        end
+
+        @testset "Camera rotation" begin
+            kwr(pairs...) = OrderedDict{Symbol, Any}(pairs...)
+
+            # Arrange: a surface plot lives on an Axis3
+            (fd, state, dataset) = arrange_and_create_axis(
+                "2d_float", ["lon", "lat"], "surface")
+            @test fd.ax[] isa Axis3
+
+            # Act & Assert: horizontal rotation advances the azimuth
+            Plotting.update_kwargs!(fd, kwr(:rotate => 90))
+            azimuth = fd.ax[].azimuth[]
+            Plotting.rotate_camera!(fd, 0.1)
+            @test fd.ax[].azimuth[] ≈ azimuth + deg2rad(9)
+
+            # Act & Assert: a lag spike is clamped, not a camera jolt
+            azimuth = fd.ax[].azimuth[]
+            Plotting.rotate_camera!(fd, 5.0)
+            @test fd.ax[].azimuth[] ≈ azimuth + deg2rad(9)
+
+            # Act & Assert: vertical rotation bounces at the default
+            # upper limit (elevation 80°)
+            Plotting.update_kwargs!(fd, kwr(:rotate => 0, :rotatev => 90))
+            fd.ax[].elevation[] = deg2rad(79)
+            @test fd.camera_vdir[] == 1.0
+            Plotting.rotate_camera!(fd, 0.1)   # would overshoot: clamps
+            @test fd.ax[].elevation[] ≈ deg2rad(80)
+            @test fd.camera_vdir[] == -1.0
+            Plotting.rotate_camera!(fd, 0.1)   # now heading down
+            @test fd.ax[].elevation[] < deg2rad(80)
+
+            # Act & Assert: custom vertical limits bound the bounce
+            Plotting.update_kwargs!(fd, kwr(:rotatev => 90,
+                                            :rotatevlim => (10, 30)))
+            fd.ax[].elevation[] = deg2rad(29)
+            fd.camera_vdir[] = 1.0
+            Plotting.rotate_camera!(fd, 0.1)
+            @test fd.ax[].elevation[] ≈ deg2rad(30)
+            @test fd.camera_vdir[] == -1.0
+
+            # Act & Assert: outside the limits (a dragged camera) the
+            # view travels back smoothly instead of snapping
+            fd.ax[].elevation[] = deg2rad(-20)
+            Plotting.rotate_camera!(fd, 0.1)
+            @test fd.ax[].elevation[] ≈ deg2rad(-11)
+
+            # Act & Assert: an azimuth sector turns the orbit into a sweep
+            Plotting.update_kwargs!(fd, kwr(:rotate => 90,
+                                            :rotatelim => (-45, 45)))
+            fd.ax[].azimuth[] = deg2rad(44)
+            fd.camera_hdir[] = 1.0
+            Plotting.rotate_camera!(fd, 0.1)
+            @test fd.ax[].azimuth[] ≈ deg2rad(45)
+            @test fd.camera_hdir[] == -1.0
+
+            # Act & Assert: a negative speed seeds the direction
+            Plotting.update_kwargs!(fd, kwr(:rotatev => -90))
+            @test fd.camera_vdir[] == -1.0
+
+            # Act & Assert: unusable limits are rejected
+            @test_logs (:error,) match_mode = :any begin
+                Plotting.set_rotatevlim!(fd, (50, 10))
+            end
+            @test fd.settings.rotatevlim[] == (0.0, 80.0)
+
+            # Act & Assert: deleting the keywords stops the motion
+            Plotting.update_kwargs!(fd, kwr())
+            azimuth, elevation = fd.ax[].azimuth[], fd.ax[].elevation[]
+            Plotting.rotate_camera!(fd, 0.1)
+            @test fd.ax[].azimuth[] == azimuth
+            @test fd.ax[].elevation[] == elevation
+            cleanup(dataset)
+
+            # Arrange & Assert: a 2D axis stores the setting but stays put
+            (fd, state, dataset) = arrange_and_create_axis(
+                "2d_float", ["lon", "lat"], "heatmap")
+            Plotting.update_kwargs!(fd, kwr(:rotate => 10))
+            @test fd.settings.rotate[] == 10.0
+            Plotting.rotate_camera!(fd, 0.1)   # no Axis3: nothing happens
+            cleanup(dataset)
+        end
+
+        @testset "Size gate" begin
+            old = Plotting.DataLimits.AUTO_SCAN_ELEMENTS[]
+            Plotting.DataLimits.AUTO_SCAN_ELEMENTS[] = 10
+            try
+                (fd, state, dataset) = arrange_and_create_axis(
+                    "3d_float", ["lon", "lat"], "heatmap")
+                # over the gate: no scan, per-frame scaling, one hint
+                @test_logs (:info,) match_mode = :any begin
+                    fd.ui.main_menu.playback_menu.var.selection[] = "time"
+                end
+                @test fd.crange_scan.applied_key === nothing
+                @test fd.plot_obj[].colorrange[] == Makie.automatic
+
+                # an explicit request bypasses the gate
+                Plotting.update_kwargs!(fd, kwc(:colorrange => "cycle"))
+                wait_scan(fd)
+                vals = dataset.ds["3d_float"][:, :, :]
+                expected = Float32.((minimum(vals), maximum(vals)))
+                @test crange(fd) == expected
+
+                # once cached, even the gated default keeps the pin
+                Plotting.update_kwargs!(fd, kwc())
+                @test crange(fd) == expected
+                cleanup(dataset)
+            finally
+                Plotting.DataLimits.AUTO_SCAN_ELEMENTS[] = old
+            end
         end
     end
 

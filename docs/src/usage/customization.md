@@ -52,8 +52,11 @@ repl(session, "colormap=:thermal, colorrange=(-20, 30)") # hide
 plot_figure(session) # hide
 ```
 
-The colorbar follows automatically. Deleting the keyword (`del colorrange`)
-returns to automatic scaling.
+The colorbar follows automatically. During animation the range is pinned
+on its own for reasonably sized variables, and `colorrange` also accepts
+the modes `"cycle"`, `"data"`, and `"frame"` to control that (see
+[Stable colors during playback](animation.md#Stable-colors-during-playback)).
+Deleting the keyword (`del colorrange`) returns to the default pinning.
 
 ## Contour levels and labels
 
@@ -96,6 +99,10 @@ A few special keywords control the figure itself rather than the plot.
 | `coastlines=true` | `true` | draw coastlines (geographic mode) |
 | `land=false` | `false` | fill land masses (geographic mode) |
 | `earth=false` | `false` | satellite image background (geographic mode) |
+| `rotate=20` | `0` | orbit the 3D camera horizontally (degrees per second) |
+| `rotatev=5` | `0` | move the 3D camera vertically, bouncing inside `rotatevlim` |
+| `rotatelim=(-45, 45)` | (none) | bound the orbit to an azimuth sector (back-and-forth sweep) |
+| `rotatevlim=(0, 80)` | `(0, 80)` | elevation range of the vertical bounce |
 
 The label showing the current playback value is configured the same way,
 through its own `animlabel...` keywords (see
@@ -158,12 +165,16 @@ Units convert only within their family.
 | Family   | Units |
 |:---------|:------|
 | length   | `mm`, `cm`, `m`, `km` |
-| time     | `s`, `min`, `h`, `d` |
+| time     | `ns`, `µs`, `ms`, `s`, `min`, `h`, `d`, `yr` |
 | pressure | `Pa`, `hPa`, `mbar`, `kPa`, `dbar`, `bar` |
 
-Asking for a unit the axis cannot convert to (say `xunit="bar"` on a meter
-axis) keeps the native ticks and reports why. `del xunit` returns to the
-native unit.
+A year here is the Julian year of 365.25 days. Asking for a unit the axis
+cannot convert to (say `xunit="bar"` on a meter axis) keeps the native
+ticks and reports why. `del xunit` returns to the native unit.
+
+The label naming the current playback value converts the same way through
+the `animunit` keyword (see
+[Animation and Playback](animation.md#Labelling-the-current-frame)).
 
 ```@example cstu
 close_viewer!(session) # hide

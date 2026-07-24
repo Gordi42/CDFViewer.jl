@@ -77,12 +77,51 @@ function exercise_repl_commands!(state::ViewerREPL.REPLState)::Nothing
     ViewerREPL.evaluate_command(state, "sel lev 2.0")
     ViewerREPL.evaluate_command(state, "pdim time")
     ViewerREPL.evaluate_command(state, "play")
-    ViewerREPL.evaluate_command(state, "play")
+    ViewerREPL.evaluate_command(state, "stop")
     ViewerREPL.evaluate_command(state, "speed 2.0")
     ViewerREPL.evaluate_command(state, "colormap=:viridis, title=\"workload\"")
     wait_tasks()
     ViewerREPL.evaluate_command(state, "get colormap")
     ViewerREPL.evaluate_command(state, "del title")
+    wait_tasks()
+
+    # Animated-label display units: the settings path and the converted
+    # rendering; the time-family paths (auto pick, durations) run directly
+    # since the workload's time axis decodes to DateTimes.
+    ViewerREPL.evaluate_command(state, "pdim lev")
+    ViewerREPL.evaluate_command(state,
+        "animunit=\"auto\", animlabel=\"{name}: {duration}\"")
+    wait_tasks()
+    ViewerREPL.evaluate_command(state, "del animunit animlabel")
+    ViewerREPL.evaluate_command(state, "pdim time")
+    wait_tasks()
+    RescaleUnits.auto_display_unit("s", 5e6)
+    Data.format_duration(129600.0,
+                         Data.derive_duration_spec([0.0, 43200.0, 86400.0]))
+
+    # Color-range pinning: the pdim selection above starts a cycle scan;
+    # exercise the mode switches and let the async pins land
+    wait_scan() = let t = state.controller.fd.crange_scan.task
+        t === nothing || wait(t)
+    end
+    wait_scan()
+    ViewerREPL.evaluate_command(state, "colorrange=\"data\"")
+    wait_tasks()
+    wait_scan()
+    ViewerREPL.evaluate_command(state, "colorrange=\"frame\"")
+    ViewerREPL.evaluate_command(state, "del colorrange")
+    wait_tasks()
+    wait_scan()
+
+    # Camera rotation on a 3D axis
+    ViewerREPL.evaluate_command(state, "p surface")
+    wait_tasks()
+    ViewerREPL.evaluate_command(state,
+        "rotate=20, rotatev=10, rotatelim=(-45, 45), rotatevlim=(10, 60)")
+    Plotting.rotate_camera!(state.controller.fd, 0.05)
+    ViewerREPL.evaluate_command(state,
+        "del rotate rotatev rotatelim rotatevlim")
+    ViewerREPL.evaluate_command(state, "p heatmap")
     wait_tasks()
     for cmd in ("help", "vars", "plots", "dims", "varinfo", "conf", "kwargs", "refresh", "reset")
         ViewerREPL.evaluate_command(state, cmd)

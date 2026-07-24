@@ -51,6 +51,9 @@ function ViewerController(dataset::Data.CDFDataset;
     setup!(controller)
     # wait until the tasks are done
     [wait(t) for t in controller.fd.tasks[]]
+    let t = controller.fd.crange_scan.task
+        t === nothing || wait(t)
+    end
     controller.headless[] = headless
     controller
 end
@@ -335,6 +338,7 @@ end
 
 function on_tick_event(controller::ViewerController, tick::Makie.Tick)::Nothing
     UI.update_slider!(controller.ui.main_menu.playback_menu, controller.ui.main_menu.coord_sliders)
+    Plotting.rotate_camera!(controller.fd, tick.delta_time)
     nothing
 end
 
@@ -358,6 +362,8 @@ function on_record_event(controller::ViewerController)::Nothing
     ani_dim = controller.ui.main_menu.playback_menu.var.selection[]
     slider = controller.ui.main_menu.coord_sliders.sliders[ani_dim]
     slider_value = slider.value[]
+    # a video must never rescale mid-file: make sure the pin is ready
+    Plotting.update_colorrange!(controller.fd; sync = true)
     Output.record_scene(controller.fd.fig, controller.ui.state.output_settings[], slider)
     # reset the slider to its original value
     slider.value[] = slider_value

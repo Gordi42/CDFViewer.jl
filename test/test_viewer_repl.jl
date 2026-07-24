@@ -242,22 +242,27 @@ using CDFViewer.ViewerREPL
             cleanup(state)
         end
 
-        @testset "Toggle Play" begin
+        @testset "Play and Stop" begin
             # Arrange
             state = init_state()
             ViewerREPL.select_variable(state, "v 5d_float")
+            toggle = state.controller.ui.main_menu.playback_menu.toggle
 
-            # Act & Assert: Activate Play
-            @test ViewerREPL.toggle_play(state, "play") == "Playing."
-            @test state.controller.ui.main_menu.playback_menu.toggle.active[] == true
+            # Act & Assert: play starts, and stays started
+            @test ViewerREPL.start_play(state, "play") == "Playing."
+            @test toggle.active[] == true
+            @test ViewerREPL.start_play(state, "play") == "Already playing."
+            @test toggle.active[] == true
 
-            # Act & Assert: Deactivate Play
-            @test ViewerREPL.toggle_play(state, "play") == "Paused."
-            @test state.controller.ui.main_menu.playback_menu.toggle.active[] == false
+            # Act & Assert: only stop stops
+            @test ViewerREPL.stop_play(state, "stop") == "Stopped."
+            @test toggle.active[] == false
+            @test ViewerREPL.stop_play(state, "stop") == "Not playing."
+            @test toggle.active[] == false
 
-            # Act & Assert: Set dimension while activating play
-            @test ViewerREPL.toggle_play(state, "play float_dim") == "Playing."
-            @test state.controller.ui.main_menu.playback_menu.toggle.active[] == true
+            # Act & Assert: Set dimension while starting play
+            @test ViewerREPL.start_play(state, "play float_dim") == "Playing."
+            @test toggle.active[] == true
             @test state.controller.ui.main_menu.playback_menu.var.selection[] == "float_dim"
 
             # Cleanup

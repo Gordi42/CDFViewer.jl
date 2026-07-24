@@ -121,10 +121,16 @@ register_display_unit!(:length, 1e-2, "cm",
 register_display_unit!(:length, 1.0, "m", "meter", "meters", "metre", "metres")
 register_display_unit!(:length, 1e3, "km",
     "kilometer", "kilometers", "kilometre", "kilometres")
+register_display_unit!(:time, 1e-9, "ns", "nanosecond", "nanoseconds")
+register_display_unit!(:time, 1e-6, "µs", "us", "microsecond", "microseconds")
+register_display_unit!(:time, 1e-3, "ms", "millisecond", "milliseconds")
 register_display_unit!(:time, 1.0, "s", "sec", "second", "seconds")
 register_display_unit!(:time, 60.0, "min", "minute", "minutes")
 register_display_unit!(:time, 3600.0, "h", "hr", "hour", "hours")
 register_display_unit!(:time, 86400.0, "d", "day", "days")
+# the Julian year (365.25 d); "a"/"annum" are left out -- lowercased
+# lookups would swallow "A" (ampere)
+register_display_unit!(:time, 3.15576e7, "yr", "year", "years", "yrs")
 register_display_unit!(:pressure, 1.0, "Pa", "pascal")
 register_display_unit!(:pressure, 100.0, "hPa")
 register_display_unit!(:pressure, 100.0, "mbar", "millibar")
@@ -155,6 +161,31 @@ function display_factor(from::AbstractString,
     (from_unit === nothing || to_unit === nothing) && return nothing
     from_unit.family === to_unit.family || return nothing
     from_unit.factor / to_unit.factor
+end
+
+"""
+    auto_display_unit(native, max_abs)
+
+The canonical family unit that renders values of magnitude `max_abs`
+(in `native` units) comfortably: the largest unit keeping the converted
+maximum >= 1, or the family's smallest unit when even that is too big.
+Nothing when `native` is unknown or `max_abs` is not a positive finite
+number.
+"""
+function auto_display_unit(native::AbstractString,
+                           max_abs::Real)::Union{String, Nothing}
+    native_unit = display_unit(native)
+    native_unit === nothing && return nothing
+    (isfinite(max_abs) && max_abs > 0) || return nothing
+    base_magnitude = Float64(max_abs) * native_unit.factor
+    family = sort!(unique(u for u in values(display_units)
+                          if u.family === native_unit.family);
+                   by = u -> u.factor)
+    best = family[1]
+    for u in family
+        u.factor <= base_magnitude && (best = u)
+    end
+    best.canonical
 end
 
 end
