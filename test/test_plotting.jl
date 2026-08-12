@@ -422,6 +422,41 @@ using CDFViewer.Plotting
             cleanup(dataset)
         end
 
+        @testset "Manual range vs. a scan in flight" begin
+            # Arrange: the cycle scan is still running when the keywords
+            # arrive. apply_kwargs! yields while it waits for its render
+            # cycles, and the scan used to land inside that window and
+            # overwrite the manual range -- silently, nothing errored.
+            (fd, state, dataset) = arrange_and_create_axis(
+                "3d_float", ["lon", "lat"], "heatmap")
+            fd.ui.main_menu.playback_menu.var.selection[] = "time"
+            # the wait (and with it the yield) only runs with a window
+            fd.fig.scene.events.window_open[] = true
+
+            # Act: the reported keyword set, applied without awaiting
+            # the scan
+            Plotting.update_kwargs!(fd, kwc(
+                :animlabel => true, :animlabelnumfmt => "%.2f",
+                :colormap => :viridis, :colorrange => (0.2, 0.8),
+                :figsize => (900, 700), :titlesize => 30,
+                :xlabelsize => 22, :ylabelsize => 22, :title => "Demo"))
+            wait_scan(fd)
+
+            # Assert: the manual range holds, and so does everything else
+            @test crange(fd) == (0.2f0, 0.8f0)
+            @test fd.settings.titlesize[] == 30.0
+            @test fd.ax[].xlabelsize[] == 22.0
+            @test fd.settings.title[] == "Demo"
+
+            # Act & Assert: a pin that lands even later is reconciled
+            # away the next time the range is updated
+            Plotting.apply_colorrange_pin!(
+                fd, Plotting.colorrange_key(fd, :cycle), (0.0, 1.0))
+            Plotting.update_colorrange!(fd)
+            @test crange(fd) == (0.2f0, 0.8f0)
+            cleanup(dataset)
+        end
+
         @testset "Cycle vs data" begin
             (fd, state, dataset) = init_anim_figure("heatmap", "4d_float")
             all_vals = dataset.ds["4d_float"][:, :, :, :]
