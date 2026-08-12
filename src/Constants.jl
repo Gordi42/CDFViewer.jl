@@ -73,6 +73,13 @@ const FIGSIZE = (800, 600)
 const LABELSIZE = 20
 const TITLESIZE = 24
 
+# Colorbar label. The size follows the axis labels; colour, font and
+# padding mirror Makie's own Colorbar defaults under the viewer's theme,
+# so an untouched option draws exactly as Makie would draw it.
+const CBARLABEL_COLOR = :black
+const CBARLABEL_FONT = "regular"
+const CBARLABEL_PADDING = 5.0
+
 const N_INTERPOLATION_POINTS = 500
 
 const COORDINATE_ORDER_PRIORITY = Dict(
