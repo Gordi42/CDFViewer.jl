@@ -89,7 +89,11 @@ the converted values, and a unit the dimension cannot convert to keeps
 the native rendering and reports why. Alternatively, the `{duration}`
 placeholder writes a time axis as a compound span (`1d 12:00`), choosing
 its components from the axis span and step; on a playback dimension that
-is no time span it falls back to the `{value}` rendering.
+is no time span it falls back to the `{value}` rendering. A dimension
+whose unit is dimensionless (see
+[Dimensionless quantities](customization.md#Dimensionless-quantities))
+has nothing to print or convert: `{value}` stays a bare number and
+`{unit}` is empty.
 
 | Keyword | Default | Effect |
 |:--------|:--------|:-------|

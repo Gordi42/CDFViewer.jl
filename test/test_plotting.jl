@@ -203,6 +203,37 @@ using CDFViewer.Plotting
             close(dataset.ds)
         end
 
+        @testset "Dimensionless playback dimension" begin
+            # Arrange: a playback dimension carrying units = "1"
+            dataset = make_dimensionless_temp_dataset()
+            settings = Plotting.FigureSettings()
+
+            # Act: nothing to convert into, so the label stays native
+            config = Plotting.resolve_anim_config(dataset, "one", settings)
+
+            # Assert: neither the value nor the {unit} slot shows a unit
+            @test config.unit === nothing
+            @test config.durspec === nothing
+            @test Plotting.render_slot(dataset, "one", 2, "{value}", config) ==
+                "2"
+            segs = Plotting.compile_animlabel(dataset, "frac", ["milli"],
+                "one", "{name} [{unit}]: {value}", config)
+            @test segs[1].text == "Ratio []: "
+
+            # Act & Assert: no display unit can apply to a dimensionless axis
+            @test Plotting.resolve_animunit(dataset, "one", "km",
+                                            [1.0, 2.0]) === nothing
+            @test Plotting.resolve_animunit(dataset, "one", "auto",
+                                            [1.0, 2.0]) === nothing
+
+            # Act & Assert: a look-alike unit still prints
+            config = Plotting.resolve_anim_config(dataset, "milli", settings)
+            @test Plotting.render_slot(dataset, "milli", 2, "{value}",
+                                       config) == "2 1e-3"
+
+            close(dataset.ds)
+        end
+
         @testset "animunit setting" begin
             # Arrange: a full figure over the seconds dataset
             file = tempname() * ".nc"
