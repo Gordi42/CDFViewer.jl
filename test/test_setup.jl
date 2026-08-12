@@ -209,3 +209,38 @@ function init_semi_unstructured_temp_dataset()::String
 end
 
 make_semi_unstructured_temp_dataset() = Data.CDFDataset([init_semi_unstructured_temp_dataset()])
+
+# ========================================
+#  Dimensionless Units
+# ========================================
+# Every spelling that must print no unit at all, next to look-alikes that
+# must keep printing ("1e-3", "s-1", "%").
+
+function init_dimensionless_temp_dataset()::String
+    file = tempname() * ".nc"
+
+    NCDataset(file, "c") do ds
+        defVar(ds, "one", collect(1.0:5.0), ("one",), attrib = OrderedDict(
+            "units" => "1", "long_name" => "Ratio"))
+        defVar(ds, "spelled", collect(1.0:3.0), ("spelled",),
+            attrib = OrderedDict("units" => " Dimensionless "))
+        defVar(ds, "dash", collect(1.0:3.0), ("dash",), attrib = OrderedDict(
+            "units" => "-"))
+        defVar(ds, "nothing", collect(1.0:3.0), ("nothing",),
+            attrib = OrderedDict("units" => "NONE"))
+        defVar(ds, "blank", collect(1.0:3.0), ("blank",), attrib = OrderedDict(
+            "units" => "  "))
+        defVar(ds, "milli", collect(1.0:3.0), ("milli",), attrib = OrderedDict(
+            "units" => "1e-3"))
+        defVar(ds, "rate", collect(1.0:3.0), ("rate",), attrib = OrderedDict(
+            "units" => "s-1"))
+        defVar(ds, "frac", rand(5, 3), ("one", "milli"), attrib = OrderedDict(
+            "units" => "1", "long_name" => "Cloud fraction"))
+        defVar(ds, "pct", rand(5, 3), ("one", "milli"), attrib = OrderedDict(
+            "units" => "%"))
+    end
+
+    file
+end
+
+make_dimensionless_temp_dataset() = Data.CDFDataset([init_dimensionless_temp_dataset()])

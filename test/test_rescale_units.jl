@@ -78,6 +78,43 @@ using NCDatasets
 
     end
 
+    @testset "Dimensionless units" begin
+        @testset "Predicate" begin
+            # Act & Assert: the accepted spellings, case- and space-insensitive
+            for unit in ["1", "dimensionless", "none", "-", "",
+                         " 1 ", "Dimensionless", "NONE", "\t-\n", "   "]
+                @test RescaleUnits.is_dimensionless(unit)
+                @test RescaleUnits.normalize_unit(unit) == ""
+            end
+
+            # Act & Assert: real units that merely look similar survive
+            for unit in ["m", "K", "m s-1", "%", "1e-3", "10^3", "1/s",
+                         "s-1", "11", "n/a", "degrees"]
+                @test !RescaleUnits.is_dimensionless(unit)
+                @test RescaleUnits.normalize_unit(unit) == unit
+            end
+        end
+
+        @testset "Reading from a dataset" begin
+            # Arrange: coordinates spelling "dimensionless" every which way
+            ds = make_dimensionless_temp_dataset().ds
+
+            # Act & Assert: every dimensionless spelling reads as no unit
+            for coord in ["one", "spelled", "dash", "nothing", "blank", "frac"]
+                @test RescaleUnits.get_unit(ds, coord) == ""
+                @test RescaleUnits.get_remapped_unit(ds, coord) == ""
+            end
+
+            # Act & Assert: look-alike units are untouched
+            @test RescaleUnits.get_unit(ds, "milli") == "1e-3"
+            @test RescaleUnits.get_unit(ds, "rate") == "s-1"
+            @test RescaleUnits.get_unit(ds, "pct") == "%"
+
+            # Cleanup
+            close(ds)
+        end
+    end
+
     @testset "Unit Conversion Functions" begin
         @testset "radians_to_degrees" begin
             @test isapprox(RescaleUnits.radians_to_degrees(0.0), 0.0)

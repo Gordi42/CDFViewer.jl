@@ -254,6 +254,47 @@ using GLMakie
         close(dataset.ds)
     end
 
+    @testset "Labels without a unit" begin
+        # Arrange: coordinates and variables spelling "dimensionless"
+        dataset = make_dimensionless_temp_dataset()
+
+        # Assert: a dimensionless unit prints nothing, as if it were absent
+        @test Data.get_label(dataset, "one") == "Ratio"
+        @test Data.get_label(dataset, "frac") == "Cloud fraction"
+        @test Data.get_label(dataset, "spelled") == "spelled"
+        @test Data.get_label(dataset, "dash") == "dash"
+        @test Data.get_label(dataset, "nothing") == "nothing"
+        @test Data.get_label(dataset, "blank") == "blank"
+
+        # Assert: look-alike units keep printing
+        @test Data.get_label(dataset, "milli") == "milli [1e-3]"
+        @test Data.get_label(dataset, "rate") == "rate [s-1]"
+        @test Data.get_label(dataset, "pct") == "pct [%]"
+
+        # Assert: nothing to convert into, so a target unit changes nothing
+        @test Data.get_label(dataset, "one"; target_unit = "km") == "Ratio"
+        @test Data.get_dim_unit(dataset, "one") == ""
+        @test Data.get_dim_display_unit(dataset, "one", "km") == ""
+        @test Data.dim_unit_factor(dataset, "one", "km") === nothing
+
+        # Assert: the value labels drop the unit suffix and the {unit} slot
+        @test Data.get_dim_value_label(dataset, "one", 2) == "  → Ratio: 2"
+        @test Data.format_dim_value(dataset, "one", 2) == "2"
+        @test Data.format_dim_label(dataset, "one", 2) == "Ratio: 2"
+        @test Data.format_dim_label(dataset, "one", 2;
+            fmt = "{name}={rawvalue}|{unit}|#{index}") == "Ratio=2||#2"
+
+        # Assert: the overview drops the bracket but keeps real units
+        ov = Data.overview_string(dataset; color = false)
+        @test !occursin("[1]", ov)
+        @test !occursin("dimensionless", lowercase(ov))
+        @test occursin("[1e-3]", ov)   # the coordinate block
+        @test occursin("%", ov)        # the variable table
+
+        # Cleanup
+        close(dataset.ds)
+    end
+
     @testset "Dimension Value Labels" begin
         # Arrange
         dataset = make_temp_dataset()

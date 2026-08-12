@@ -59,10 +59,30 @@ function get_standard_name(coord::String, ds::AbstractDataset)::String
     return lowercase(coord)
 end
 
+# ======================================================
+#  Dimensionless units
+# ======================================================
+#
+# CF spells a dimensionless quantity `units = "1"`, and datasets in the
+# wild use a handful of other placeholders for the same thing. None of
+# them are worth printing, so they are collapsed to an empty string as
+# soon as the unit is read: every consumer already renders "" as "no
+# unit at all". Only these exact tokens count -- "1e-3", "10^3", "1/s"
+# and "%" are real units and must survive.
+const DIMENSIONLESS_UNITS = ("", "1", "dimensionless", "none", "-")
+
+"Whether `unit` is one of the spellings meaning \"no physical unit\"."
+is_dimensionless(unit::AbstractString)::Bool =
+    lowercase(strip(unit)) in DIMENSIONLESS_UNITS
+
+"`unit` with a dimensionless spelling collapsed to an empty string."
+normalize_unit(unit::AbstractString)::String =
+    is_dimensionless(unit) ? "" : String(unit)
+
 function get_unit(ds::AbstractDataset, coord::String)::String
     !haskey(ds, coord) && return ""
     !haskey(ds[coord].attrib, "units") && return ""
-    return lowercase(ds[coord].attrib["units"])
+    return normalize_unit(lowercase(ds[coord].attrib["units"]))
 end
 
 function get_remapped_unit(ds::AbstractDataset, coord::String)::String

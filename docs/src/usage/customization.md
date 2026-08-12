@@ -181,6 +181,17 @@ close_viewer!(session) # hide
 nothing # hide
 ```
 
+## Dimensionless quantities
+
+Some files mark a quantity as dimensionless rather than leaving the unit
+out, and CDFViewer prints no unit for those. The CF convention spells it
+`units = "1"`, and `dimensionless`, `none`, `-`, and the empty string
+count as well, whatever the case and surrounding whitespace. Such a
+variable is labelled exactly like one carrying no `units` attribute at
+all, everywhere a unit appears: axis labels, the figure title, the
+playback readout, and the dataset overview. Units that only look similar
+keep printing, among them `1e-3`, `1/s`, and `%`.
+
 !!! note
     Keyword arguments survive plot type switches where possible and can
     also be passed at startup with `--kwargs='colormap=:viridis, ...'`
