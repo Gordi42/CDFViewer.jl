@@ -95,6 +95,16 @@ struct FigureSettings
     title::Observable{Union{Nothing, String}}
     titlesize::Observable{Float64}
     animlabelsize::Observable{Float64}
+    # Colorbar label: nothing = none (the default), "auto"/true = the
+    # variable's own label, false/"" = explicitly off, any other string
+    # is drawn literally. The rest style it.
+    cbarlabel::Observable{Union{Nothing, Bool, String}}
+    cbarlabelsize::Observable{Float64}
+    cbarlabelcolor::Observable{Any}
+    cbarlabelfont::Observable{String}
+    # nothing = Makie's automatic orientation; a number is radians
+    cbarlabelrotation::Observable{Union{Nothing, Float64}}
+    cbarlabelpadding::Observable{Float64}
     # Display unit per axis (nothing = native); tick rendering only
     xunit::Observable{Union{Nothing, String}}
     yunit::Observable{Union{Nothing, String}}
@@ -128,6 +138,12 @@ struct FigureSettings
         Observable{Union{Nothing, String}}(nothing),      # title override
         Observable(Float64(Constants.TITLESIZE)),         # titlesize
         Observable(Float64(Constants.LABELSIZE)),         # animlabelsize
+        Observable{Union{Nothing, Bool, String}}(nothing),  # cbarlabel
+        Observable(Float64(Constants.LABELSIZE)),         # cbarlabelsize
+        Observable{Any}(Constants.CBARLABEL_COLOR),       # cbarlabelcolor
+        Observable(Constants.CBARLABEL_FONT),             # cbarlabelfont
+        Observable{Union{Nothing, Float64}}(nothing),     # cbarlabelrotation
+        Observable(Float64(Constants.CBARLABEL_PADDING)),  # cbarlabelpadding
         Observable{Union{Nothing, String}}(nothing),      # xunit
         Observable{Union{Nothing, String}}(nothing),      # yunit
         Observable{Union{Nothing, String}}(nothing),      # zunit
@@ -159,6 +175,61 @@ function FigureLabels(ui_state::UI.State, dataset::Data.CDFDataset,
     zlabel = @lift(Data.get_label(dataset, $(ui_state.z_name);
                                   target_unit = $(settings.zunit)))
     FigureLabels(title, xlabel, ylabel, zlabel)
+end
+
+# ============================================================
+#  Colorbar label
+# ============================================================
+#
+# The colorbar is rebuilt on every redraw and on every plot type change,
+# and each rebuild hands these observables to Makie, which drops its
+# connections again when the bar is deleted. They are therefore derived
+# once per figure: a fresh `@lift` per rebuild would leave a listener on
+# the settings behind.
+
+"The settings' colorbar label, in the shape Makie's attributes want."
+struct ColorbarLabel
+    text::Observable{String}
+    rotation::Observable{Any}
+    # the loaded font rather than its name: Makie types the text plot's
+    # font input from the first value it sees, so handing it a symbol
+    # once and a string later throws inside the compute graph
+    font::Observable{Makie.NativeFont}
+end
+
+# the font names the figure theme carries; anything else is a font
+# family name or a font file
+const FONT_ALIASES = (:regular, :bold, :italic, :bolditalic)
+
+"""
+The label text: `nothing` and `false` mean none, `"auto"` (or `true`)
+takes the variable's own label, and anything else is drawn literally.
+"""
+resolve_cbarlabel(label::Union{Nothing, Bool, AbstractString},
+                  auto::AbstractString)::String =
+    label === nothing || label === false ? "" :
+    label === true || label == "auto" ? auto : String(label)
+
+"Load a font by one of the theme's names, or by family name or path."
+resolve_font(fonts::Attributes, name::AbstractString)::Makie.NativeFont =
+    Symbol(name) in FONT_ALIASES ? to_font(fonts, Symbol(name)) :
+    to_font(String(name))
+
+function ColorbarLabel(settings::FigureSettings, labels::FigureLabels,
+                       fonts::Attributes)::ColorbarLabel
+    # "auto" follows the title observable, so the label tracks the
+    # variable instead of snapshotting its name
+    text = @lift(resolve_cbarlabel($(settings.cbarlabel), $(labels.title)))
+    rotation = Observable{Any}(Makie.automatic)
+    map!(rotation, settings.cbarlabelrotation) do value
+        value === nothing ? Makie.automatic : value
+    end
+    font = Observable{Makie.NativeFont}(
+        resolve_font(fonts, Constants.CBARLABEL_FONT))
+    map!(font, settings.cbarlabelfont) do value
+        resolve_font(fonts, value)
+    end
+    ColorbarLabel(text, rotation, font)
 end
 
 # ============================================================
@@ -530,6 +601,8 @@ struct FigureData
     # +1/-1: which way the bouncing camera rotations are heading
     camera_vdir::Base.RefValue{Float64}
     camera_hdir::Base.RefValue{Float64}
+    # what every rebuilt colorbar hands to Makie as its label
+    cbar_label::ColorbarLabel
 end
 
 function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
@@ -587,6 +660,7 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         ColorRangeScan(),
         Ref(1.0),
         Ref(1.0),
+        ColorbarLabel(settings, plot_data.labels, theme(fig.scene).fonts),
     )
 
     # Rebuild the animated-axis label when its configuration changes;
@@ -945,8 +1019,18 @@ function add_colorbar!(fd::FigureData)::Nothing
         ax = fd.ax[]
         size_kw = ax isa Axis3 ? (;) :
             (; height = @lift(Fixed($(ax.scene.viewport).widths[2])))
+        # the label settings go in as observables, so changing one takes
+        # effect on the spot; an empty label costs no space at all, which
+        # keeps the unlabelled bar exactly as it was
         fd.cbar[] = Colorbar(fd.fig[2, 2], fd.plot_obj[];
-            width = 30, tellwidth = false, tellheight = false, size_kw...)
+            width = 30, tellwidth = false, tellheight = false,
+            label = fd.cbar_label.text,
+            labelrotation = fd.cbar_label.rotation,
+            labelfont = fd.cbar_label.font,
+            labelsize = fd.settings.cbarlabelsize,
+            labelcolor = fd.settings.cbarlabelcolor,
+            labelpadding = fd.settings.cbarlabelpadding,
+            size_kw...)
         colsize!(fd.fig.layout, 2, Relative(0.05))
     end
     nothing
@@ -1128,6 +1212,46 @@ function set_animlabeldateformat!(fd::FigureData, value::AbstractString)::Bool
 end
 
 # ------------------------------------------------------------
+#  Colorbar label settings
+#
+#  The colorbar reads these observables, so none of them needs a redraw.
+#  A plot type without a colorbar stores the value silently and starts
+#  showing it once a colorbar-bearing type is selected -- warning here
+#  would trip the kwargs path's revert-on-stderr machinery.
+# ------------------------------------------------------------
+function set_cbarlabel!(fd::FigureData,
+                        value::Union{Nothing, Bool, AbstractString})::Bool
+    fd.settings.cbarlabel[] = value isa AbstractString ? String(value) : value
+    false
+end
+
+function set_cbarlabelsize!(fd::FigureData, value::Real)::Bool
+    fd.settings.cbarlabelsize[] = Float64(value)
+    false
+end
+
+function set_cbarlabelcolor!(fd::FigureData, value::Any)::Bool
+    fd.settings.cbarlabelcolor[] = value
+    false
+end
+
+function set_cbarlabelfont!(fd::FigureData, value::AbstractString)::Bool
+    fd.settings.cbarlabelfont[] = String(value)
+    false
+end
+
+"Rotate the label; nothing keeps Makie's automatic orientation."
+function set_cbarlabelrotation!(fd::FigureData, value::Union{Nothing, Real})::Bool
+    fd.settings.cbarlabelrotation[] = value === nothing ? nothing : Float64(value)
+    false
+end
+
+function set_cbarlabelpadding!(fd::FigureData, value::Real)::Bool
+    fd.settings.cbarlabelpadding[] = Float64(value)
+    false
+end
+
+# ------------------------------------------------------------
 #  Axis display units
 #
 #  Changing a unit returns true (redraw): the axis is recreated with the
@@ -1263,6 +1387,18 @@ const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
     :titlesize => FigureSettingsHandler(:titlesize, Real, set_titlesize!),
     :animlabelsize => FigureSettingsHandler(
         :animlabelsize, Real, set_animlabelsize!),
+    :cbarlabel => FigureSettingsHandler(
+        :cbarlabel, Union{Nothing, Bool, AbstractString}, set_cbarlabel!),
+    :cbarlabelsize => FigureSettingsHandler(
+        :cbarlabelsize, Real, set_cbarlabelsize!),
+    :cbarlabelcolor => FigureSettingsHandler(
+        :cbarlabelcolor, Any, set_cbarlabelcolor!),
+    :cbarlabelfont => FigureSettingsHandler(
+        :cbarlabelfont, AbstractString, set_cbarlabelfont!),
+    :cbarlabelrotation => FigureSettingsHandler(
+        :cbarlabelrotation, Union{Nothing, Real}, set_cbarlabelrotation!),
+    :cbarlabelpadding => FigureSettingsHandler(
+        :cbarlabelpadding, Real, set_cbarlabelpadding!),
     :xunit => FigureSettingsHandler(
         :xunit, Union{Nothing, AbstractString}, set_xunit!),
     :yunit => FigureSettingsHandler(
@@ -1591,6 +1727,12 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
             :title => nothing,
             :titlesize => Float64(Constants.TITLESIZE),
             :animlabelsize => Float64(Constants.LABELSIZE),
+            :cbarlabel => nothing,
+            :cbarlabelsize => Float64(Constants.LABELSIZE),
+            :cbarlabelcolor => Constants.CBARLABEL_COLOR,
+            :cbarlabelfont => Constants.CBARLABEL_FONT,
+            :cbarlabelrotation => nothing,
+            :cbarlabelpadding => Float64(Constants.CBARLABEL_PADDING),
             :xunit => nothing,
             :yunit => nothing,
             :zunit => nothing,

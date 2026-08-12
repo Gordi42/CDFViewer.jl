@@ -58,6 +58,29 @@ the modes `"cycle"`, `"data"`, and `"frame"` to control that (see
 [Stable colors during playback](animation.md#Stable-colors-during-playback)).
 Deleting the keyword (`del colorrange`) returns to the default pinning.
 
+## Labelling the colorbar
+
+The colorbar starts without a label. `cbarlabel="auto"` labels it with the
+variable's name and unit -- the string the figure title uses by default --
+and the label follows when you switch variables. Any other string is drawn
+as given.
+
+```@example cst
+repl(session, "cbarlabel=\"auto\"") # hide
+```
+
+```@example cst
+plot_figure(session) # hide
+```
+
+`cbarlabelsize`, `cbarlabelcolor`, `cbarlabelfont`, `cbarlabelrotation`
+(in radians, automatic by default) and `cbarlabelpadding` style it.
+`cbarlabel=false` or `del cbarlabel` takes it away again.
+
+```@example cst
+repl(session, "del cbarlabel") # hide
+```
+
 ## Contour levels and labels
 
 Plot-specific keywords work the same way. A contour plot, for example,
@@ -92,6 +115,12 @@ A few special keywords control the figure itself rather than the plot.
 | `titlesize=28` | `24` | fontsize of the figure title |
 | `xunit="km"` | (none) | render an axis in another unit (see [Axis units](@ref)) |
 | `cbar=true` | `true` | show or hide the colorbar |
+| `cbarlabel="auto"` | (none) | label the colorbar (`"auto"` takes the variable's label) |
+| `cbarlabelsize=26` | `20` | fontsize of the colorbar label |
+| `cbarlabelcolor=:red` | `:black` | color of the colorbar label |
+| `cbarlabelfont="bold"` | `"regular"` | font of the colorbar label |
+| `cbarlabelrotation=0` | (automatic) | rotation of the colorbar label in radians |
+| `cbarlabelpadding=5` | `5` | gap between the bar and its label |
 | `moveable=true` | `true` | allow drag-panning with the mouse |
 | `geographic=false` | `false` | draw on a geographic map projection |
 | `proj="+proj=moll"` | (none) | map projection (PROJ string) |

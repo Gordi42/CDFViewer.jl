@@ -278,6 +278,13 @@ using CDFViewer.Plotting
             @test settings.title[] === nothing
             @test settings.titlesize[] == Float64(Constants.TITLESIZE)
             @test settings.animlabelsize[] == Float64(Constants.LABELSIZE)
+            @test settings.cbarlabel[] === nothing
+            @test settings.cbarlabelsize[] == Float64(Constants.LABELSIZE)
+            @test settings.cbarlabelcolor[] === Constants.CBARLABEL_COLOR
+            @test settings.cbarlabelfont[] == Constants.CBARLABEL_FONT
+            @test settings.cbarlabelrotation[] === nothing
+            @test settings.cbarlabelpadding[] ==
+                Float64(Constants.CBARLABEL_PADDING)
         end
 
         @testset "Overlay geometry and background" begin
@@ -1482,6 +1489,137 @@ using CDFViewer.Plotting
             cleanup(dataset)
         end
 
+        @testset "cbarlabel" begin
+            # Arrange
+            fd, state, dataset = arrange_and_create_axis(
+                "2d_float", ["lon", "lat"], "heatmap")
+            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
+            settings = fd.settings
+            fonts = Makie.theme(fd.fig.scene).fonts
+
+            # Assert: no label by default, and every styling attribute
+            # sits on the value Makie itself would have used
+            @test settings.cbarlabel[] === nothing
+            @test fd.cbar[].label[] == ""
+            @test fd.cbar[].labelsize[] == Float64(Constants.LABELSIZE)
+            @test fd.cbar[].labelcolor[] == Constants.CBARLABEL_COLOR
+            @test fd.cbar[].labelfont[] == to_font(fonts, :regular)
+            @test fd.cbar[].labelrotation[] === Makie.automatic
+            @test fd.cbar[].labelpadding[] == Float64(Constants.CBARLABEL_PADDING)
+
+            # Act & Assert: "auto" takes the variable label, the same
+            # string the title shows, and keeps following the variable
+            Plotting.set_cbarlabel!(fd, "auto")
+            @test fd.cbar[].label[] == "2d_float"
+            @test fd.cbar[].label[] == fd.title_text[]
+            state.variable[] = "int_var"
+            @test fd.cbar[].label[] == "int_var"
+            state.variable[] = "2d_float"
+
+            # Act & Assert: a literal string is drawn as given
+            Plotting.set_cbarlabel!(fd, "Temperature")
+            @test fd.cbar[].label[] == "Temperature"
+
+            # Act & Assert: the label survives a redraw, a plot type
+            # change and switching the colorbar off and on again
+            Plotting.redraw!(fd)
+            @test fd.cbar[].label[] == "Temperature"
+            state.plot_type_name[] = "contourf"
+            Plotting.create_axis!(fd, state)
+            @test fd.cbar[].label[] == "Temperature"
+            Plotting.set_colorbar!(fd, false)
+            Plotting.set_colorbar!(fd, true)
+            @test fd.cbar[].label[] == "Temperature"
+
+            # Act & Assert: both spellings of "off" clear the label
+            Plotting.set_cbarlabel!(fd, false)
+            @test fd.cbar[].label[] == ""
+            Plotting.set_cbarlabel!(fd, "auto")
+            Plotting.set_cbarlabel!(fd, "")
+            @test fd.cbar[].label[] == ""
+
+            # Act & Assert: the styling reaches the live colorbar without
+            # a redraw
+            cbar = fd.cbar[]
+            Plotting.set_cbarlabel!(fd, "Temperature")
+            Plotting.set_cbarlabelsize!(fd, 30)
+            Plotting.set_cbarlabelcolor!(fd, :red)
+            Plotting.set_cbarlabelfont!(fd, "bold")
+            Plotting.set_cbarlabelrotation!(fd, 0)
+            Plotting.set_cbarlabelpadding!(fd, 15)
+            @test fd.cbar[] === cbar
+            @test cbar.labelsize[] == 30.0
+            @test cbar.labelcolor[] == :red
+            @test cbar.labelfont[] == to_font(fonts, :bold)
+            @test cbar.labelrotation[] == 0.0
+            @test cbar.labelpadding[] == 15.0
+            # a font the theme does not name is loaded by family name
+            Plotting.set_cbarlabelfont!(fd, "TeX Gyre Heros Makie")
+            @test cbar.labelfont[] == to_font("TeX Gyre Heros Makie")
+            # nothing hands the orientation back to Makie
+            Plotting.set_cbarlabelrotation!(fd, nothing)
+            @test cbar.labelrotation[] === Makie.automatic
+
+            # Act - set everything through the keyword path instead
+            kwarg_text[] = ("cbarlabel=\"Salinity\", cbarlabelsize=18, " *
+                            "cbarlabelcolor=:blue, cbarlabelfont=\"italic\", " *
+                            "cbarlabelrotation=1.5, cbarlabelpadding=8")
+            [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
+
+            # Assert
+            @test fd.cbar[].label[] == "Salinity"
+            @test fd.cbar[].labelsize[] == 18.0
+            @test fd.cbar[].labelcolor[] == :blue
+            @test fd.cbar[].labelfont[] == to_font(fonts, :italic)
+            @test fd.cbar[].labelrotation[] == 1.5
+            @test fd.cbar[].labelpadding[] == 8.0
+
+            # Act - deleting the keywords restores the defaults
+            kwarg_text[] = ""
+            [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
+
+            # Assert
+            @test settings.cbarlabel[] === nothing
+            @test fd.cbar[].label[] == ""
+            @test fd.cbar[].labelsize[] == Float64(Constants.LABELSIZE)
+            @test fd.cbar[].labelcolor[] == Constants.CBARLABEL_COLOR
+            @test fd.cbar[].labelfont[] == to_font(fonts, :regular)
+            @test fd.cbar[].labelrotation[] === Makie.automatic
+            @test fd.cbar[].labelpadding[] == Float64(Constants.CBARLABEL_PADDING)
+
+            # Cleanup
+            cleanup(dataset)
+        end
+
+        @testset "cbarlabel without a colorbar" begin
+            # Arrange - a plot type that has no colorbar at all
+            fd, state, dataset = arrange_and_create_axis(
+                "2d_float", ["lon"], "line")
+            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
+            @test fd.cbar[] === nothing
+
+            # Act & Assert: the settings are stored silently -- a warning
+            # here would make the kwargs path revert them
+            @test_nowarn begin
+                kwarg_text[] = "cbarlabel=\"auto\", cbarlabelsize=26"
+                [wait(t) for t in fd.tasks[]]  # wait until all tasks are
+            end
+            @test fd.settings.cbarlabel[] == "auto"
+            @test fd.settings.cbarlabelsize[] == 26.0
+
+            # Act - switch to a plot type that does have a colorbar
+            state.y_name[] = "lat"
+            state.plot_type_name[] = "heatmap"
+            Plotting.create_axis!(fd, state)
+
+            # Assert: the stored label shows up now
+            @test fd.cbar[].label[] == "2d_float"
+            @test fd.cbar[].labelsize[] == 26.0
+
+            # Cleanup
+            cleanup(dataset)
+        end
+
         @testset "moveable" begin
             # Arrange
             fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
@@ -1779,6 +1917,18 @@ using CDFViewer.Plotting
             @test occursin("g=1:5", s)
             @test occursin("h=nothing", s)
             @test Plotting.kwarg_dict_to_string(OrderedDict{Symbol, Any}()) == ""
+        end
+
+        @testset "resolve_cbarlabel" begin
+            # off: unset, explicitly false, or an empty string
+            @test Plotting.resolve_cbarlabel(nothing, "Temp") == ""
+            @test Plotting.resolve_cbarlabel(false, "Temp") == ""
+            @test Plotting.resolve_cbarlabel("", "Temp") == ""
+            # the variable's own label
+            @test Plotting.resolve_cbarlabel("auto", "Temp") == "Temp"
+            @test Plotting.resolve_cbarlabel(true, "Temp") == "Temp"
+            # anything else is literal
+            @test Plotting.resolve_cbarlabel("Salinity", "Temp") == "Salinity"
         end
     end
 
