@@ -1430,11 +1430,15 @@ function update_colorrange!(fd::FigureData; sync::Bool = false)::Nothing
         key == scan.applied_key && return nothing
         scan.generation += 1
         scan.pending_key = nothing
-        # the kwargs path sets the plot's colorrange; only the contour
-        # levels need pinning here
         restore_levels!(fd)
-        value isa Tuple && length(value) == 2 && all(x -> x isa Real, value) &&
+        # write the range, do not just record it: the kwargs path set it
+        # already, but apply_kwargs! yields while it waits for its render
+        # cycles, and a scan started before the manual range can land in
+        # that window and overwrite it. Reconciling last has to win.
+        if value isa Tuple && length(value) == 2 && all(x -> x isa Real, value)
+            :colorrange ∈ propertynames(plot) && (plot.colorrange[] = value)
             pin_levels!(fd, Float64(value[1]), Float64(value[2]))
+        end
         scan.applied_key = key
         return nothing
     end
@@ -1481,6 +1485,9 @@ function update_colorrange!(fd::FigureData; sync::Bool = false)::Nothing
         scan.pending_key = nothing
         result === nothing && return
         scan.cache[key] = result
+        # a manual range applied while this scan ran owns the plot now:
+        # keep the result cached, but never paint over the user's range
+        colorrange_mode(fd) === :manual && return
         apply_colorrange_pin!(fd, key, result)
     end
     sync ? runner() : (scan.task = @async runner())
@@ -1649,11 +1656,12 @@ function get_property_mappings(kwargs::OrderedDict{Symbol, Any}, fig_data::Figur
                 current_value  # not an observable
             end
 
-            if intended_value === :delete
-                intended_value = get_default_value(fig_data, target_obj, property)
-            end
+            # a deletion resolves per target: keep the loop variable
+            # intact so the next target still sees the :delete request
+            target_value = intended_value === :delete ?
+                get_default_value(fig_data, target_obj, property) : intended_value
 
-            push!(mappings, PropertyMapping(property, target_obj, current_value, intended_value))
+            push!(mappings, PropertyMapping(property, target_obj, current_value, target_value))
             found_targets += 1
         end
         found_targets == 0 && @warn "Property $property not found in any plot object"
@@ -1784,7 +1792,13 @@ function apply_kwargs!(fig_data::FigureData, kwargs::OrderedDict{Symbol, Any})::
             end
         end
         if !isempty(output)
-            @warn "An error occurred while applying keyword arguments"
+            # the revert is all-or-nothing: a value that only fails at
+            # render time cannot be blamed on a single keyword. Name
+            # everything that goes back, so a setting rolled back
+            # because a neighbor failed is never silent.
+            reverted = unique(mapping.property for mapping in mappings)
+            @warn ("An error occurred while applying keyword arguments, " *
+                   "reverting: " * join(reverted, ", "))
             # Only show the first 5 lines of the error
             lines = split(output, '\n')
             for line in lines[1:min(end, 5)]

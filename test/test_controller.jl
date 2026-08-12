@@ -621,7 +621,8 @@ NS = Constants.NOT_SELECTED_LABEL
             @test controller.fd.plot_obj[].levels[] == 5
 
             # Act & Assert: should issue a warning about the invalid value
-            @test_warn "An error occurred while applying keyword arguments" begin
+            # that names every keyword the all-or-nothing revert takes back
+            @test_warn "keyword arguments, reverting: levels, colormap" begin
                 kwarg_text[] = "levels=not_a_number, colormap=:viridis"
                 # wait until all tasks are finished
                 [wait(t) for t in controller.fd.tasks[]]
