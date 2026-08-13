@@ -1,5 +1,13 @@
 using Test
+using Makie
+using GLMakie
+import Colors
+import Dates
 using CDFViewer.Parsing
+
+# a name that exists here and nowhere else, to show that keyword values are
+# not evaluated in the calling module
+parsing_test_probe(x) = x
 
 @testset "Parsing.jl" begin
 
@@ -64,6 +72,54 @@ using CDFViewer.Parsing
         @test Parsing.parse_kwargs("data=-0.1:0.1:1.0") == Dict(:data => -0.1:0.1:1.0)
         @test Parsing.parse_kwargs("data=1:0.2:10") == Dict(:data => 1:0.2:10)
 
+    end
+
+    @testset "Expressions" begin
+        # the reported case: a module-qualified call has to come back as the
+        # object it names, not as the string it was typed as
+        scale = Parsing.parse_kwargs("colorscale=Makie.Symlog10(1e-2)")[:colorscale]
+        @test !(scale isa AbstractString)
+        @test scale isa Makie.ReversibleScale  # what Makie.Symlog10 builds
+        @test scale.name === :Symlog10
+        @test scale(1.0) == Makie.Symlog10(1e-2)(1.0)
+
+        # calls, qualified names, and constructors from the modules a plot
+        # attribute usually reaches for
+        @test Parsing.parse_kwargs("color=RGBf(1, 0, 0)") == Dict(:color => RGBf(1, 0, 0))
+        @test Parsing.parse_kwargs("colormap=Makie.automatic")[:colormap] === Makie.automatic
+        @test Parsing.parse_kwargs("offset=Point2f(0, 0)") == Dict(:offset => Point2f(0, 0))
+        @test Parsing.parse_kwargs("color=HSV(120, 1, 1)") == Dict(:color => Colors.HSV(120, 1, 1))
+        @test Parsing.parse_kwargs("step=Dates.Day(1)") == Dict(:step => Dates.Day(1))
+        @test Parsing.parse_kwargs("linewidth=1 + 2") == Dict(:linewidth => 3)
+
+        # a colon is not enough to make a range -- these used to stop at the
+        # range branch and come back as strings
+        @test Parsing.parse_kwargs("lookup=Dict(:a => 1)") == Dict(:lookup => Dict(:a => 1))
+        @test Parsing.parse_kwargs("size=map(x -> 2x, 1:3)") == Dict(:size => [2, 4, 6])
+
+        # bare words are words, not names to look up
+        @test Parsing.parse_kwargs("title=Foo") == Dict(:title => "Foo")
+        @test Parsing.parse_kwargs("filename=output") == Dict(:filename => "output")
+        @test Parsing.parse_kwargs("levels=not_a_number") == Dict(:levels => "not_a_number")
+        @test Parsing.parse_kwargs("title=Foo")[:title] isa AbstractString
+
+        # and neither is a file name, even though it parses as an expression
+        @test Parsing.parse_kwargs("filename=output.png") == Dict(:filename => "output.png")
+        @test Parsing.parse_kwargs("filename=my_movie.mp4") == Dict(:filename => "my_movie.mp4")
+        @test Parsing.parse_kwargs("filename=out/plot.png") == Dict(:filename => "out/plot.png")
+        # a file name is a silent fallback: every save options line would
+        # spew errors otherwise
+        @test_logs Parsing.parse_kwargs("filename=output.png")
+
+        # a call that does not evaluate is named out loud, and still falls
+        # back to the string
+        typo = @test_logs (:error,) Parsing.parse_kwargs("colorscale=Makie.Symlog11(1e-2)")
+        @test typo == Dict(:colorscale => "Makie.Symlog11(1e-2)")
+
+        # the sandbox is its own module: Base is reachable, the caller is not
+        @test Parsing.parse_kwargs("value=identity(1)") == Dict(:value => 1)
+        @test (@test_logs (:error,) Parsing.parse_kwargs("value=parsing_test_probe(1)")) ==
+              Dict(:value => "parsing_test_probe(1)")
     end
 
     @testset "Complex Cases" begin

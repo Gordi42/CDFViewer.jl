@@ -19,6 +19,14 @@ Values are parsed as Julia expressions. `:thermal` is a symbol, `(-20, 30)`
 a tuple, `"Air temperature"` a string. Multiple pairs are separated by
 commas.
 
+Function calls count as expressions too, module prefix included. A keyword
+that wants an object rather than a number is written the way you would
+write it in Julia, for example `colorscale=Makie.Symlog10(1e-2)` for a
+symmetric log color scale, or `color=RGBf(1, 0, 0)`. Makie, Colors and
+Dates are in scope. A bare word stays a string, so `title=Temperature`
+needs no quotes. A call that fails to evaluate is reported on the terminal
+and the keyword keeps its previous value.
+
 ## Where the keywords go
 
 You never have to say *what* a keyword belongs to. CDFViewer routes each
