@@ -77,3 +77,9 @@ close_viewer!(session) # hide
 
 Paste the printed arguments after `cdfviewer` to jump straight back to this
 view, or combine them with `--savefig` for batch rendering.
+
+On a map the limits come out in longitude and latitude, the coordinates you
+would type yourself, rather than in the metres the projection works in. A
+view that no pair of meridians and parallels describes, one zoomed out past
+the edge of its projection or straddling the ±180° seam, is exported without
+its limits and reopens on the whole field.

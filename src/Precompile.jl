@@ -113,6 +113,9 @@ function exercise_repl_commands!(state::ViewerREPL.REPLState)::Nothing
     ViewerREPL.evaluate_command(state, "export")
     ViewerREPL.evaluate_command(state, "geographic=true")
     wait_tasks()
+    # exporting a map inverts the projection to name its limits: compile
+    # that here rather than on the user's first click
+    ViewerREPL.evaluate_command(state, "export")
     ViewerREPL.evaluate_command(state, "del geographic")
     wait_tasks()
     ViewerREPL.evaluate_command(state, "over2 off")
