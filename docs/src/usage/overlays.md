@@ -28,7 +28,8 @@ plot_figure(session) # hide
 Over a flat 2D base the new layer starts as a `contour`, since a second
 heatmap would simply hide the first. `over.p` picks a different type.
 
-An overlay contour is drawn in black. The base layer owns the colors and
+An overlay contour is drawn in the theme's text color, black on a light
+theme and white on a dark one. The base layer owns the colors and
 the colorbar, and a second colormap would only fight the first: pale
 lines disappear into the pale band of the field underneath. `over.colormap=`
 colors the lines by level again, `over.color=` paints them all one color,
