@@ -479,6 +479,56 @@ function refresh_plot(state:: REPLState, command:: String)::String
     "Plot refreshed."
 end
 
+"""
+    command_word(word)
+
+Whether the dispatcher would read `word` as a command rather than a key.
+
+The command table, plus the layer words that are too open-ended to live
+in it. A layer word only counts with a sub-command it actually has:
+`over.colormap` is the overlay's colormap and belongs to the keyword
+branch, and only `over`, `over2.v`, `base.p` and their like are commands.
+"""
+function command_word(word:: AbstractString)::Bool
+    haskey(commands, word) && return true
+    layer = layer_command(word)
+    layer !== nothing && layer[2] in ("", "v", "p")
+end
+
+"""
+    command_keyword_hint(state, command_line)
+
+The command form of a `key=value` whose key is really a command name.
+
+Every other setting in the viewer is a keyword, so `theme=dark` is the
+natural thing to type for one of the few that cannot be one. Left to the
+property machinery it dead-ends in "Property theme not found in any plot
+object", which reads as if the setting did not exist -- so name the
+command instead.
+
+A key some target really does own is left alone, because the working
+keyword has to win: `x` and `y` are attributes of a heatmap as well as
+commands, and `x=lon` on one means the heatmap's x coordinates. The
+namespace is asked live, so a coordinate called `p` in some file is
+safe too.
+
+Empty when the line names no such key, which is the usual case.
+"""
+function command_keyword_hint(state:: REPLState, command_line:: String)::String
+    fd = state.controller.fd
+    hints = String[]
+    for (key, value) in Parsing.kwarg_entries(command_line)
+        command_word(key) || continue
+        isempty(Plotting.resolve_kwarg(fd, Symbol(key))[2]) || continue
+        # the value reads back as the command's argument, so `theme="dark"`
+        # suggests the same line as `theme=dark`
+        argument = strip(value, ['"', '\''])
+        push!(hints, "$key is a command, not a keyword. " *
+                     "Try: " * strip("$key $argument"))
+    end
+    join(hints, "\n")
+end
+
 function apply_kwargs(state:: REPLState, command:: String)::String
     # what the line says wins over what is already stored, and the parsed
     # values go to the store as they are -- a value like
@@ -677,6 +727,12 @@ function evaluate_command(state:: REPLState, command_line:: String)::Union{Strin
         end
     elseif occursin('=', command_line)
         try
+            # a command written in keyword shape is answered here rather
+            # than inside `apply_kwargs`: the revert that guards a bad
+            # keyword is all-or-nothing over the whole line, so the line
+            # must not be applied at all once the hint stands
+            hint = command_keyword_hint(state, command_line)
+            isempty(hint) || return hint
             return apply_kwargs(state, command_line)
         catch e
             @error "Error executing command '$cmd': $e"

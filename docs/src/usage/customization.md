@@ -262,7 +262,8 @@ colormap and the line color of a 1D plot read on any background and are
 left alone.
 
 A theme is not a keyword argument, because a figure takes its theme at the
-moment it is created and never looks at it again. `theme` therefore
+moment it is created and never looks at it again. Type `theme=dark` out of
+habit and the prompt hands you the command form back. `theme` therefore
 rebuilds both windows and puts the session back into them: the variable,
 the axes, the plot type, every slider position, the playback dimension,
 speed and state, all overlays, your keyword arguments, the save options,

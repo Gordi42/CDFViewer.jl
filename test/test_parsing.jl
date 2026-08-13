@@ -135,4 +135,23 @@ parsing_test_probe(x) = x
         @test Parsing.parse_kwargs("""colormap = :viridis, xlabel = "Time, (s)" """) ==
               Dict(:colormap => :viridis, :xlabel => "Time, (s)")
     end
+
+    @testset "Naming Without Reading" begin
+        # what a line names, split the same way but left as text
+        @test Parsing.kwarg_entries("colormap=:viridis, linewidth=2") ==
+              ["colormap" => ":viridis", "linewidth" => "2"]
+        @test Parsing.kwarg_entries("theme=\"dark\"") == ["theme" => "\"dark\""]
+        @test Parsing.kwarg_entries("") == Pair{String, String}[]
+
+        # a comma inside quotes or brackets still does not start a new entry
+        @test Parsing.kwarg_entries("""xlabel = "Time, (s)", levels=[1, 2]""") ==
+              ["xlabel" => "\"Time, (s)\"", "levels" => "[1, 2]"]
+
+        # a word that is not a pair is not one
+        @test Parsing.kwarg_entries("theme dark") == Pair{String, String}[]
+
+        # nothing is evaluated, so a value that would be reported is not
+        @test (@test_logs Parsing.kwarg_entries("value=parsing_test_probe(1)")) ==
+              ["value" => "parsing_test_probe(1)"]
+    end
 end
