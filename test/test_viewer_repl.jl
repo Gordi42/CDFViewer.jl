@@ -94,7 +94,7 @@ using CDFViewer.ViewerREPL
             ViewerREPL.evaluate_command(state, "v u")
             ViewerREPL.evaluate_command(state, "p quiver")
             @test ui_state.variable2[] == "v"
-            @test controller.fd.plot_obj[] isa Makie.Arrows2D
+            @test Plotting.primary(controller.fd) isa Makie.Arrows2D
 
             # Act & Assert: an explicit partner survives a plot type
             # change, but not a change of the variable it belongs to
@@ -110,7 +110,7 @@ using CDFViewer.ViewerREPL
             ViewerREPL.evaluate_command(state, "p quiver")
             ViewerREPL.evaluate_command(state, "v temp")
             @test ui_state.variable2[] == Constants.NOT_SELECTED_LABEL
-            @test controller.fd.plot_obj[] isa Makie.Arrows2D
+            @test Plotting.primary(controller.fd) isa Makie.Arrows2D
 
             # Act & Assert: tab completion past the comma offers the
             # partners of the selected variable, not every variable
@@ -540,7 +540,7 @@ using CDFViewer.ViewerREPL
             ViewerREPL.select_plot_type(state, "p line")
             for f in (f1, f2, f3, f4, f5)
                 output = f()
-                for (i, kw) in enumerate(propertynames(state.controller.fd.plot_obj[]))
+                for (i, kw) in enumerate(propertynames(Plotting.primary(state.controller.fd)))
                     @test occursin(string(kw), output)
                     if i > 5  # Limit to first 5 to speed up tests
                         break
@@ -648,7 +648,7 @@ using CDFViewer.ViewerREPL
             state = init_state()
             ViewerREPL.select_plot_type(state, "p line")
             ax = state.controller.fd.ax[]
-            plot_obj = state.controller.fd.plot_obj[]
+            plot_obj = Plotting.primary(state.controller.fd)
 
             # Act: Apply via function
             output = ViewerREPL.apply_kwargs(state, "xlabel=\"Test X\", ylabel=\"Test Y\", color=:red")
@@ -703,7 +703,7 @@ using CDFViewer.ViewerREPL
             # Refresh the plot to ensure changes are applied
             ViewerREPL.evaluate_command(state, "refresh")
             ax = state.controller.fd.ax[]
-            plot_obj = state.controller.fd.plot_obj[]
+            plot_obj = Plotting.primary(state.controller.fd)
 
             @test ax.xlabel[] == "lon"  # Should be reset to default
             @test ax.ylabel[] == "Test Y"
@@ -717,7 +717,7 @@ using CDFViewer.ViewerREPL
             # Refresh the plot to ensure changes are applied
             ViewerREPL.evaluate_command(state, "refresh")
             ax = state.controller.fd.ax[]
-            plot_obj = state.controller.fd.plot_obj[]
+            plot_obj = Plotting.primary(state.controller.fd)
 
             # Assert
             @test occursin("Current plot settings:", output)
@@ -1047,6 +1047,143 @@ using CDFViewer.ViewerREPL
             end
         end
 
+    end
+
+    @testset "Overlaid layers" begin
+
+        "A `u` heatmap on lon/lat, ready to be overlaid."
+        function init_overlay_state()
+            controller = Controller.ViewerController(
+                make_vector_temp_dataset(), headless = true)
+            state = ViewerREPL.REPLState(controller)
+            for cmd in ("v u", "x lon", "y lat", "p heatmap")
+                ViewerREPL.evaluate_command(state, cmd)
+            end
+            state
+        end
+
+        @testset "Recognising the command word" begin
+            parse = ViewerREPL.layer_command
+            @test parse("over") == (2, "")
+            @test parse("over2") == (3, "")
+            @test parse("over.v") == (2, "v")
+            @test parse("over2.p") == (3, "p")
+            @test parse("base") == (1, "")
+            @test parse("base.p") == (1, "p")
+            # a keyword line is not a layer command: its first token
+            # carries the `=` and falls through to the kwargs branch
+            @test parse("over.colormap=:reds") === nothing
+            @test parse("over.levels=-30:5:30") === nothing
+            @test parse("colormap") === nothing
+            @test parse("over0") === nothing
+        end
+
+        @testset "Adding, retyping and removing" begin
+            state = init_overlay_state()
+            fd = state.controller.fd
+
+            status = ViewerREPL.evaluate_command(state, "over temp")
+            @test occursin("over: temp", status)
+            @test Plotting.layer_count(fd) == 2
+            @test Plotting.layer_plot(fd, 2).type == "contour"
+
+            # the spelled-out form does the same
+            ViewerREPL.evaluate_command(state, "over.v uodd")
+            @test Plotting.layer_variables(fd, 2) == ["uodd"]
+
+            # a plot type of its own
+            ViewerREPL.evaluate_command(state, "over.p contourf")
+            @test Plotting.layer_plot(fd, 2).type == "contourf"
+
+            # a third layer, naming both components of a vector plot
+            ViewerREPL.evaluate_command(state, "over2 u,v")
+            @test Plotting.layer_count(fd) == 3
+            # two names pick a vector type without being told
+            @test Plotting.layer_plot(fd, 3).type == "quiver"
+            @test Plotting.layer_variables(fd, 3) == ["u", "v"]
+
+            # no argument reports what a layer draws
+            @test occursin("uodd", ViewerREPL.evaluate_command(state, "over"))
+            @test occursin("not set",
+                           ViewerREPL.evaluate_command(state, "over3"))
+
+            # and `off` takes one away
+            @test occursin("Removed layer over2",
+                           ViewerREPL.evaluate_command(state, "over2 off"))
+            @test Plotting.layer_count(fd) == 2
+            ViewerREPL.evaluate_command(state, "over off")
+            @test Plotting.layer_count(fd) == 1
+            cleanup(state)
+        end
+
+        @testset "Keywords address a layer" begin
+            state = init_overlay_state()
+            fd = state.controller.fd
+            ViewerREPL.evaluate_command(state, "over temp")
+
+            # a prefixed keyword is not a command; it goes through the
+            # `key=value` branch untouched. The pin turns the count into
+            # concrete boundaries, so count the lines rather than read it.
+            level_count(plot) = plot.levels[] isa Integer ?
+                plot.levels[] : length(plot.levels[])
+            ViewerREPL.evaluate_command(state, "over.levels=4")
+            @test level_count(fd.layers[2].plot_obj[]) == 4
+            @test haskey(state.controller.ui.state.kwargs[],
+                         Symbol("over.levels"))
+
+            ViewerREPL.evaluate_command(state, "base.colormap=:thermal")
+            @test Plotting.primary(fd).colormap[] == :thermal
+            @test fd.layers[2].plot_obj[].colormap[] != :thermal
+
+            # `get` on a bare name reports the base
+            @test occursin("thermal",
+                           ViewerREPL.evaluate_command(state, "get colormap"))
+            @test occursin("over.levels =>",
+                           ViewerREPL.evaluate_command(state, "get over.levels"))
+
+            # `conf` prints the keys as written, `del` takes them as written
+            @test occursin("over.levels => 4",
+                           ViewerREPL.evaluate_command(state, "conf"))
+            ViewerREPL.evaluate_command(state, "del over.levels")
+            @test !haskey(state.controller.ui.state.kwargs[],
+                          Symbol("over.levels"))
+            cleanup(state)
+        end
+
+        @testset "Keyword listings and completion" begin
+            state = init_overlay_state()
+            fd = state.controller.fd
+
+            # with one layer the plot keywords are bare, as they always were
+            names = ViewerREPL.plot_kwarg_names(fd)
+            @test "colormap" in names
+            @test !any(startswith("over."), names)
+            @test !any(startswith("over."), ViewerREPL.get_kwarg_names(state))
+
+            ViewerREPL.evaluate_command(state, "over temp")
+            names = ViewerREPL.plot_kwarg_names(fd)
+            @test "colormap" in names
+            @test "over.levels" in names
+            @test occursin("over.levels",
+                           ViewerREPL.get_plot_kwargs(state, "kwargs plot"))
+
+            # completion offers the layer words, and `off` only for a layer
+            # that is there to remove
+            _, cands = ViewerREPL.completion_candidates(state, "ove")
+            @test "over" in cands && "over.p" in cands && "over2" in cands
+            @test "over3" ∉ cands
+            _, cands = ViewerREPL.completion_candidates(state, "over ")
+            @test "temp" in cands && "off" in cands
+            _, cands = ViewerREPL.completion_candidates(state, "over2 ")
+            @test "off" ∉ cands
+            _, cands = ViewerREPL.completion_candidates(state, "over.p ")
+            @test "contour" in cands
+            @test "surface" ∉ cands
+            # and the prefixed keyword names only exist once a layer does
+            @test "over.levels=" in
+                ViewerREPL.completion_candidates(state, "over.l")[2]
+            cleanup(state)
+        end
     end
 
 end

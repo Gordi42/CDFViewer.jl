@@ -99,6 +99,73 @@ function select_plot_type(state:: REPLState, command:: String)::String
     select_menu_option!(menu, command)
 end
 
+# ============================================================
+#  Overlaid layers
+# ============================================================
+#
+# Everything a layer can be told is `over`, `over2`, … in front of the
+# command that would tell the base field the same thing: `over pressure`
+# is `v pressure` for the second layer, `over.p contour` is `p contour`
+# for it, and `over.levels=10` is `levels=10` for it. The last of those is
+# not a command at all -- its first token carries an `=`, so it never
+# reaches this dispatcher and lands in the keyword branch instead.
+#
+# The word is matched anchored, so only a bare `over`, `over2`, `base.v`
+# and so on count as commands; `over.colormap=:reds` does not.
+const LAYER_COMMAND = r"^(base|over[0-9]*)(?:\.([A-Za-z]+))?$"
+
+"Whether a command word addresses a layer, and which one."
+function layer_command(word:: AbstractString)::Union{Nothing, Tuple{Int, String}}
+    m = match(LAYER_COMMAND, word)
+    m === nothing && return nothing
+    index = Plotting.layer_index(m.captures[1])
+    index === nothing && return nothing
+    (index, m.captures[2] === nothing ? "" : String(m.captures[2]))
+end
+
+"""
+    run_layer_command(state, index, sub, command)
+
+Carry out one `over…` line. Without a sub-command the argument names the
+layer's variable(s) -- or removes the layer when it is the word `off`,
+which is checked before the dataset's variables. A variable that really is
+called `off` is reachable as `over.v off`.
+"""
+function run_layer_command(state:: REPLState, index:: Int, sub:: String,
+                           command:: String)::String
+    controller = state.controller
+    parts = split(command, ' ', limit = 2)
+    argument = length(parts) < 2 ? "" : String(strip(parts[2]))
+    if sub == "" && argument == "off"
+        return Controller.remove_layer!(controller, index)
+    end
+    if isempty(argument)
+        sub in ("", "v", "p") ||
+            return (@warn "Unknown layer command: $(parts[1])"; "")
+        return Plotting.layer_status(controller.fd, index)
+    end
+    if sub == "" || sub == "v"
+        names = [String(strip(name)) for name in split(argument, ',')]
+        return Controller.set_layer_variables!(controller, index, names)
+    end
+    sub == "p" && return Controller.set_layer_plot_type!(controller, index, argument)
+    @warn ("Unknown layer command: $(parts[1]). Use $(Plotting.layer_prefix(index)) " *
+           "<variable>, $(Plotting.layer_prefix(index)).p <plot type>, or " *
+           "$(Plotting.layer_prefix(index)) off")
+    ""
+end
+
+"""
+The `over` entry in the command table. `over2`, `over.p` and the rest
+reach the same handler through the dispatcher's own layer branch, since
+there is no end to the layer names to register.
+"""
+function layer_command_action(state:: REPLState, command:: String)::String
+    parsed = layer_command(String(first(split(command))))
+    parsed === nothing && return ""
+    run_layer_command(state, parsed[1], parsed[2], command)
+end
+
 function select_x_axis(state:: REPLState, command:: String)::String
     menu = state.controller.ui.main_menu.coord_menu.menus[1]
     select_menu_option!(menu, command)
@@ -310,9 +377,27 @@ function get_axis_kwargs(state:: REPLState, command:: String)::String
     @bold("Axis keywords:\n  ") * join(propertynames(fd.ax[]), "\n  ")
 end
 
+"""
+    plot_kwarg_names(fd)
+
+Every layer's plot keywords. The base layer's are bare -- an unprefixed
+keyword reaches it, as it always did -- while an overlay's already carry
+the prefix that addresses it.
+"""
+function plot_kwarg_names(fd:: Plotting.FigureData)::Vector{String}
+    names = String[]
+    for (i, layer) in enumerate(fd.layers)
+        plot = layer.plot_obj[]
+        isnothing(plot) && continue
+        prefix = i == 1 ? "" : Plotting.layer_prefix(i) * "."
+        append!(names, prefix .* String.(propertynames(plot)))
+    end
+    names
+end
+
 function get_plot_kwargs(state:: REPLState, command:: String)::String
     fd = state.controller.fd
-    @bold("Plot keywords:\n  ") * join(propertynames(fd.plot_obj[]), "\n  ")
+    @bold("Plot keywords:\n  ") * join(plot_kwarg_names(fd), "\n  ")
 end
 
 function get_colorbar_kwargs(state:: REPLState, command:: String)::String
@@ -351,7 +436,7 @@ function get_kwargs_list(state:: REPLState, command:: String)::String
     if !isnothing(fd.ax[])
         output *= "\n" * get_axis_kwargs(state, command)
     end
-    if !isnothing(fd.plot_obj[])
+    if !isnothing(Plotting.primary(fd))
         output *= "\n" * get_plot_kwargs(state, command)
     end
     if !isnothing(fd.cbar[])
@@ -543,6 +628,8 @@ function __init_commands!()
     # Populate the commands dictionary after all functions are defined
     r(REPLCommand("v", "Select a variable", "v [variable_name]", select_variable))
     r(REPLCommand("p", "Select a plot type", "p [plot_type]", select_plot_type))
+    r(REPLCommand("over", "Overlay another field on the same axis",
+        "over [variable|off], over.p [plot_type], over2 …", layer_command_action))
     r(REPLCommand("x", "Select x-axis variable", "x [variable_name]", select_x_axis))
     r(REPLCommand("y", "Select y-axis variable", "y [variable_name]", select_y_axis))
     r(REPLCommand("z", "Select z-axis variable", "z [variable_name]", select_z_axis))
@@ -593,6 +680,16 @@ function evaluate_command(state:: REPLState, command_line:: String)::Union{Strin
             @error "Error executing command '$cmd': $e"
             return ""
         end
+    elseif (layer = layer_command(cmd)) !== nothing
+        # `over2`, `over.p`, `base` … -- open-ended, so they cannot live in
+        # the command table. A keyword like `over.levels=10` never gets
+        # here: its first token carries the `=` and does not match.
+        try
+            return run_layer_command(state, layer[1], layer[2], command_line)
+        catch e
+            @error "Error executing command '$cmd': $e"
+            return ""
+        end
     elseif occursin('=', command_line)
         try
             return apply_kwargs(state, command_line)
@@ -615,14 +712,45 @@ function get_kwarg_names(state:: REPLState)::Vector{String}
     names = Symbol[]
     append!(names, propertynames(fd.settings))
     isnothing(fd.ax[]) || append!(names, propertynames(fd.ax[]))
-    isnothing(fd.plot_obj[]) || append!(names, propertynames(fd.plot_obj[]))
     isnothing(fd.cbar[]) || append!(names, propertynames(fd.cbar[]))
     append!(names, propertynames(fd.range_control[]))
-    sort!(unique!(String.(names)))
+    # the layers' plot keywords come pre-formatted: the base's bare, an
+    # overlay's prefixed -- and the prefixed ones only exist once a layer
+    # is there to take them
+    sort!(unique!([String.(names); plot_kwarg_names(fd)]))
+end
+
+"""
+    layer_words(state)
+
+The layer commands that make sense right now: the layers that exist, plus
+the next one up, each with its sub-commands. `off` only shows for a layer
+that is actually there to remove.
+"""
+function layer_words(state:: REPLState)::Vector{String}
+    fd = state.controller.fd
+    words = String[]
+    for i in 2:(Plotting.layer_count(fd) + 1)
+        prefix = Plotting.layer_prefix(i)
+        append!(words, [prefix, prefix * ".v", prefix * ".p"])
+    end
+    words
 end
 
 function get_argument_candidates(state:: REPLState, cmd:: String)::Vector{String}
     menu = state.controller.ui.main_menu
+    layer = layer_command(cmd)
+    if layer !== nothing
+        index, sub = layer
+        fd = state.controller.fd
+        sub == "p" && return Plotting.overlay_plot_options(
+            fd.plot_data.plot_type[])
+        options = String.(menu.variable_menu.options[])
+        # `over off` removes the layer; a variable of that name needs the
+        # spelled-out `over.v off`
+        sub == "" && index <= Plotting.layer_count(fd) && push!(options, "off")
+        return options
+    end
     cmd in ("v", "varinfo", "dims") && return String.(menu.variable_menu.options[])
     cmd == "x" && return String.(menu.coord_menu.menus[1].options[])
     cmd == "y" && return String.(menu.coord_menu.menus[2].options[])
@@ -651,6 +779,7 @@ function completion_candidates(state:: REPLState, prefix:: String)::Tuple{String
         candidates = vcat(
             collect(String, keys(commands)),
             ["exit", "quit"],
+            layer_words(state),
             get_kwarg_names(state) .* "=",
         )
     elseif occursin('=', String(tokens[1]))

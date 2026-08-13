@@ -19,6 +19,18 @@ command name is applied as plot keyword arguments (see
 | `y` | `y [variable_name]` | Select y-axis variable |
 | `z` | `z [variable_name]` | Select z-axis variable |
 
+## Overlaid layers
+
+Put `over` (or `over2`, `over3`, …) in front of the command you would give
+the base field, and it addresses that layer instead. `base` addresses the
+first layer explicitly. See [Overlaying Fields](../usage/overlays.md).
+
+| Command | Usage | Description |
+|:--------|:------|:------------|
+| `over` | `over [variable\|off]` | Draw a second field on the same axis, or remove it; without an argument it reports what the layer draws |
+| `over.v` | `over.v <variable>` | The same, spelled out (needed for a variable called `off`) |
+| `over.p` | `over.p <plot_type>` | Plot type of the layer |
+
 ## Dimension selection
 
 | Command | Usage | Description |
@@ -71,7 +83,7 @@ command name is applied as plot keyword arguments (see
 | `plots` | `plots` | List the plot types |
 | `conf` | `conf` | Show the current plot configuration |
 | `kwargs` | `kwargs [category]` | List available keyword arguments (`figure`, `axis`, `plot`, `colorbar`, `range`) |
-| `get` | `get <kwarg_name>` | Show the value of a keyword argument |
+| `get` | `get <kwarg_name>` | Show the value of a keyword argument (a bare name reports the base layer; ask for `over.colormap` to reach an overlay) |
 
 ## Exiting
 

@@ -1,5 +1,6 @@
 using Test
 using GLMakie
+using Suppressor
 using ArgParse
 using CDFViewer
 using CDFViewer.Constants
@@ -43,7 +44,7 @@ NS = Constants.NOT_SELECTED_LABEL
             @test controller.ui.state.plot_type_name[] == plot_type
         end
         if plot_class !== nothing
-            @test controller.fd.plot_obj[] isa plot_class
+            @test Plotting.primary(controller.fd) isa plot_class
         end
         if !isempty(dims)
             state = controller.ui.state
@@ -348,5 +349,67 @@ NS = Constants.NOT_SELECTED_LABEL
         cleanup(controller)
     end
 
+    @testset "Overlaid layers" begin
+        @testset "Repeated --over is matched by position" begin
+            args = get_args("f.nc", "--over=a --over-plot=contour --over=b,c")
+            @test args["over"] == ["a", "b,c"]
+            @test args["over-plot"] == ["contour"]
+            # nothing given is an empty list, not a leftover from before
+            @test get_args("f.nc")["over"] == String[]
+            @test get_args("f.nc")["over-plot"] == String[]
+        end
+
+        @testset "Layers are built from the command line" begin
+            controller = arange_controller(
+                "-v 2d_float -x lon -y lat -p heatmap " *
+                "--over=int_var --over-plot=contourf")
+            @test Plotting.layer_count(controller.fd) == 2
+            @test Plotting.layer_variables(controller.fd, 2) == ["int_var"]
+            @test Plotting.layer_plot(controller.fd, 2).type == "contourf"
+            # without a --over-plot the layer takes the default type
+            cleanup(controller)
+
+            controller = arange_controller(
+                "-v 2d_float -x lon -y lat -p heatmap --over=int_var")
+            @test Plotting.layer_plot(controller.fd, 2).type == "contour"
+            cleanup(controller)
+        end
+
+        @testset "Prefixed keywords find their layer" begin
+            # the layers must exist before the keyword textbox is written,
+            # or a prefixed keyword warns about a layer that is not there
+            slot = Ref{Any}(nothing)
+            output = @capture_err begin
+                slot[] = arange_controller(
+                    "-v 2d_float -x lon -y lat -p heatmap " *
+                    "--over=int_var --over-plot=contour " *
+                    "--kwargs='over.levels=7, colormap=:ice'")
+            end
+            controller = slot[]
+            @test !occursin("not found in any plot object", output)
+            @test Plotting.primary(controller.fd).colormap[] == :ice
+            @test controller.fd.layers[2].plot_obj[].levels[] == 7
+            cleanup(controller)
+        end
+
+        @testset "Export reproduces the layers" begin
+            controller = arange_controller(
+                "-v 2d_float -x lon -y lat -p heatmap " *
+                "--over=int_var --over-plot=contourf")
+            exp_str = Controller.get_export_string(controller)
+            @test occursin("--over=int_var", exp_str)
+            @test occursin("--over-plot=contourf", exp_str)
+
+            controller2 = arange_controller(exp_str)
+            @test Plotting.layer_count(controller2.fd) == 2
+            @test Plotting.layer_variables(controller2.fd, 2) == ["int_var"]
+            @test Plotting.layer_plot(controller2.fd, 2).type == "contourf"
+            # the round trip is a fixed point
+            @test Controller.get_export_string(controller2) == exp_str
+
+            cleanup(controller)
+            cleanup(controller2)
+        end
+    end
 
 end

@@ -70,9 +70,7 @@ function exercise_repl_commands!(state::ViewerREPL.REPLState)::Nothing
 
     # Vector plots: both components on a plain axis and on a map, plus the
     # density settings and the two-variable color-range scan
-    wait_scan!() = let t = state.controller.fd.crange_scan.task
-        t === nothing || wait(t)
-    end
+    wait_scan!() = Plotting.wait_for_scans(state.controller.fd)
     ViewerREPL.evaluate_command(state, "v u,v")
     ViewerREPL.evaluate_command(state, "x lon")
     ViewerREPL.evaluate_command(state, "y lat")
@@ -90,6 +88,35 @@ function exercise_repl_commands!(state::ViewerREPL.REPLState)::Nothing
     ViewerREPL.evaluate_command(state, "arrows=(8, 6), every=2")
     wait_tasks()
     ViewerREPL.evaluate_command(state, "del arrows every")
+    wait_tasks()
+
+    # Overlaid layers: adding, retyping, per-layer keywords, a vector layer
+    # on top, the export round trip, and taking them off again
+    ViewerREPL.evaluate_command(state, "v var4d")
+    ViewerREPL.evaluate_command(state, "x lon")
+    ViewerREPL.evaluate_command(state, "y lat")
+    ViewerREPL.evaluate_command(state, "p heatmap")
+    wait_tasks()
+    ViewerREPL.evaluate_command(state, "over u")
+    wait_tasks()
+    wait_scan!()
+    ViewerREPL.evaluate_command(state, "over.p contour")
+    ViewerREPL.evaluate_command(state, "over.levels=8, over.color=:black")
+    wait_tasks()
+    ViewerREPL.evaluate_command(state, "over2 u,v")
+    ViewerREPL.evaluate_command(state, "over2.p quiver")
+    ViewerREPL.evaluate_command(state, "over2.arrows=(8, 6)")
+    wait_tasks()
+    wait_scan!()
+    ViewerREPL.evaluate_command(state, "kwargs plot")
+    ViewerREPL.evaluate_command(state, "get over.levels")
+    ViewerREPL.evaluate_command(state, "export")
+    ViewerREPL.evaluate_command(state, "geographic=true")
+    wait_tasks()
+    ViewerREPL.evaluate_command(state, "del geographic")
+    wait_tasks()
+    ViewerREPL.evaluate_command(state, "over2 off")
+    ViewerREPL.evaluate_command(state, "over off")
     wait_tasks()
 
     # Unstructured variable (nearest-neighbor interpolation path)
@@ -131,9 +158,7 @@ function exercise_repl_commands!(state::ViewerREPL.REPLState)::Nothing
 
     # Color-range pinning: the pdim selection above starts a cycle scan;
     # exercise the mode switches and let the async pins land
-    wait_scan() = let t = state.controller.fd.crange_scan.task
-        t === nothing || wait(t)
-    end
+    wait_scan() = Plotting.wait_for_scans(state.controller.fd)
     wait_scan()
     ViewerREPL.evaluate_command(state, "colorrange=\"data\"")
     wait_tasks()
@@ -243,6 +268,12 @@ function run_precompile_workload()::Nothing
         # Full headless pipeline, as the tests drive it
         args = ArgParse.parse_args([file], get_arg_parser())
         julia_main(parsed_args = args)
+
+        # The same, with an overlaid layer described on the command line
+        julia_main(parsed_args = ArgParse.parse_args(
+            [file, "-v", "var4d", "-x", "lon", "-y", "lat", "-p", "heatmap",
+             "--over=u", "--over-plot=contour", "--kwargs=over.levels=8"],
+            get_arg_parser()))
 
         # Interactive surface
         dataset = Data.CDFDataset([file])

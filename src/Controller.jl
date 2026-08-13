@@ -51,9 +51,7 @@ function ViewerController(dataset::Data.CDFDataset;
     setup!(controller)
     # wait until the tasks are done
     [wait(t) for t in controller.fd.tasks[]]
-    let t = controller.fd.crange_scan.task
-        t === nothing || wait(t)
-    end
+    Plotting.wait_for_scans(controller.fd)
     controller.headless[] = headless
     controller
 end
@@ -159,6 +157,10 @@ function process_parsed_args!(controller::ViewerController)::Nothing
         end
     end
 
+    # Create the overlay layers -- before the keywords are written, or a
+    # prefixed one would find no layer to address and warn about it
+    select_overlays!(controller)
+
     # Process kwargs if provided
     if haskey(parsed_args, "kwargs") && parsed_args["kwargs"] != ""
         textbox = controller.ui.main_menu.plot_menu.plot_kw
@@ -262,6 +264,11 @@ function on_variable_change(controller::ViewerController)::Nothing
     # Fill in (or drop) the second component for the settled plot type
     update_partner_variable!(controller)
 
+    # Drop the overlays the new variable's axes no longer carry -- before
+    # the switch goes back on, so no layer is ever re-read against axes it
+    # does not span
+    prune_layers!(controller)
+
     # Set the update switch back
     controller.fd.plot_data.update_data_switch[] = true
 
@@ -294,6 +301,9 @@ function on_plot_type_change(controller::ViewerController)::Nothing
 
     # Delete the old axis and colorbar
     Plotting.clear_axis!(controller.fd)
+
+    # Drop the overlays the new type cannot share an axis with
+    prune_layers!(controller)
 
     # Set the update switch back
     controller.fd.plot_data.update_data_switch[] = true
@@ -329,6 +339,9 @@ function on_dim_sel_change(controller::ViewerController)::Nothing
 
     # Delete the old axis and colorbar
     Plotting.clear_axis!(controller.fd)
+
+    # Drop the overlays the new axes no longer carry
+    prune_layers!(controller)
 
     # Set the update switch back
     controller.fd.plot_data.update_data_switch[] = true
@@ -440,6 +453,83 @@ function update_partner_variable!(controller::ViewerController)::Nothing
     nothing
 end
 
+# ------------------------------------------------
+#  Overlaid layers
+# ------------------------------------------------
+#
+# The plotting layer owns the layers themselves; what it cannot reach are
+# the menus. Adding or dropping one changes which dimensions the figure
+# draws from, and with them which sliders are live and which axes playback
+# can run along -- so every entry point that touches the layer list goes
+# through here.
+
+"Bring the sliders and the playback options in line with the layers."
+function reconcile_layer_dims!(controller::ViewerController)::Nothing
+    selected = controller.fd.plot_data.sel_dims[]
+    set_slider_colors!(controller, selected)
+    menu = controller.ui.main_menu.playback_menu.var
+    previous = menu.selection[]
+    set_playback_options!(controller, selected)
+    # rebuilding the options can knock the selection off its dimension;
+    # adding a layer must not move playback to another axis behind the
+    # user's back
+    if previous isa AbstractString && previous ∈ menu.options[] &&
+       menu.selection[] != previous
+        menu.i_selected[] = findfirst(==(previous), menu.options[])
+    end
+    nothing
+end
+
+function set_layer_variables!(controller::ViewerController, index::Int,
+                              names::Vector{String})::String
+    status = Plotting.set_layer_variables!(controller.fd, index, names)
+    isempty(status) || reconcile_layer_dims!(controller)
+    status
+end
+
+function set_layer_plot_type!(controller::ViewerController, index::Int,
+                              name::String)::String
+    status = Plotting.set_layer_plot_type!(controller.fd, index, name)
+    isempty(status) || reconcile_layer_dims!(controller)
+    status
+end
+
+function remove_layer!(controller::ViewerController, index::Int)::String
+    status = Plotting.remove_layer!(controller.fd, index)
+    isempty(status) || reconcile_layer_dims!(controller)
+    status
+end
+
+"Drop the layers the base no longer supports, menus included."
+function prune_layers!(controller::ViewerController)::Bool
+    Plotting.prune_layers!(controller.fd) || return false
+    reconcile_layer_dims!(controller)
+    true
+end
+
+"""
+    select_overlays!(controller)
+
+Apply the repeatable `--over` / `--over-plot` arguments. The two are
+matched by position: the n-th `--over` is drawn with the n-th
+`--over-plot`, and an unmatched variable gets the default type for the
+base it sits on.
+"""
+function select_overlays!(controller::ViewerController)::Nothing
+    parsed_args = controller.parsed_args
+    specs = get(parsed_args, "over", String[])
+    types = get(parsed_args, "over-plot", String[])
+    for (n, spec) in enumerate(specs)
+        names = [String(strip(name)) for name in split(spec, ',')]
+        index = Plotting.layer_count(controller.fd) + 1
+        isempty(set_layer_variables!(controller, index, names)) && continue
+        plot_type = n <= length(types) ? String(strip(types[n])) : ""
+        isempty(plot_type) && continue
+        set_layer_plot_type!(controller, index, plot_type)
+    end
+    nothing
+end
+
 """
     select_variables!(controller, spec)
 
@@ -532,9 +622,29 @@ function set_slider_active!(coord_slider::UI.CoordinateSliders, dim::String)::No
     nothing
 end
 
+"""
+    drawn_dims(controller)
+
+Every dimension the figure draws from, over all its layers. An overlay may
+span a dimension the base does not, and that dimension is just as much a
+slider and just as much a playback axis -- a layer without it simply does
+not move.
+"""
+function drawn_dims(controller::ViewerController)::Vector{String}
+    dataset = controller.dataset
+    dims = String[]
+    for i in eachindex(controller.fd.plot_data.layers)
+        for variable in Plotting.layer_variables(controller.fd, i)
+            haskey(dataset.var_coords, variable) || continue
+            append!(dims, Data.get_var_dims(dataset, variable))
+        end
+    end
+    unique!(dims)
+end
+
 function set_slider_colors!(controller::ViewerController, selected_dims::Vector{String})::Nothing
     coord_slider = controller.ui.main_menu.coord_sliders
-    var_dims = Data.get_var_dims(controller.dataset, controller.ui.state.variable[])
+    var_dims = drawn_dims(controller)
     unused_dims = setdiff(var_dims, selected_dims)
     for dim in keys(coord_slider.sliders)
         if dim in unused_dims
@@ -561,7 +671,7 @@ end
 function set_playback_options!(controller::ViewerController, selected_dims::Vector{String})::Nothing
     menu = controller.ui.main_menu.playback_menu.var
     toggle = controller.ui.main_menu.playback_menu.toggle
-    var_dims = Data.get_var_dims(controller.dataset, controller.ui.state.variable[])
+    var_dims = drawn_dims(controller)
     unused_dims = setdiff(var_dims, selected_dims)
     if menu.i_selected[] > length(unused_dims) + 1
         if toggle.active[]
@@ -624,8 +734,14 @@ function get_export_string(controller::ViewerController)::String
     if plot_type != Constants.NOT_SELECTED_LABEL
         exp *= " -p$plot_type"
     end
+    # get the overlaid layers -- one --over/--over-plot pair each, in the
+    # order they are drawn, which is the order they are read back in
+    for i in 2:Plotting.layer_count(controller.fd)
+        exp *= " --over=" * join(Plotting.layer_variables(controller.fd, i), ",")
+        exp *= " --over-plot=" * Plotting.layer_plot(controller.fd, i).type
+    end
     # get the dimensions (only those that are relevant)
-    var_dims = Data.get_var_dims(controller.dataset, var)
+    var_dims = drawn_dims(controller)
     coord_menus = controller.ui.main_menu.coord_menu.menus
     selected_dims = [m.selection[] for m in coord_menus]
     unused_dims = setdiff(var_dims, selected_dims)
