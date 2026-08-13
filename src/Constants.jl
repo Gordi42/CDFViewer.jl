@@ -60,10 +60,12 @@ const HEADER_GAP = 8
 const ANIMLABEL_WIDTH_SAMPLES = 512
 
 # Optional background box behind the :overlay label, so it stays readable
-# over busy data. `false` disables it, `true` uses the translucent default
-# below, and any Makie colour (e.g. `(:black, 0.4)`) overrides it.
+# over busy data. `false` disables it, `true` paints the theme's own
+# background at the opacity below, and any Makie color (e.g.
+# `(:black, 0.4)`) overrides it.
 const ANIMLABEL_BACKGROUND = true
-const ANIMLABEL_BACKGROUND_COLOR = (:white, 0.7)
+const ANIMLABEL_BACKGROUND_ALPHA = 0.7
+const ANIMLABEL_BACKGROUND_STROKE_ALPHA = 0.8
 const ANIMLABEL_BACKGROUND_PADDING = 6
 const ANIMLABEL_BACKGROUND_CORNERRADIUS = 5.0
 
@@ -76,10 +78,10 @@ const TITLESIZE = 24
 # label -- but never smaller than this.
 const TITLESIZE_MIN = 12.0
 
-# Colorbar label. The size follows the axis labels; colour, font and
+# Colorbar label. The size follows the axis labels; color, font and
 # padding mirror Makie's own Colorbar defaults under the viewer's theme,
-# so an untouched option draws exactly as Makie would draw it.
-const CBARLABEL_COLOR = :black
+# so an untouched option draws exactly as Makie would draw it. The color
+# is the theme's own text color and therefore lives in `Themes`.
 const CBARLABEL_FONT = "regular"
 const CBARLABEL_PADDING = 5.0
 
@@ -160,26 +162,30 @@ const VIDEO_FILE_FORMATS = [".mkv", ".mp4", ".webm", ".gif"]
 # ============================================
 #  COLORS
 # ============================================
-struct ThemeColors
-    colormap::Symbol
-    colorline::Symbol
+#
+# The viewer's own chrome takes its colors from the Makie theme that is
+# installed (see `Themes`), so none of them is tabulated per theme. What
+# is tabulated here is how far a color is dragged from the theme's
+# background toward its text color: 0 is the ground, 1 the text.
+#
+# The three fractions below reproduce `:lightgray`, `:lightgray` again and
+# `rgb(240, 240, 240)` on the black-on-white pair the app used to assume,
+# which is what land, a grayed-out label and an idle slider bar were
+# painted in before they were derived.
+const LAND_BLEND = 0.17254901960784313
+const INACTIVE_TEXT_BLEND = 0.17254901960784313
+const SLIDER_BAR_BLEND = 0.058823529411764705
 
-    active_text_color::RGB
-    inactive_text_color::RGB
-    inactive_slider_bar_color::RGB
-    accent_color::RGB
-    accent_dimmed_color::RGB
-end
+# The accent Makie paints every widget with. The sliders read it from here
+# rather than from the theme so they keep agreeing with the buttons,
+# toggles and dropdowns beside them, which use this pair under every theme.
+const ACCENT_COLOR = parse(Colorant, "rgb(79, 122, 214)")
+const ACCENT_DIMMED_COLOR = parse(Colorant, "rgb(174, 192, 230)")
 
-const THEME_LIGHT = ThemeColors(
-    :balance,
-    :royalblue3,
-
-    parse(Colorant, :black),
-    parse(Colorant, :lightgray),
-    parse(Colorant, "rgb(240, 240, 240)"),
-    parse(Colorant, "rgb(79, 122, 214)"),
-    parse(Colorant, "rgb(174, 192, 230)"),
-)
+# The face Makie paints a resting button in (`Button.buttoncolor`), light
+# gray under every theme. A label drawn on it has to read against *it* and
+# not against the window behind it, or a dark theme puts white lettering
+# on a white button.
+const WIDGET_FACE_COLOR = RGB{Float32}(0.94, 0.94, 0.94)
 
 end

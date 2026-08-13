@@ -5,6 +5,7 @@ using ArgParse
 using GLMakie
 
 include("Constants.jl")
+include("Themes.jl")
 include("GridFiles.jl")
 include("Parsing.jl")
 include("Output.jl")
@@ -77,6 +78,10 @@ function get_arg_parser()::ArgParseSettings
             default = ""
         "--grid", "-g"
             help = "Path to a grid file providing coordinates that are not stored in the data file(s) (e.g. an ICON grid file)"
+            arg_type = String
+            default = ""
+        "--theme"
+            help = "Makie theme to draw in ($(join(Themes.theme_names(), ", "))); changeable at the prompt with the 'theme' command"
             arg_type = String
             default = ""
         # Flags

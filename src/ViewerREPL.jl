@@ -11,6 +11,7 @@ using CDFViewer.Controller
 using CDFViewer.Data
 using CDFViewer.Parsing
 using CDFViewer.Plotting
+using CDFViewer.Themes
 using CDFViewer.UI
 
 
@@ -452,6 +453,25 @@ function get_kwarg_value(state:: REPLState, command:: String)::String
     end
 end
 
+"""
+    select_theme(state, command)
+
+Report the theme, or draw the session under another one.
+
+Not a keyword: every other setting is written onto a figure that is
+already there, while a theme has to be in place *before* one is built.
+`theme dark` therefore rebuilds both windows and puts the session back
+into them, which is a command's job and not a keyword's.
+"""
+function select_theme(state:: REPLState, command:: String)::String
+    parts = split(command, ' ', limit=2)
+    if length(parts) < 2
+        return "Theme: " * Controller.get_theme(state.controller) *
+            "\nAvailable themes: " * join(Themes.theme_names(), ", ")
+    end
+    Controller.switch_theme!(state.controller, String(strip(parts[2])))
+end
+
 function refresh_plot(state:: REPLState, command:: String)::String
     fd = state.controller.fd
     Plotting.clear_axis!(fd)
@@ -612,6 +632,7 @@ function __init_commands!()
     r(REPLCommand("hide", "Hide the current figure", "hide", hide_figure))
     r(REPLCommand("menu", "Show the menu", "menu", show_menu))
     r(REPLCommand("hidemenu", "Hide the menu", "hidemenu", hide_menu))
+    r(REPLCommand("theme", "Select the Makie theme to draw in", "theme [name]", select_theme))
     r(REPLCommand("refresh", "Refresh the plot", "refresh", refresh_plot))
     r(REPLCommand("reset", "Reset plot settings to default", "reset", reset_plot_settings))
     r(REPLCommand("help", "Get help", "help", get_help))
@@ -723,6 +744,7 @@ function get_argument_candidates(state:: REPLState, cmd:: String)::Vector{String
     cmd in ("isel", "sel") && return collect(String, keys(menu.coord_sliders.sliders))
     cmd in ("pdim", "play") && return String.(menu.playback_menu.var.options[])
     cmd == "kwargs" && return ["figure", "axis", "plot", "colorbar", "range"]
+    cmd == "theme" && return Themes.theme_names()
     cmd in ("get", "del") && return get_kwarg_names(state)
     return String[]
 end

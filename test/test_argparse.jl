@@ -8,6 +8,7 @@ using CDFViewer.Constants
 using CDFViewer.Data
 using CDFViewer.UI
 using CDFViewer.Plotting
+using CDFViewer.Themes
 using CDFViewer.Controller
 
 NS = Constants.NOT_SELECTED_LABEL
@@ -92,6 +93,7 @@ NS = Constants.NOT_SELECTED_LABEL
             @test args["dims"] == ""
             @test args["ani-dim"] == ""
             @test args["saveoptions"] == ""
+            @test args["theme"] == ""
             @test args["savefig"] == false
             @test args["record"] == false
             @test args["menu"] == false
@@ -154,6 +156,17 @@ NS = Constants.NOT_SELECTED_LABEL
         @testset "Save Options" begin
             args = get_args("file.nc", "--saveoptions=\"dpi=300, quality=95\"")
             @test args["saveoptions"] == "dpi=300, quality=95"
+        end
+
+        @testset "Theme" begin
+            args = get_args("file.nc", "--theme=dark")
+            @test args["theme"] == "dark"
+            # the option is carried through to the session it opens
+            controller = arange_controller("--theme=ggplot2")
+            @test Controller.get_theme(controller) == "ggplot2"
+            GLMakie.closeall()
+            close(controller.dataset.ds)
+            Themes.activate!(Themes.DEFAULT_THEME)
         end
 
         @testset "Flags" begin

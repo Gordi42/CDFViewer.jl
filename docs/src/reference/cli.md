@@ -34,6 +34,7 @@ cdfviewer demo.nc -v temperature -x lon -y lat -p heatmap --dims="time=5" -a tim
 | `--ani-dim` | `-a` | Dimension to use for animation |
 | `--saveoptions` | `-s` | Options for saving the figure (as a Julia expression) |
 | `--grid` | `-g` | Path to a grid file providing coordinates that are not stored in the data file(s) (e.g. an ICON grid file) |
+| `--theme` | | Makie theme to draw in: `minimal` (the default), `light`, `dark`, `black`, or `ggplot2` (see [Themes](../usage/customization.md#Themes)) |
 
 ## Flags
 

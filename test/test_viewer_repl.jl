@@ -9,6 +9,7 @@ using CDFViewer.UI
 using CDFViewer.Plotting
 using CDFViewer.Controller
 using CDFViewer.Parsing
+using CDFViewer.Themes
 using CDFViewer.ViewerREPL
 
 @testset "ViewerREPL.jl" begin
@@ -1245,6 +1246,72 @@ using CDFViewer.ViewerREPL
             @test "over.levels=" in
                 ViewerREPL.completion_candidates(state, "over.l")[2]
             cleanup(state)
+        end
+    end
+
+    @testset "Theme" begin
+        # the switch installs a theme globally; put the default back
+        function with_default_theme(f::Function)
+            try
+                f()
+            finally
+                Themes.activate!(Themes.DEFAULT_THEME)
+            end
+        end
+
+        @testset "Reporting the current theme" begin
+            with_default_theme() do
+                state = init_state()
+                output = ViewerREPL.evaluate_command(state, "theme")
+                @test occursin("Theme: " * Themes.DEFAULT_THEME, output)
+                for name in Themes.theme_names()
+                    @test occursin(name, output)
+                end
+                cleanup(state)
+            end
+        end
+
+        @testset "Switching the theme" begin
+            with_default_theme() do
+                state = init_state()
+                ViewerREPL.evaluate_command(state, "v 2d_float")
+                ViewerREPL.evaluate_command(state, "p heatmap")
+                figure = state.controller.fd.fig
+
+                @test ViewerREPL.evaluate_command(state, "theme dark") ==
+                    "Theme: dark"
+
+                # the REPL holds the controller, and the controller is the
+                # thing that was rebuilt into -- so the prompt keeps working
+                @test state.controller.fd.fig !== figure
+                @test Controller.get_theme(state.controller) == "dark"
+                @test ViewerREPL.evaluate_command(state, "v 3d_float") ==
+                    "Selected: 3d_float"
+                cleanup(state)
+            end
+        end
+
+        @testset "Refusing a name at the prompt" begin
+            with_default_theme() do
+                state = init_state()
+                output = ViewerREPL.evaluate_command(state, "theme solarized")
+                @test occursin("Unknown theme 'solarized'", output)
+                @test Controller.get_theme(state.controller) ==
+                    Themes.DEFAULT_THEME
+                cleanup(state)
+            end
+        end
+
+        @testset "Completion offers the theme names" begin
+            with_default_theme() do
+                state = init_state()
+                word, cands = ViewerREPL.completion_candidates(state, "theme d")
+                @test word == "d"
+                @test "dark" in cands
+                _, cands = ViewerREPL.completion_candidates(state, "theme ")
+                @test sort(Themes.theme_names()) == cands
+                cleanup(state)
+            end
         end
     end
 
