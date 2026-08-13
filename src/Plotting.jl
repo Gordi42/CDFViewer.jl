@@ -2961,7 +2961,15 @@ function apply_kwargs!(fig_data::FigureData, kwargs::OrderedDict{Symbol, Any})::
                 println(stderr, line)
             end
             # revert to original properties
+            # one key can name several targets -- `limits` reaches the
+            # axis and the colorbar both -- while the store holds a
+            # single value per key. Keep the first target's: that is the
+            # one the keyword is named after, where letting the last one
+            # win would file the colorbar's range under `limits`
+            stored = Set{Symbol}()
             for mapping in mappings
+                mapping.key in stored && continue
+                push!(stored, mapping.key)
                 fig_data.ui.state.kwargs[][mapping.key] = mapping.current_value
             end
 
@@ -2979,7 +2987,37 @@ function shorten_float(value::Number)::Number
     parse(Float64, @sprintf("%g", value))
 end
 
-function get_limit_string(ax::Makie.AbstractAxis)::Tuple
+"""
+    invert_edge(inv_trans, from, toward)
+
+`from` sent back through `inv_trans`, sliding toward `toward` until the
+projection answers with a finite point.
+
+The edge of a map is also the edge of what its projection is defined on,
+and the last bit of it is a matter of rounding: Mollweide's ±180°
+meridian lands a hair outside its own ellipse and comes back as `Inf`.
+The first step in is a billionth of the view, far under what
+`shorten_float` keeps; the later ones are a real retreat and only rescue
+a view zoomed out past the globe. A point that never inverts is `NaN`,
+and the caller drops the limits rather than export one.
+"""
+function invert_edge(inv_trans::Any, from::Point2d, toward::Point2d)::Point2d
+    for fraction in (0.0, 1e-9, 1e-6, 1e-3, 1e-2, 0.1)
+        point = Makie.apply_transform(inv_trans, from + fraction * (toward - from))
+        all(isfinite, point) && return point
+    end
+    Point2d(NaN, NaN)
+end
+
+"""
+    get_source_limits(ax)
+
+The visible extent of `ax` in the coordinates its `limits` keyword is
+read in: `(xmin, xmax, ymin, ymax, ...)`, two entries per dimension.
+
+`finallimits` is the answer already for every axis but a `GeoAxis`.
+"""
+function get_source_limits(ax::Makie.AbstractAxis)::Vector{Float64}
     lim_rect = ax.finallimits[]
     limits = Float64[]
     # Loop through each dimension
@@ -2989,8 +3027,70 @@ function get_limit_string(ax::Makie.AbstractAxis)::Tuple
         # Add max limit (origin + width)
         push!(limits, lim_rect.origin[dim] + lim_rect.widths[dim])
     end
+    limits
+end
 
-    Tuple(shorten_float(value) for value in limits)
+"""
+A `GeoAxis` keeps `finallimits` in projected metres but reads its
+`limits` keyword as lon/lat, so the visible rectangle goes back through
+the axis' own inverse transform.
+
+Inverting the four corners would overstate the map: a projected
+rectangle is no rectangle in lon/lat, and its corners sit on the
+meridians the projection stretches furthest -- a global Equal Earth view
+of 330° of longitude comes back as 360°. Each edge is read on the
+parallel where the axis actually attains it instead, which is where
+`reset_limits!` measures it again when the exported keyword is applied,
+so the round trip closes.
+
+Which parallel that is depends on the edge. A parallel is at its widest
+on the equator and shrinks toward the poles, so a longitude reaches
+furthest from the central meridian on the parallel of the view nearest
+the equator, and stays nearest it on the parallel furthest away. The two
+sides of a view that does not straddle the central meridian are
+therefore read on different parallels: sample both on the same one and
+the near edge creeps outward a little with every export.
+"""
+function get_source_limits(ax::GeoAxis)::Vector{Float64}
+    inv_trans = ax.inv_transform_func[]
+    lim_rect = ax.finallimits[]
+    xmin, ymin = minimum(lim_rect)
+    xmax, ymax = maximum(lim_rect)
+    # the widest parallel in view, and the narrowest
+    y_wide = clamp(0.0, ymin, ymax)
+    y_narrow = abs(ymin) >= abs(ymax) ? ymin : ymax
+    # an edge beyond the central meridian is the far one and sits on the
+    # widest parallel; an edge short of it is the near one, on the
+    # narrowest. A view spanning the meridian has two far edges.
+    west_y = xmin <= 0 ? y_wide : y_narrow
+    east_y = xmax >= 0 ? y_wide : y_narrow
+    # the latitudes are read down the central meridian, where a parallel
+    # is a straight line for every projection this axis offers
+    x_mid = clamp(0.0, xmin, xmax)
+    west = invert_edge(inv_trans, Point2d(xmin, west_y), Point2d(xmax, west_y))
+    east = invert_edge(inv_trans, Point2d(xmax, east_y), Point2d(xmin, east_y))
+    south = invert_edge(inv_trans, Point2d(x_mid, ymin), Point2d(x_mid, ymax))
+    north = invert_edge(inv_trans, Point2d(x_mid, ymax), Point2d(x_mid, ymin))
+    Float64[west[1], east[1], south[2], north[2]]
+end
+
+function get_limit_string(ax::Makie.AbstractAxis)::Tuple
+    Tuple(shorten_float(value) for value in get_source_limits(ax))
+end
+
+"""
+    replayable_limits(limits)
+
+Whether an extent can be handed back to an axis as a `limits` keyword.
+
+Only a map ever fails this. Zoomed out past the edge of its projection
+it has no lon/lat rectangle at all, and straddling the ±180° seam it has
+one whose west edge lies east of its east edge -- Makie refuses both, and
+the refusal would take every keyword of the batch down with it.
+"""
+function replayable_limits(limits::Tuple)::Bool
+    all(isfinite, limits) || return false
+    all(limits[i] <= limits[i + 1] for i in 1:2:length(limits))
 end
 
 function fix_figure_kwargs!(fd::FigureData)::Nothing
@@ -3007,7 +3107,11 @@ function fix_figure_kwargs!(fd::FigureData)::Nothing
     # axis limits
     ax = fd.ax[]
     if !isnothing(ax)
-        kwargs[:limits] = get_limit_string(ax)
+        limits = get_limit_string(ax)
+        # an extent the axis would refuse is left out rather than
+        # written back: the keyword stays as the user wrote it, and the
+        # export loses the zoom instead of the whole batch of keywords
+        replayable_limits(limits) && (kwargs[:limits] = limits)
     end
 
     # 3D axis orientation

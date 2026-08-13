@@ -1,5 +1,6 @@
 using Test
 using GLMakie
+using GeoMakie
 using Suppressor
 using ArgParse
 using CDFViewer
@@ -347,6 +348,72 @@ NS = Constants.NOT_SELECTED_LABEL
 
         # Cleanup
         cleanup(controller)
+    end
+
+    @testset "Geographic Round Trip" begin
+        # a map holds its extent in projected metres while it reads its
+        # `limits` keyword as lon/lat. Exporting the metres wrote a
+        # keyword nothing could apply: the failure reverted the whole
+        # batch and left the colorbar's range filed under `limits`.
+        projections = [("default", ""), ("mollweide", ", proj=\"+proj=moll\"")]
+        for (name, extra) in projections, zoomed in (false, true)
+            @testset "$name projection, zoomed = $zoomed" begin
+                # Arrange
+                controller = arange_controller(
+                    "-v2d_float -xlon -ylat -pheatmap " *
+                    "--kwargs='geographic=true$extra'")
+                ax = controller.fd.ax[]
+                @test ax isa GeoAxis
+                if zoomed
+                    rect = ax.finallimits[]
+                    ax.targetlimits[] = typeof(rect)(
+                        rect.origin .+ 0.2 .* rect.widths, 0.5 .* rect.widths)
+                end
+                before = ax.finallimits[]
+
+                # Act
+                local exp_str
+                err = @capture_err begin
+                    exp_str = Controller.get_export_string(controller)
+                end
+
+                # Assert: it applied cleanly, so nothing was taken back
+                @test !occursin("reverting", err)
+                @test !occursin("Error setting property", err)
+                # what is exported is the axis' four corners in degrees,
+                # not the colorbar's two-element range
+                limits = controller.ui.state.kwargs[][:limits]
+                span = maximum(limits) - minimum(limits)
+                @test length(limits) == 4
+                @test all(l -> abs(l) ≤ 360, limits)
+                # applying them moved nothing: reading the axis again
+                # gives the same extent back, so a second export does
+                # not walk the view outward one edge at a time
+                @test all(isapprox.(limits, Plotting.get_limit_string(ax),
+                                    atol = 1e-4 * span))
+
+                # Assert: the exported command draws the same map
+                controller2 = arange_controller(exp_str)
+                @test controller2.fd.ax[] isa GeoAxis
+                after = controller2.fd.ax[].finallimits[]
+                tol = 1e-3 * maximum(abs, before.widths)
+                @test all(isapprox.(Tuple(before.origin), Tuple(after.origin),
+                                    atol = tol))
+                @test all(isapprox.(Tuple(before.widths), Tuple(after.widths),
+                                    atol = tol))
+                # and exporting that again asks for the same view. Not
+                # for the same digits: GeoMakie measures a lon/lat
+                # rectangle by sampling 21 parallels, so a limit lands
+                # within a ten-thousandth of the span of where it began
+                Controller.get_export_string(controller2)
+                @test all(isapprox.(controller2.ui.state.kwargs[][:limits],
+                                    limits, atol = 1e-3 * span))
+
+                # Cleanup
+                cleanup(controller)
+                cleanup(controller2)
+            end
+        end
     end
 
     @testset "Overlaid layers" begin

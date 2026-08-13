@@ -1491,6 +1491,33 @@ using CDFViewer.Plotting
             cleanup(dataset)
         end
 
+        @testset "A shared key reverts to its own value" begin
+            # Arrange: `limits` names the axis and the colorbar both,
+            # while the store holds a single value per key
+            (fig_data, state, dataset) = init_figure_data()
+            state.variable[] = "5d_float"
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+            state.plot_type_name[] = "heatmap"
+            Plotting.create_axis!(fig_data, state)
+            @test fig_data.cbar[] isa Colorbar
+            axis_limits = fig_data.ax[].limits[]
+            # the colorbar owns `limits` as well, and holds its own range
+            @test fig_data.cbar[].limits[] != axis_limits
+
+            # Act: an unknown unit fails and takes the whole batch back
+            @suppress Plotting.update_kwargs!(fig_data, OrderedDict{Symbol, Any}(
+                :limits => (1, 4, 2, 6), :xunit => "furlong"))
+
+            # Assert: what went back under `limits` is the axis' extent,
+            # not the colorbar's two-element range
+            @test fig_data.ui.state.kwargs[][:limits] == axis_limits
+            @test fig_data.ax[].limits[] == axis_limits
+
+            # Cleanup
+            cleanup(dataset)
+        end
+
 
     end
 
@@ -1829,6 +1856,60 @@ using CDFViewer.Plotting
                 # Cleanup
                 cleanup(dataset)
             end
+
+            @testset "Exported limits are lon/lat" begin
+                # a map keeps `finallimits` in projected metres while it
+                # reads its `limits` keyword as lon/lat; exporting the
+                # metres writes a keyword that cannot be applied again
+                fd, state, dataset = arrange_and_create_axis(
+                    "5d_float", ["lon", "lat"], "heatmap")
+                kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
+                kwarg_text[] = "geographic = true"
+                ax = fd.ax[]
+                @test ax isa GeoAxis
+
+                # Assert: the visible extent really is metres
+                @test maximum(abs, ax.finallimits[].origin) > 1e4
+
+                # Act
+                limits = Plotting.get_limit_string(ax)
+
+                # Assert: the degrees the data was drawn in
+                @test length(limits) == 4
+                @test all(isfinite, limits)
+                @test all(isapprox.(limits, (1.0, 5.0, 1.0, 7.0), atol = 0.01))
+
+                # and a zoom is carried across the same way
+                rect = ax.finallimits[]
+                ax.targetlimits[] = typeof(rect)(
+                    rect.origin .+ 0.25 .* rect.widths, 0.5 .* rect.widths)
+                zoomed = Plotting.get_limit_string(ax)
+                @test all(isfinite, zoomed)
+                @test zoomed[1] > limits[1] && zoomed[2] < limits[2]
+                @test zoomed[3] > limits[3] && zoomed[4] < limits[4]
+                # applying them again lands on the same view
+                before = ax.finallimits[]
+                ax.limits = zoomed
+                @test all(isapprox.(Tuple(ax.finallimits[].origin),
+                                    Tuple(before.origin), rtol = 1e-3))
+                @test all(isapprox.(Tuple(ax.finallimits[].widths),
+                                    Tuple(before.widths), rtol = 1e-3))
+
+                # Cleanup
+                cleanup(dataset)
+            end
+
+            @testset "A plain axis exports its own extent" begin
+                # the geographic detour must leave every other axis alone
+                fd, state, dataset = arrange_and_create_axis(
+                    "5d_float", ["lon", "lat"], "heatmap")
+                rect = fd.ax[].finallimits[]
+                @test Plotting.get_limit_string(fd.ax[]) ==
+                    Tuple(Plotting.shorten_float(v) for v in (
+                        rect.origin[1], rect.origin[1] + rect.widths[1],
+                        rect.origin[2], rect.origin[2] + rect.widths[2]))
+                cleanup(dataset)
+            end
         end
 
         @testset "Projection" begin
@@ -2011,6 +2092,18 @@ using CDFViewer.Plotting
             @test occursin("g=1:5", s)
             @test occursin("h=nothing", s)
             @test Plotting.kwarg_dict_to_string(OrderedDict{Symbol, Any}()) == ""
+        end
+
+        @testset "replayable_limits" begin
+            # an ordinary extent, in two and in three dimensions
+            @test Plotting.replayable_limits((-180.0, 150.0, -70.0, 70.0))
+            @test Plotting.replayable_limits((1.0, 2.0, 3.0, 4.0, 5.0, 6.0))
+            # a projection with nowhere to put an edge
+            @test !Plotting.replayable_limits((NaN, 150.0, -70.0, 70.0))
+            @test !Plotting.replayable_limits((-Inf, 150.0, -70.0, 70.0))
+            # a map straddling the seam: its west edge lies east of its
+            # east one, which no `limits` keyword can say
+            @test !Plotting.replayable_limits((170.0, -170.0, -70.0, 70.0))
         end
 
         @testset "resolve_cbarlabel" begin
