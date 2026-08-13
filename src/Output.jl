@@ -13,6 +13,7 @@ mutable struct OutputSettings
     px_per_unit::Int
     range::Union{Nothing, StepRange{Int64}, UnitRange{Int64}}
     work_dir::String
+    overwrite::Bool
 end
 
 function OutputSettings(filename::String;
@@ -20,8 +21,9 @@ function OutputSettings(filename::String;
     px_per_unit::Int=1,
     range::Union{Nothing, StepRange{Int64}, UnitRange{Int64}}=nothing,
     work_dir::String=pwd(),
+    overwrite::Bool=true,
     )
-    OutputSettings(filename, framerate, px_per_unit, range, work_dir)
+    OutputSettings(filename, framerate, px_per_unit, range, work_dir, overwrite)
 end
 
 # ============================================================
@@ -68,6 +70,8 @@ function settings_string(settings::OutputSettings; filename::String)::String
         push!(parts, "px_per_unit=$(settings.px_per_unit)")
     isnothing(settings.range) ||
         push!(parts, "range=$(settings.range)")
+    settings.overwrite == defaults.overwrite ||
+        push!(parts, "overwrite=$(settings.overwrite)")
     join(parts, ", ")
 end
 
@@ -93,7 +97,7 @@ end
 function savefig(fig::Figure, settings::OutputSettings)::Nothing
     filename, tmp_file = @cd settings get_filenames(settings, Constants.IMAGE_FILE_FORMATS)
     save(tmp_file, fig, px_per_unit=settings.px_per_unit)
-    @cd settings mv(tmp_file, filename)
+    @cd settings mv(tmp_file, filename; force=true)
     @info "Saved figure to $filename"
     nothing
 end
@@ -114,7 +118,7 @@ function record_scene(fig::Figure, settings::OutputSettings, slider::Slider)::No
         next!(p)
     end
     @info "Finished recording. Saving ..."
-    @cd settings mv(tmp_file, filename)
+    @cd settings mv(tmp_file, filename; force=true)
     @info "Saved animation to $filename"
     # There is a bug in the record function that causes blocking of tick events
     # These can be cleared by running a garbage collection
@@ -130,7 +134,7 @@ end
 function get_filenames(settings::OutputSettings, available_exts::Vector{String})::Tuple{String,String}
     filename = settings.filename
     filename = check_extension(filename, available_exts)
-    filename = check_filename(filename)
+    filename = check_filename(filename; overwrite=settings.overwrite)
     # We first write the file into a temporary file and then move it to the final
     # destination to avoid partial files in case of errors
     # (also avoids issues on remote filesystems)
@@ -162,15 +166,36 @@ function rename_filename(filename::String)::String
     "$base($idx)$ext"
 end
 
-function check_filename(filename::String)::String
+"""
+    check_filename(filename; overwrite)
+
+The name the output is actually written under.
+
+A free name is returned as it stands. A name already taken is written
+over, and said so on stderr: the output is composed in a temporary file
+and moved into place only once it is complete, so replacing a file never
+costs it to a render that fails halfway. Re-running the same command
+therefore refreshes the file it named, rather than leaving the reader of
+that name looking at the older run.
+
+With `overwrite=false` the taken name is stepped on to the next free
+`name(n)` instead, and nothing on disk is touched.
+"""
+function check_filename(filename::String; overwrite::Bool=true)::String
     !isfile(filename) && return filename
+    if overwrite
+        @warn "File $filename already exists and is being overwritten."
+        return filename
+    end
     @warn "File $filename already exists. Rename to avoid overwriting."
     rename_filename(filename)
 end
-        
-function move_file(src::String, dest::String)::Nothing
-    dest = check_filename(dest)
-    mv(src, dest)
+
+function move_file(src::String, dest::String; overwrite::Bool=true)::Nothing
+    dest = check_filename(dest; overwrite=overwrite)
+    # `force` covers the name that fell free -- or was taken -- between the
+    # decision above and here, which a long recording leaves ample room for
+    mv(src, dest; force=true)
     nothing
 end
 

@@ -17,15 +17,16 @@ run!(session, "v temperature", "x lon", "y lat", "p heatmap") # hide
 repl(session, "savefig filename=temperature.png") # hide
 ```
 
-Two options control the output.
+Three options control the output.
 
 - `filename` sets the output path, and the `.png` extension is added if
-  missing. If the file already exists, a number is appended
-  (`temperature(1).png`) so nothing is overwritten.
+  missing.
 - `px_per_unit` multiplies the resolution. A value of `2` doubles the pixel
   resolution at the same figure layout, for print-quality output.
+- `overwrite` decides what a name already taken means (see
+  [Writing over an earlier file](@ref)).
 
-Without a `filename`, a name is derived automatically. Both options stay
+Without a `filename`, a name is derived automatically. All three stay
 set until you change them, so the *Save* button of the menu writes with
 whatever you gave last.
 
@@ -38,14 +39,38 @@ follows the extension (`.mp4`, `.mkv`, `.webm`, or `.gif`).
 CDFViewer> record filename=temperature.mp4, framerate=30
 ```
 
-Three options control the recording.
+Four options control the recording.
 
 - `filename` sets the output path, and the extension selects the codec.
 - `framerate` sets the frames per second (default 30).
 - `range` restricts the recorded frames, e.g. `range=1:12`.
+- `overwrite` decides what a name already taken means (see
+  [Writing over an earlier file](@ref)).
 
 The animated dimension is set with `pdim` (or the *Play* dropdown). See
 [Animation and Playback](animation.md).
+
+## Writing over an earlier file
+
+A name that is already taken is written over, and a line on stderr says
+so. Both outputs are composed in a temporary file and moved into place
+only once they are complete, so a render or a recording that fails
+halfway never costs you the file that was there.
+
+Overwriting is what a re-run wants. Recording `waves.mp4` a second time
+after changing the plot leaves the newer take under the name you gave it,
+rather than parking it in `waves(1).mp4` and leaving everything pointed
+at the name -- a docs page, a script, a player you left open -- showing
+the older one.
+
+Pass `overwrite=false` for the other behaviour: the taken name is left
+alone and the output goes to the next free `waves(1).mp4`,
+`waves(2).mp4`, and so on. This is worth having when saving a series of
+views by hand under one name.
+
+```
+CDFViewer> record filename=waves.mp4, overwrite=false
+```
 
 ## Batch mode with `--savefig` and `--record`
 

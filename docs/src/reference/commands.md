@@ -59,8 +59,8 @@ first layer explicitly. See [Overlaying Fields](../usage/overlays.md).
 
 | Command | Usage | Description |
 |:--------|:------|:------------|
-| `savefig` | `savefig [filename=<filename>, px_per_unit=<Int>]` | Save the current figure |
-| `record` | `record [filename=<filename>, framerate=<Int>, range=<range>]` | Record a movie |
+| `savefig` | `savefig [filename=<filename>, px_per_unit=<Int>, overwrite=<Bool>]` | Save the current figure |
+| `record` | `record [filename=<filename>, framerate=<Int>, range=<range>, overwrite=<Bool>]` | Record a movie |
 | `export` | `export` | Print command line arguments reproducing the session |
 
 ## Windows

@@ -674,9 +674,9 @@ function __init_commands!()
     r(REPLCommand("speed", "Set play speed", "speed [value]", set_play_speed))
     r(REPLCommand("pdim", "Set play dimension", "pdim [dim_name]", set_play_dimension))
     r(REPLCommand("savefig", "Save the current figure",
-        "savefig [filename=<filename>, px_per_unit=<Int>]", save_figure))
+        "savefig [filename=<filename>, px_per_unit=<Int>, overwrite=<Bool>]", save_figure))
     r(REPLCommand("record", "Record a movie",
-        "record [filename=<filename>, framerate=<Int>, range=<range>]", record_movie))
+        "record [filename=<filename>, framerate=<Int>, range=<range>, overwrite=<Bool>]", record_movie))
     r(REPLCommand("export", "Export the current figure as a string", "export", export_string))
     r(REPLCommand("show", "Show the current figure", "show", show_figure))
     r(REPLCommand("hide", "Hide the current figure", "hide", hide_figure))
