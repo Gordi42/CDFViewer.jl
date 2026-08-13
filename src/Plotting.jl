@@ -13,7 +13,6 @@ import ..Interpolate
 import ..Data
 import ..DataLimits
 import ..UI
-import ..Parsing
 
 # ============================================================
 #  Plot types and their properties
@@ -1035,11 +1034,6 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         update_colorrange!(fd)
     end
 
-    # Setup listeners to apply axis and plot keyword arguments
-    on(ui.main_menu.plot_menu.plot_kw.stored_string) do kw_str
-        on_kwarg_string_update(fd, kw_str)
-    end
-
     # return the FigureData
     fd
 end
@@ -1234,7 +1228,10 @@ function rename_layer_kwargs!(fd::FigureData, dropped::Vector{Int})::Nothing
         renamed[Symbol(layer_prefix(moved[layer]), '.', property)] = value
     end
     keys(renamed) == keys(kwargs) && return nothing
-    rewrite_kwargs!(fd, renamed)
+    # the store is written straight, not through `update_kwargs!`: the
+    # layers the dropped keywords named are gone, so there is nothing
+    # left to un-apply them on
+    fd.ui.state.kwargs[] = renamed
     nothing
 end
 
@@ -2873,27 +2870,16 @@ function kwarg_dict_to_string(kwargs::OrderedDict{Symbol, Any})::String
 end
 
 """
-    rewrite_kwargs!(fd, kwargs)
+    update_kwargs!(fd, new_kwargs)
 
-Replace the stored keywords without applying anything. The store is
-updated first, so the textbox's own diffing finds nothing to do -- which
-is what layer removal needs: the layer the dropped keywords named is gone,
-so there is nothing left to revert them on.
+Make `new_kwargs` the keywords the figure is drawn with.
+
+The single entry point for every keyword change, wherever it comes from:
+the prompt, the command line, an export, a resample. It takes values,
+not text -- whatever has to be parsed is parsed by its caller, at the
+edge. The store is replaced whole and only what actually differs is
+applied, so a keyword that is merely repeated costs nothing.
 """
-function rewrite_kwargs!(fd::FigureData,
-                         kwargs::OrderedDict{Symbol, Any})::Nothing
-    fd.ui.state.kwargs[] = kwargs
-    textbox = fd.ui.main_menu.plot_menu.plot_kw
-    text = kwarg_dict_to_string(kwargs)
-    try
-        textbox.displayed_string = isempty(text) ? " " : text
-        textbox.stored_string = text
-    catch e
-        @warn "Error parsing additional arguments: $e"
-    end
-    nothing
-end
-
 function update_kwargs!(fd::FigureData, new_kwargs::OrderedDict{Symbol, Any})::Nothing
     old_kwargs = fd.ui.state.kwargs[]
 
@@ -2914,12 +2900,6 @@ function update_kwargs!(fd::FigureData, new_kwargs::OrderedDict{Symbol, Any})::N
     # Update the stored kwargs
     fd.ui.state.kwargs[] = new_kwargs
     apply_kwargs!(fd, diff_kwargs)
-end
-
-function on_kwarg_string_update(fd::FigureData, kw_str::Union{String, Nothing})::Nothing
-    kw_str = isnothing(kw_str) ? "" : kw_str
-    new_kwargs = Parsing.parse_kwargs(kw_str)
-    update_kwargs!(fd, new_kwargs)
 end
 
 function apply_kwargs!(fig_data::FigureData, kwargs::OrderedDict{Symbol, Any})::Nothing
@@ -3094,7 +3074,6 @@ function replayable_limits(limits::Tuple)::Bool
 end
 
 function fix_figure_kwargs!(fd::FigureData)::Nothing
-    textbox = fd.ui.main_menu.plot_menu.plot_kw
     kwargs = copy(fd.ui.state.kwargs[])
 
     # figsize
@@ -3120,17 +3099,7 @@ function fix_figure_kwargs!(fd::FigureData)::Nothing
         kwargs[:elevation] = shorten_float(ax.elevation[])
     end
 
-    new_kw_string = kwarg_dict_to_string(kwargs)
-    new_display_string = isempty(new_kw_string) ? " " : new_kw_string
-
-    try
-        textbox.displayed_string = new_display_string
-        textbox.stored_string = new_kw_string
-    catch e
-        @warn "Error parsing additional arguments: $e"
-        return nothing
-    end
-
+    update_kwargs!(fd, kwargs)
     nothing
 end
 
@@ -3161,22 +3130,11 @@ function update_interpolate!(fd::FigureData)::Nothing
     # Get the size of the axis in pixels
     widths = fd.ax[].scene.viewport[].widths
     # Update the coordinate ranges by setting the kwargs in the UI state
-    current_kwargs = fd.ui.state.kwargs[]
-    new_kwargs = Dict(
+    new_kwargs = OrderedDict{Symbol, Any}(
         Symbol(x_name) => (xmin, xmax, widths[1]),
         Symbol(y_name) => (ymin, ymax, widths[2]),
     )
-    merged_kwargs = merge(current_kwargs, new_kwargs)
-    # Update the UI text box with the new kwargs
-    textbox = fd.ui.main_menu.plot_menu.plot_kw
-    new_kw_string = Plotting.kwarg_dict_to_string(merged_kwargs)
-    new_display_string = isempty(new_kw_string) ? " " : new_kw_string
-    try
-        textbox.displayed_string = new_display_string
-        textbox.stored_string = new_kw_string
-    catch e
-        @warn "Error parsing additional arguments: $e"
-    end
+    update_kwargs!(fd, merge(fd.ui.state.kwargs[], new_kwargs))
     nothing
 end
 

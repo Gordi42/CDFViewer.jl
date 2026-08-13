@@ -14,31 +14,20 @@ import ..Output
 
 struct PlotMenu
     plot_type::Menu
-    plot_kw::Textbox
     fig::Figure
 end
 
 function PlotMenu(fig::Figure)::PlotMenu
     PlotMenu(
         Menu(fig, options=[Constants.NOT_SELECTED_LABEL]),
-        Textbox(
-            fig,
-            placeholder = Constants.PLOT_KW_HINTS,
-            tellwidth = false,
-            width = Relative(1),
-            defocus_on_submit = false,
-            halign = :left,
-        ),
         fig,
     )
 end
 
 function layout(plot_menu::PlotMenu)::GridLayout
-    vgrid!(
-        hgrid!(
-            Label(plot_menu.fig, rich("Plot Settings", font = :bold), width = nothing),
-            plot_menu.plot_type),
-        plot_menu.plot_kw,
+    hgrid!(
+        Label(plot_menu.fig, rich("Plot Settings", font = :bold), width = nothing),
+        plot_menu.plot_type,
     )
 end
 
@@ -49,7 +38,6 @@ struct ExportMenu
     save_button::Button
     record_button::Button
     export_button::Button
-    options::Textbox
     fig::Figure
 end
 
@@ -58,26 +46,15 @@ function ExportMenu(fig::Figure)::ExportMenu
         Button(fig, label = "Save", tellwidth = false, width = Relative(1)),
         Button(fig, label = "Record", tellwidth = false, width = Relative(1)),
         Button(fig, label = "Export", tellwidth = false, width = Relative(1)),
-        Textbox(
-            fig,
-            placeholder = "e.g., filename=\"output.png\", dpi=300",
-            tellwidth = false,
-            width = Relative(1),
-            defocus_on_submit = false,
-            halign = :left,
-        ),
         fig,
     )
 end
 
 function layout(export_menu::ExportMenu)::GridLayout
-    vgrid!(
-        hgrid!(
-            export_menu.save_button,
-            export_menu.record_button,
-            export_menu.export_button,
-        ),
-        export_menu.options,
+    hgrid!(
+        export_menu.save_button,
+        export_menu.record_button,
+        export_menu.export_button,
     )
 end
 
@@ -299,6 +276,9 @@ struct State
     y_name::Observable{String}
     z_name::Observable{String}
     dim_obs::Observable{Dict{String, Int}}
+    # the keywords the plot is drawn with, as values -- the single store
+    # they live in. Text is parsed at the edge (the prompt, the command
+    # line) and never written back
     kwargs::Observable{OrderedDict{Symbol, Any}}
     output_settings::Observable{Output.OutputSettings}
     range_control::Observable{Union{Nothing, Interpolate.RangeControl}}
@@ -322,13 +302,6 @@ function State(main_menu::MainMenu)::State
             notify(dim_obs)
         end
     end
-
-    # Set up listeners to update the output settings when the export options change
-    on(main_menu.export_menu.options.stored_string) do s
-        Output.apply_settings_string!(output_settings[], s)
-        notify(output_settings)
-    end
-        
 
     # Mirror the playback menu's selection so the plotting layer can label
     # the dimension that is being animated.
@@ -360,6 +333,22 @@ function State(main_menu::MainMenu)::State
         pdim,
         main_menu.playback_menu.anim_unit,
     )
+end
+
+"""
+    apply_output_settings!(state, settings_str)
+
+Read a save-options line into the stored settings.
+
+The only way such a line reaches them: the `savefig` and `record`
+commands, and the `-s` command line option. The settings object is
+mutable and is mutated in place, so the observable is notified by hand.
+"""
+function apply_output_settings!(state::State, settings_str::AbstractString)::Nothing
+    isempty(settings_str) && return nothing
+    Output.apply_settings_string!(state.output_settings[], settings_str)
+    notify(state.output_settings)
+    nothing
 end
 
 function sync_dim_selections!(state::State, coord_menu::CoordinateMenu)::Nothing

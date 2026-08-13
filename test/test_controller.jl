@@ -570,9 +570,8 @@ NS = Constants.NOT_SELECTED_LABEL
         @testset "levels keyword for contour" begin
             # Arrange
             controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="contour")
-            kwarg_text = controller.fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
-            kwarg_text[] = "levels=10, labels=true"
+            set_kwargs!(controller.fd, "levels=10, labels=true")
 
             # wait until all tasks are finished
             [wait(t) for t in controller.fd.tasks[]]
@@ -590,9 +589,8 @@ NS = Constants.NOT_SELECTED_LABEL
         @testset "Axis keywords" begin
             # Arrange
             controller, var_name, plot_type, dim_names = setup_controller(var="2d_gap", plot="heatmap")
-            kwarg_text = controller.fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
-            kwarg_text[] = "limits=(nothing, nothing, 1, 3), xscale=log10"
+            set_kwargs!(controller.fd, "limits=(nothing, nothing, 1, 3), xscale=log10")
 
             # wait until all tasks are finished
             [wait(t) for t in controller.fd.tasks[]]
@@ -608,11 +606,10 @@ NS = Constants.NOT_SELECTED_LABEL
         @testset "Invalid keyword" begin
             # Arrange
             controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="contour")
-            kwarg_text = controller.fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
             # Act & Assert: should issue a warning about the invalid keyword
             @test_warn "Property invalid_kw not found in any plot object" begin
-                kwarg_text[] = "invalid_kw=123, levels=5, colormap=:balance"
+                set_kwargs!(controller.fd, "invalid_kw=123, levels=5, colormap=:balance")
 
                 # wait until all tasks are finished
                 [wait(t) for t in controller.fd.tasks[]]
@@ -624,7 +621,7 @@ NS = Constants.NOT_SELECTED_LABEL
             # Act & Assert: should issue a warning about the invalid value
             # that names every keyword the all-or-nothing revert takes back
             @test_warn "keyword arguments, reverting: levels, colormap" begin
-                kwarg_text[] = "levels=not_a_number, colormap=:viridis"
+                set_kwargs!(controller.fd, "levels=not_a_number, colormap=:viridis")
                 # wait until all tasks are finished
                 [wait(t) for t in controller.fd.tasks[]]
             end
@@ -640,11 +637,10 @@ NS = Constants.NOT_SELECTED_LABEL
         @testset "Expression keyword" begin
             # Arrange
             controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="heatmap")
-            kwarg_text = controller.fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
             # Act: the reported line -- a module-qualified call next to a
             # plain symbol
-            kwarg_text[] = "colorscale=Makie.Symlog10(1e-2), colormap=:viridis"
+            set_kwargs!(controller.fd, "colorscale=Makie.Symlog10(1e-2), colormap=:viridis")
 
             # wait until all tasks are finished
             [wait(t) for t in controller.fd.tasks[]]
@@ -664,10 +660,9 @@ NS = Constants.NOT_SELECTED_LABEL
 
         @testset "Figsize and Colorbar" begin
             controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="heatmap")
-            kwarg_text = controller.fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
             # Act: change the figure size
-            kwarg_text[] = "figsize=(200, 200)"
+            set_kwargs!(controller.fd, "figsize=(200, 200)")
             # wait until all tasks are finished
             [wait(t) for t in controller.fd.tasks[]]
 
@@ -684,10 +679,9 @@ NS = Constants.NOT_SELECTED_LABEL
             # Arrange
             controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="heatmap")
             rc = controller.ui.state.range_control[]
-            kwarg_text = controller.fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
             # Act: set the interpolation ranges to StepRange
-            kwarg_text[] = "lon=-2:0.5:2"
+            set_kwargs!(controller.fd, "lon=-2:0.5:2")
             [wait(t) for t in controller.fd.tasks[]]
 
             # Assert: should update the interpolation ranges
@@ -696,7 +690,7 @@ NS = Constants.NOT_SELECTED_LABEL
             @test size(controller.fd.plot_data.d[1][1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to Range
-            kwarg_text[] = "lon=0:4"
+            set_kwargs!(controller.fd, "lon=0:4")
             [wait(t) for t in controller.fd.tasks[]]
 
             # Assert: should update the interpolation ranges
@@ -705,7 +699,7 @@ NS = Constants.NOT_SELECTED_LABEL
             @test size(controller.fd.plot_data.d[1][1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to Vector
-            kwarg_text[] = "lon=[-1, 0, 1]"
+            set_kwargs!(controller.fd, "lon=[-1, 0, 1]")
             [wait(t) for t in controller.fd.tasks[]]
 
             # Assert: should update the interpolation ranges
@@ -714,7 +708,7 @@ NS = Constants.NOT_SELECTED_LABEL
             @test size(controller.fd.plot_data.d[1][1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to Tuple
-            kwarg_text[] = "lon=(-1, 0, 10)"
+            set_kwargs!(controller.fd, "lon=(-1, 0, 10)")
             [wait(t) for t in controller.fd.tasks[]]
 
             # Assert: should update the interpolation ranges
@@ -723,7 +717,7 @@ NS = Constants.NOT_SELECTED_LABEL
             @test size(controller.fd.plot_data.d[1][1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to nothing
-            kwarg_text[] = "lon=nothing"
+            set_kwargs!(controller.fd, "lon=nothing")
             [wait(t) for t in controller.fd.tasks[]]
 
             # Assert: should update the interpolation ranges

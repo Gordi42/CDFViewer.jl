@@ -19,7 +19,6 @@ using GLMakie
             # Assert
             @test plot_menu isa UI.PlotMenu
             @test plot_menu.plot_type isa Menu
-            @test plot_menu.plot_kw isa Textbox
         end
 
         @testset "Values" begin
@@ -28,7 +27,6 @@ using GLMakie
 
             # Assert
             @test plot_menu.plot_type.options[] == [Constants.NOT_SELECTED_LABEL]
-            @test plot_menu.plot_kw.placeholder[] == Constants.PLOT_KW_HINTS
         end
 
         @testset "Layout" begin
@@ -41,10 +39,38 @@ using GLMakie
 
             # Assert
             @test layout isa GridLayout
-            @test layout.size == (2, 1)
-            sublayout1 = layout.content[1].content
-            @test sublayout1 isa GridLayout
-            @test sublayout1.size == (1, 2)
+            @test layout.size == (1, 2)
+        end
+    end
+
+    # ============================================
+    #  Export Menu
+    # ============================================
+
+    @testset "Export Menu" begin
+
+        @testset "Types" begin
+            # Arange
+            export_menu = UI.ExportMenu(Figure())
+
+            # Assert
+            @test export_menu isa UI.ExportMenu
+            @test export_menu.save_button isa Button
+            @test export_menu.record_button isa Button
+            @test export_menu.export_button isa Button
+        end
+
+        @testset "Layout" begin
+            # Arange
+            fig = Figure()
+            export_menu = UI.ExportMenu(fig)
+
+            # Act
+            layout = UI.layout(export_menu)
+
+            # Assert
+            @test layout isa GridLayout
+            @test layout.size == (1, 3)
         end
     end
 
@@ -413,6 +439,30 @@ using GLMakie
                 UI.sync_dim_selections!(state, coord_menu)
                 @test name[] == dataset.dimensions[i]
             end
+        end
+
+        @testset "Output Settings" begin
+            # Arange
+            state = init_state()[1]
+            counter = Observable(0)
+            on(state.output_settings) do _
+                counter[] += 1
+            end
+
+            # Act
+            UI.apply_output_settings!(state, "filename=\"movie.mp4\", framerate=12")
+
+            # Assert
+            @test state.output_settings[].filename == "movie.mp4"
+            @test state.output_settings[].framerate == 12
+            @test counter[] == 1
+
+            # Act: an empty line is not a line at all
+            UI.apply_output_settings!(state, "")
+
+            # Assert
+            @test state.output_settings[].filename == "movie.mp4"
+            @test counter[] == 1
         end
     end
 

@@ -1,10 +1,13 @@
 # The Menu Window
 
-Everything in CDFViewer can be controlled from two places. One is the
+What a plot shows can be picked from two places. One is the
 [command REPL](repl.md) in the terminal, the other a menu window with
 dropdown menus, sliders, and buttons. The two are always in sync. Selecting
 a variable at the prompt updates the menu, and vice versa. Use whichever
 fits your workflow.
+
+The menu only selects. Keyword arguments and save options are typed at the
+prompt, where completion and history help.
 
 The menu window is hidden by default. Open it with the `menu` command, close
 it with `hidemenu`, or start the application with the `--menu` flag to show
@@ -34,9 +37,8 @@ From top to bottom, the menu offers these controls.
   beside it while a vector plot type is selected, for the partner
   component (see [Plot Types](plot_types.md#Quiver-and-streamplot-(vector-fields))).
 - **Plot Settings** selects the plot type (`p`). The list is filtered to
-  the types that match the number of selected axes. The text box below
-  takes plot keyword arguments, exactly like typing them at the prompt
-  (see [Customizing Plots](customization.md)).
+  the types that match the number of selected axes. Keyword arguments go
+  at the prompt (see [Customizing Plots](customization.md)).
 - **X / Y / Z** assign dataset dimensions to the plot axes (`x`, `y`,
   `z`).
 - **Play** animates a dimension. The toggle starts and stops playback, the
@@ -49,7 +51,7 @@ From top to bottom, the menu offers these controls.
   large datasets where every update is expensive.
 - **Save / Record / Export** write the current figure to an image, record
   an animation to a video, or print a command line that reproduces the
-  session. The text box takes output options such as
+  session. The buttons use the output options set last, such as
   `filename="output.png"` (see [Saving and Recording](saving.md)).
 
 ```@example menu

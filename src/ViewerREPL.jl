@@ -11,6 +11,7 @@ using CDFViewer.Controller
 using CDFViewer.Data
 using CDFViewer.Parsing
 using CDFViewer.Plotting
+using CDFViewer.UI
 
 
 struct REPLState
@@ -283,44 +284,20 @@ function set_play_dimension(state:: REPLState, command:: String)::String
     select_menu_option!(menu, command)
 end
 
-function save_figure(state:: REPLState, command:: String)::String
+"The save options written after a `savefig`/`record` command, if any."
+function save_option_string(command:: String)::String
     parts = split(command, ' ', limit=2)
-    if length(parts) > 1
-        additional_kwargs = parts[2]
-    else
-        additional_kwargs = ""
-    end
-    export_options = state.controller.ui.main_menu.export_menu.options
-    if !isempty(additional_kwargs)
-        try
-            export_options.displayed_string = additional_kwargs
-            export_options.stored_string = additional_kwargs
-        catch e
-            @warn "Error parsing additional arguments: $e"
-            return ""
-        end
-    end
+    length(parts) > 1 ? String(parts[2]) : ""
+end
+
+function save_figure(state:: REPLState, command:: String)::String
+    UI.apply_output_settings!(state.controller.ui.state, save_option_string(command))
     notify(state.controller.ui.main_menu.export_menu.save_button.clicks)
     ""
 end
 
 function record_movie(state:: REPLState, command:: String)::String
-    parts = split(command, ' ', limit=2)
-    if length(parts) > 1
-        additional_kwargs = parts[2]
-    else
-        additional_kwargs = ""
-    end
-    export_options = state.controller.ui.main_menu.export_menu.options
-    if !isempty(additional_kwargs)
-        try
-            export_options.displayed_string = additional_kwargs
-            export_options.stored_string = additional_kwargs
-        catch e
-            @warn "Error parsing additional arguments: $e"
-            return ""
-        end
-    end
+    UI.apply_output_settings!(state.controller.ui.state, save_option_string(command))
     [wait(t) for t in state.controller.fd.tasks[]]
     notify(state.controller.ui.main_menu.export_menu.record_button.clicks)
     ""
@@ -482,25 +459,13 @@ function refresh_plot(state:: REPLState, command:: String)::String
     "Plot refreshed."
 end
 
-function update_kwargs(state:: REPLState, new_kwargs::OrderedDict{Symbol, Any})::Nothing
-    textbox = state.controller.ui.main_menu.plot_menu.plot_kw
-    new_kw_string = Plotting.kwarg_dict_to_string(new_kwargs)
-    new_display_string = isempty(new_kw_string) ? " " : new_kw_string
-    try
-        textbox.displayed_string = new_display_string
-        textbox.stored_string = new_kw_string
-    catch e
-        @warn "Error parsing additional arguments: $e"
-    end
-    nothing
-end
-
 function apply_kwargs(state:: REPLState, command:: String)::String
-    # Get the current additional arguments string
+    # what the line says wins over what is already stored, and the parsed
+    # values go to the store as they are -- a value like
+    # `Makie.Symlog10(1e-2)` has no text form that reads back
     current_kwargs = state.controller.ui.state.kwargs[]
     new_kwargs = Parsing.parse_kwargs(command)
-    merged_kwargs = merge(current_kwargs, new_kwargs)
-    update_kwargs(state, merged_kwargs)
+    Plotting.update_kwargs!(state.controller.fd, merge(current_kwargs, new_kwargs))
     get_plot_settings(state, "")
 end
 
@@ -518,7 +483,7 @@ function delete_kwarg(state:: REPLState, command:: String)::String
         end
         delete!(kwargs, Symbol(key))
     end
-    update_kwargs(state, kwargs)
+    Plotting.update_kwargs!(state.controller.fd, kwargs)
     get_plot_settings(state, "")
 end
 
@@ -597,8 +562,7 @@ function get_plot_settings(state:: REPLState, command:: String)::String
 end
 
 function reset_plot_settings(state:: REPLState, command:: String)::String
-    new_kwargs = OrderedDict{Symbol, Any}()
-    update_kwargs(state, new_kwargs)
+    Plotting.update_kwargs!(state.controller.fd, OrderedDict{Symbol, Any}())
     refresh_plot(state, "")
     "Reset plot settings to default."
 end

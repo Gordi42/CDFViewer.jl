@@ -62,13 +62,13 @@ NS = Constants.NOT_SELECTED_LABEL
             @test sliders[dim].value[] == idx
         end
         if kwargs != ""
-            @test controller.ui.main_menu.plot_menu.plot_kw.stored_string[] == kwargs
+            @test Plotting.kwarg_dict_to_string(controller.ui.state.kwargs[]) == kwargs
         end
         if path != ""
             @test controller.ui.state.save_path[] == path
         end
         if saveoptions != ""
-            @test controller.ui.main_menu.export_menu.options.stored_string[] == saveoptions
+            @test Controller.get_save_option_string(controller) == saveoptions
         end
         nothing
     end
@@ -303,7 +303,7 @@ NS = Constants.NOT_SELECTED_LABEL
                 plot_type="contour",
                 plot_class=Contour,
                 dims=["lon", "lat"],
-                saveoptions="filename=my_file.png",
+                saveoptions="filename=\"my_file.png\"",
             )
 
             # Cleanup
@@ -318,12 +318,11 @@ NS = Constants.NOT_SELECTED_LABEL
         main_menu = controller.ui.main_menu
         playback = main_menu.playback_menu
         sliders = main_menu.coord_sliders.sliders
-        exportmenu = main_menu.export_menu
         # change the values
         playback.var.i_selected[] = findfirst(==("only_unit"), playback.var.options[])
         sliders["only_unit"].value[] = 2
         sliders["only_long"].value[] = 3
-        exportmenu.options.stored_string[] = "filename=\"my_volume.png\""
+        UI.apply_output_settings!(controller.ui.state, "filename=\"my_volume.png\"")
         # change the limits
         controller.fd.ax[].limits = (1, 4, 2, 8, 1, 3)
         controller.fd.ax[].azimuth = 30
@@ -443,8 +442,8 @@ NS = Constants.NOT_SELECTED_LABEL
         end
 
         @testset "Prefixed keywords find their layer" begin
-            # the layers must exist before the keyword textbox is written,
-            # or a prefixed keyword warns about a layer that is not there
+            # the layers must exist before the keywords are applied, or a
+            # prefixed keyword warns about a layer that is not there
             slot = Ref{Any}(nothing)
             output = @capture_err begin
                 slot[] = arange_controller(

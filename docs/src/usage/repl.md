@@ -3,8 +3,9 @@
 When you open a file interactively, CDFViewer presents a `CDFViewer>`
 prompt. It is a full line-editing REPL, so history, completion, and reverse
 search work just like in the Julia REPL or your shell, and it is the fastest
-way to drive the viewer. Everything shown here can also be done with the
-mouse in [the menu window](menu.md). Both interfaces control the same state.
+way to drive the viewer. What you select here can also be picked with the
+mouse in [the menu window](menu.md), which controls the same state. What
+you type -- keyword arguments and save options -- belongs at the prompt.
 
 ## Commands at a glance
 

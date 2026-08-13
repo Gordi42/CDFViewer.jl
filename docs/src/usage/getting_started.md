@@ -95,9 +95,10 @@ stays put. Unlock it with the `moveable=true` keyword (see
 ## The two windows
 
 CDFViewer manages two windows. The **figure window** shows the plot, and an
-optional **menu window** offers dropdown menus, sliders, and buttons that
-mirror every REPL command. Open the menu with the `menu` command (or start
-with `--menu`). See [The Menu Window](menu.md).
+optional **menu window** offers dropdown menus, sliders, and buttons for
+everything you select: the variable, the axes, the plot type, and the
+playback. Open the menu with the `menu` command (or start with `--menu`).
+See [The Menu Window](menu.md).
 
 ## Where to go next
 
