@@ -1817,6 +1817,61 @@ using CDFViewer.Plotting
                 cleanup(dataset)
             end
 
+            @testset "The starting colormap follows the theme" begin
+                # Arrange
+                fd, state, dataset = arrange_and_create_axis(
+                    "5d_float", ["lon", "lat"], "heatmap")
+
+                # Assert: what was hardcoded before it was derived
+                @test Plotting.default_colormap() == :balance
+                @test Plotting.primary(fd).colormap[] == :balance
+
+                # Act - the same figure under a dark theme, rebuilt the
+                # way a theme switch rebuilds it
+                Themes.activate!("black")
+                try
+                    Plotting.clear_axis!(fd)
+                    Plotting.create_axis!(fd, state)
+
+                    # Assert: a dark-centred colormap on a dark page
+                    @test Plotting.default_colormap() == :berlin
+                    @test Plotting.primary(fd).colormap[] == :berlin
+                    @test Plotting.contour_colormap(1) == :berlin
+                finally
+                    Themes.activate!(Themes.DEFAULT_THEME)
+                end
+
+                # Cleanup
+                cleanup(dataset)
+            end
+
+            @testset "An explicit colormap outranks the theme's" begin
+                # Arrange
+                fd, state, dataset = arrange_and_create_axis(
+                    "5d_float", ["lon", "lat"], "heatmap")
+                set_kwargs!(fd, "colormap=:viridis")
+                @test Plotting.primary(fd).colormap[] == :viridis
+
+                # Act - rebuild under a theme whose default is another one
+                Themes.activate!("black")
+                try
+                    Plotting.clear_axis!(fd)
+                    Plotting.create_axis!(fd, state)
+
+                    # Assert: the ground asks for another colormap, and the
+                    # plot is created in it -- but `create_axis!` replays
+                    # the keyword store over the top before anything is
+                    # drawn, so the chosen one is what survives a switch
+                    @test Plotting.default_colormap() == :berlin
+                    @test Plotting.primary(fd).colormap[] == :viridis
+                finally
+                    Themes.activate!(Themes.DEFAULT_THEME)
+                end
+
+                # Cleanup
+                cleanup(dataset)
+            end
+
             @testset "Geographic available" begin
                 # Arrange
                 fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")

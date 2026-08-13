@@ -68,7 +68,10 @@ using CDFViewer.Themes
             expected = merge(Makie.theme_latexfonts(), Makie.theme_minimal())
             expected = merge(expected, Themes.viewer_theme())
             composed = Themes.composed_theme(Themes.DEFAULT_THEME)
-            @test keys(composed) == keys(expected)
+            # the widget layer is the only thing on top of it
+            @test Set(setdiff(keys(composed), keys(expected))) ==
+                Set([:Menu, :Button, :Toggle, :Slider])
+            @test isempty(setdiff(keys(expected), keys(composed)))
             @test keys(composed.Axis) == keys(expected.Axis)
             for key in keys(composed.Axis)
                 @test composed.Axis[key][] == expected.Axis[key][]
@@ -78,6 +81,156 @@ using CDFViewer.Themes
             end
             for key in (:regular, :bold, :italic, :bolditalic)
                 @test composed.fonts[key][] == expected.fonts[key][]
+            end
+        end
+
+        @testset "The composed theme derives what the installed one does" begin
+            # `composed_theme` reads the colors off a theme that is not
+            # installed yet, so the two derivations must not drift apart
+            with_active_theme() do
+                for name in Themes.theme_names()
+                    composed = Themes.theme_colors(Themes.composed_theme(name))
+                    Themes.activate!(name)
+                    @test composed == Themes.theme_colors()
+                end
+            end
+        end
+    end
+
+    # ============================================================
+    #  The menu window's widgets
+    # ============================================================
+
+    @testset "Widget surfaces" begin
+        # every attribute of a Block the menu window uses that names a
+        # surface Makie fixes to a light gray or a black regardless of the
+        # theme, paired with the value Makie itself gives it
+        surface_attributes = [
+            :Menu => [:selection_cell_color_inactive, :cell_color_inactive_even,
+                      :cell_color_inactive_odd, :dropdown_arrow_color, :textcolor],
+            :Button => [:buttoncolor, :labelcolor, :labelcolor_hover,
+                        :labelcolor_active],
+            :Toggle => [:framecolor_inactive],
+            :Slider => [:color_inactive],
+        ]
+
+        makie_default(block::Symbol, key::Symbol) = Makie.to_color(
+            Makie.default_attribute_values(getfield(Makie, block), nothing)[key])
+
+        @testset "The default paints them exactly as Makie does" begin
+            # every screenshot in the manual was taken under this theme
+            with_active_theme() do
+                Themes.activate!(Themes.DEFAULT_THEME)
+                styled = Themes.block_theme(Themes.theme_colors())
+                for (block, attrs) in surface_attributes, attr in attrs
+                    @test Makie.to_color(styled[block][attr][]) ==
+                        makie_default(block, attr)
+                end
+            end
+        end
+
+        @testset "Every theme states every one of them" begin
+            with_active_theme() do
+                for name in Themes.theme_names()
+                    Themes.activate!(name)
+                    styled = Themes.block_theme(Themes.theme_colors())
+                    for (block, attrs) in surface_attributes
+                        @test Set(attrs) ⊆ Set(keys(styled[block]))
+                    end
+                end
+            end
+        end
+
+        @testset "And the list above is still all of them" begin
+            # read back out of the Makie that is installed rather than
+            # listed here a second time, so an attribute a later version
+            # fixes to a color of its own fails this instead of quietly
+            # staying light. A default naming a color literally is one
+            # the theme cannot reach; `@inherit` already follows it, and
+            # the accent pair is deliberately left where Makie put it
+            names_own_color(expr::String) =
+                !occursin("@inherit", expr) &&
+                occursin(r"RGBf|:black\b|:white\b", expr)
+            fixed(block::Symbol) = Set(
+                key for (key, expr) in
+                    Makie.attribute_default_expressions(getfield(Makie, block))
+                if names_own_color(expr))
+
+            for (block, attrs) in surface_attributes
+                @test fixed(block) ⊆ Set(attrs)
+            end
+            # the two remaining Blocks the menu is built from fix nothing:
+            # a `Label` inherits the theme's text color, and a `SliderGrid`
+            # is only `Slider`s and `Label`s
+            @test isempty(fixed(:Label))
+            @test isempty(fixed(:SliderGrid))
+        end
+
+        @testset "A widget's face steps off its own theme's ground" begin
+            with_active_theme() do
+                for name in Themes.theme_names()
+                    Themes.activate!(name)
+                    colors = Themes.theme_colors()
+                    ground = Themes.luminance(colors.background)
+                    for face in (colors.widget_face, colors.menu_cell)
+                        # away from the ground, but only just: a widget is
+                        # a step off the page, not a block of ink on it
+                        @test 0.01 < abs(Themes.luminance(face) - ground) < 0.15
+                        # and away from it in the direction there is room
+                        @test (Themes.luminance(face) > ground) ==
+                            Themes.is_dark(colors.background)
+                    end
+                    # the dropdown row sits between the ground and the
+                    # closed dropdown's own face
+                    @test abs(Themes.luminance(colors.menu_cell) - ground) <
+                        abs(Themes.luminance(colors.widget_face) - ground)
+                end
+            end
+        end
+
+        @testset "Lettering reads against the face under it" begin
+            with_active_theme() do
+                for name in Themes.theme_names()
+                    Themes.activate!(name)
+                    colors = Themes.theme_colors()
+                    styled = Themes.block_theme(colors)
+                    faces = [
+                        styled.Menu.textcolor[] => colors.widget_face,
+                        styled.Menu.textcolor[] => colors.menu_cell,
+                        styled.Button.labelcolor[] => colors.widget_face,
+                        styled.Button.labelcolor_hover[] => colors.accent_dimmed,
+                        styled.Button.labelcolor_active[] => colors.accent,
+                    ]
+                    for (label, face) in faces
+                        # theme_dark writes gray45 on gray10 and is a
+                        # low-contrast look by choice, so the bar is what
+                        # it asks for and not an absolute
+                        @test abs(Themes.luminance(Makie.to_color(label)) -
+                                  Themes.luminance(face)) > 0.25
+                    end
+                end
+            end
+        end
+
+        @testset "The accent pair is left where Makie put it" begin
+            with_active_theme() do
+                for name in Themes.theme_names()
+                    Themes.activate!(name)
+                    styled = Themes.block_theme(Themes.theme_colors())
+                    # what a widget lights up in is the same under every
+                    # theme, which is what lets the sliders read it out of
+                    # `Constants` and still agree with their neighbours
+                    for (block, key) in ((:Menu, :cell_color_hover),
+                                         (:Menu, :cell_color_active),
+                                         (:Button, :buttoncolor_hover),
+                                         (:Button, :buttoncolor_active),
+                                         (:Toggle, :buttoncolor),
+                                         (:Toggle, :framecolor_active),
+                                         (:Slider, :color_active),
+                                         (:Slider, :color_active_dimmed))
+                        @test !haskey(styled[block], key)
+                    end
+                end
             end
         end
     end
@@ -119,6 +272,10 @@ using CDFViewer.Themes
                 @test colors.inactive_text ≈ Makie.to_color(:lightgray) atol = 1e-6
                 @test colors.inactive_slider_bar ≈
                     Makie.to_color(parse(Colorant, "rgb(240, 240, 240)")) atol = 1e-6
+                # and the widget surfaces are Makie's own, to the bit
+                @test colors.widget_face == Makie.to_color(RGBf(0.94, 0.94, 0.94))
+                @test colors.menu_cell == Makie.to_color(RGBf(0.97, 0.97, 0.97))
+                @test colors.dropdown_arrow == Makie.to_color((:black, 0.2))
             end
         end
 
@@ -130,13 +287,45 @@ using CDFViewer.Themes
                 @test colors.text == Makie.to_color(:white)
                 # every blend sits between the two, nearer the ground
                 for blended in (colors.land, colors.inactive_text,
-                                colors.inactive_slider_bar)
+                                colors.inactive_slider_bar, colors.widget_face,
+                                colors.menu_cell)
                     @test 0 < blended.r < 0.5
                     @test blended.alpha == 1
                 end
                 # and the land fill is the same distance from the ground as
                 # it is under the default theme, just the other way round
                 @test colors.land.r ≈ 1 - Makie.to_color(:lightgray).r atol = 1e-6
+                # so is every widget surface, and the dropdown arrow has
+                # turned from black to white
+                @test colors.widget_face.r ≈ 1 - 0.94 atol = 1e-6
+                @test colors.menu_cell.r ≈ 1 - 0.97 atol = 1e-6
+                @test colors.dropdown_arrow == Makie.to_color((:white, 0.2))
+            end
+        end
+
+        @testset "The starting colormap follows the ground" begin
+            with_active_theme() do
+                for name in Themes.theme_names()
+                    Themes.activate!(name)
+                    colors = Themes.theme_colors()
+                    # a white-centred colormap on a light page, a
+                    # dark-centred one on a dark page
+                    @test colors.colormap == (Themes.is_dark(colors.background) ?
+                                              Constants.DARK_COLORMAP :
+                                              Constants.COLORMAP)
+                    # and it is a colormap Makie can resolve
+                    @test length(Makie.to_colormap(colors.colormap)) > 1
+                end
+                Themes.activate!(Themes.DEFAULT_THEME)
+                @test Themes.theme_colors().colormap == :balance
+                Themes.activate!("dark")
+                @test Themes.theme_colors().colormap == :berlin
+                Themes.activate!("black")
+                @test Themes.theme_colors().colormap == :berlin
+                Themes.activate!("light")
+                @test Themes.theme_colors().colormap == :balance
+                Themes.activate!("ggplot2")
+                @test Themes.theme_colors().colormap == :balance
             end
         end
 
@@ -188,17 +377,33 @@ using CDFViewer.Themes
                 Themes.activate!(Themes.DEFAULT_THEME)
                 @test Themes.readable_on(light) == dark
                 @test Themes.readable_on(dark) == light
-                # a button's face is light gray under every theme, so its
-                # label is dark under every theme -- never white on white
-                @test Themes.widget_label_color() == dark
-                for name in Themes.theme_names()
-                    Themes.activate!(name)
-                    label = Themes.widget_label_color()
-                    @test abs(Themes.luminance(label) -
-                              Themes.luminance(Makie.to_color(
-                                  Constants.WIDGET_FACE_COLOR))) > 0.4
-                end
+                # it stays inside the theme's own pair, whichever way
+                # round the two of them are
+                Themes.activate!("black")
+                @test Themes.readable_on(light) == Makie.to_color(:black)
+                @test Themes.readable_on(dark) == Makie.to_color(:white)
             end
+        end
+
+        @testset "contrast_pole" begin
+            @test Themes.contrast_pole(Makie.to_color(:black)) ==
+                Makie.to_color(:white)
+            @test Themes.contrast_pole(Makie.to_color(:white)) ==
+                Makie.to_color(:black)
+            # the accent pair splits either side of the middle, which is
+            # what makes Makie's fixed hover and active labels come out
+            @test Themes.contrast_pole(Makie.to_color(Constants.ACCENT_COLOR)) ==
+                Makie.to_color(:white)
+            @test Themes.contrast_pole(
+                Makie.to_color(Constants.ACCENT_DIMMED_COLOR)) ==
+                Makie.to_color(:black)
+        end
+
+        @testset "is_dark" begin
+            @test Themes.is_dark(Makie.to_color(:black))
+            @test Themes.is_dark(Makie.to_color(:gray10))
+            @test !Themes.is_dark(Makie.to_color(:white))
+            @test !Themes.is_dark(Makie.to_color(:gray92))
         end
     end
 end
