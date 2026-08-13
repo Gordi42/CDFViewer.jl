@@ -94,16 +94,9 @@ end
 function process_parsed_args!(controller::ViewerController)::Nothing
     parsed_args = controller.parsed_args
     isnothing(parsed_args) && return nothing
-    # Set the variable if provided
+    # Set the variable(s) if provided
     if haskey(parsed_args, "var") && parsed_args["var"] != ""
-        var = parsed_args["var"]
-        var_menu = controller.ui.main_menu.variable_menu
-        if var in var_menu.options[]
-            var_menu.i_selected[] = findfirst(==(var), var_menu.options[])
-        else
-            available_vars = var_menu.options[]
-            @warn "Variable '$var' not found in dataset. Available variables: $(available_vars)"
-        end
+        select_variables!(controller, parsed_args["var"])
     end
 
     # Set the axes if provided
@@ -241,6 +234,8 @@ function on_variable_change(controller::ViewerController)::Nothing
     new_dtype = eltype(controller.dataset.ds[new_var])
     # Set the new variable
     controller.ui.state.variable[] = new_var
+    # Offer only partners the new variable can actually be drawn with
+    update_partner_options!(controller)
     # Update the plot type options
     new_plot_options = Plotting.get_plot_options(new_ndims)
     fallback = Plotting.get_fallback_plot(new_ndims)
@@ -264,6 +259,9 @@ function on_variable_change(controller::ViewerController)::Nothing
         update_dim_selection_with_length!(controller, plot_ndims)
     end
 
+    # Fill in (or drop) the second component for the settled plot type
+    update_partner_variable!(controller)
+
     # Set the update switch back
     controller.fd.plot_data.update_data_switch[] = true
 
@@ -282,13 +280,17 @@ function on_plot_type_change(controller::ViewerController)::Nothing
 
     # Get the new plot type name
     plot_type_name = controller.ui.main_menu.plot_menu.plot_type.selection[]
-    
+
     # if we have a dimension mismatch, change the dimension selection
     plot_ndims = Plotting.PLOT_TYPES[plot_type_name].ndims
     update_dim_selection_with_length!(controller, plot_ndims)
 
     # Set the new plot type
     controller.ui.state.plot_type_name[] = plot_type_name
+
+    # A vector plot needs a second component; show its dropdown and fill
+    # it in from the variable's name unless the user already picked one.
+    update_partner_variable!(controller)
 
     # Delete the old axis and colorbar
     Plotting.clear_axis!(controller.fd)
@@ -389,6 +391,83 @@ function on_keyboard_event(controller::ViewerController)::Nothing
             Plotting.update_interpolate!(controller.fd)
         end
     end
+    nothing
+end
+
+# ------------------------------------------------
+#  Vector plot components
+# ------------------------------------------------
+
+"""
+    update_partner_options!(controller)
+
+Offer the variables that can actually partner the selected one as a
+second component -- every variable over the same dimensions -- and clear
+the selection. A partner belongs to the variable it was picked for, so
+moving to another variable drops it and lets the guess run again; an
+explicit `v u,v` re-selects afterwards and wins.
+"""
+function update_partner_options!(controller::ViewerController)::Nothing
+    menu = controller.ui.main_menu.variable2_menu
+    variable = controller.ui.state.variable[]
+    menu.i_selected[] = 1
+    menu.options[] = [Constants.NOT_SELECTED_LABEL;
+                      Data.vector_partner_options(controller.dataset, variable)]
+    menu.i_selected[] = 1
+    nothing
+end
+
+"""
+    update_partner_variable!(controller)
+
+Reconcile the second component with the selected plot type: a scalar type
+hides the dropdown, a vector type shows it and -- unless a partner that
+still fits is already picked -- guesses one from the variable's name.
+"""
+function update_partner_variable!(controller::ViewerController)::Nothing
+    state = controller.ui.state
+    main_menu = controller.ui.main_menu
+    is_vector = Plotting.PLOT_TYPES[state.plot_type_name[]].nfields >= 2
+    UI.show_variable2!(main_menu, is_vector)
+    is_vector || return nothing
+    dataset = controller.dataset
+    Data.is_vector_partner(dataset, state.variable[], state.variable2[]) &&
+        return nothing
+    guess = Data.guess_vector_partner(dataset, state.variable[])
+    menu = main_menu.variable2_menu
+    idx = isnothing(guess) ? nothing : findfirst(==(guess), menu.options[])
+    menu.i_selected[] = isnothing(idx) ? 1 : idx
+    nothing
+end
+
+"""
+    select_variables!(controller, spec)
+
+Apply a `-v` argument. A comma names the second component of a vector
+plot ("u,v"); the partner is selected after the primary, so it survives
+the option rebuild the primary triggers.
+"""
+function select_variables!(controller::ViewerController,
+                           spec::AbstractString)::Nothing
+    names = [String(strip(part)) for part in split(spec, ',')]
+    filter!(!isempty, names)
+    isempty(names) && return nothing
+    var_menu = controller.ui.main_menu.variable_menu
+    var = names[1]
+    if var ∉ var_menu.options[]
+        @warn "Variable '$var' not found in dataset. Available variables: $(var_menu.options[])"
+        return nothing
+    end
+    var_menu.i_selected[] = findfirst(==(var), var_menu.options[])
+    length(names) < 2 && return nothing
+    partner_menu = controller.ui.main_menu.variable2_menu
+    partner = names[2]
+    if partner ∉ partner_menu.options[]
+        @warn ("Variable '$partner' cannot be a second component of " *
+               "'$var'. Available: $(partner_menu.options[][2:end])")
+        return nothing
+    end
+    partner_menu.i_selected[] = findfirst(==(partner), partner_menu.options[])
     nothing
 end
 
@@ -526,9 +605,14 @@ end
 function get_export_string(controller::ViewerController)::String
     state = controller.ui.state
     exp = ""
-    # get the variable
+    # get the variable, plus the second component of a vector plot -- one
+    # comma-separated token, so it survives as a single shell argument
     var = state.variable[]
     exp *= "-v$var"
+    if Plotting.PLOT_TYPES[state.plot_type_name[]].nfields >= 2 &&
+       Data.is_vector_partner(controller.dataset, var, state.variable2[])
+        exp *= "," * state.variable2[]
+    end
     # get the axis dimensions
     for (axis, dim) in zip(("x", "y", "z"), (state.x_name[], state.y_name[], state.z_name[]))
         if dim != Constants.NOT_SELECTED_LABEL

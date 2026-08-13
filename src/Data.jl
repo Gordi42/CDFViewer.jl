@@ -273,14 +273,66 @@ function get_var_dims(dataset::CDFDataset, var::String)::Vector{String}
     return sort_coordinates(dataset.ds, dataset.var_coords[var])
 end
 
+"""
+    is_vector_partner(dataset, variable, partner)
+
+Whether `partner` can serve as the second component of `variable`: it has
+to exist and span exactly the same dimensions, since both components are
+sliced with one and the same indexing.
+"""
+function is_vector_partner(dataset::CDFDataset, variable::String,
+                           partner::String)::Bool
+    haskey(dataset.var_coords, variable) || return false
+    haskey(dataset.var_coords, partner) || return false
+    partner == variable && return false
+    get_var_dims(dataset, partner) == get_var_dims(dataset, variable)
+end
+
+"""
+    guess_vector_partner(dataset, variable)
+
+The meridional partner of a zonal component, guessed from its name: a
+leading `u` becomes `v` and a leading `U` becomes `V`, so `u` finds `v`,
+`uas` finds `vas`, `ua` finds `va` and `U10` finds `V10`. The guess only
+counts when the dataset really holds that variable over the same
+dimensions; otherwise there is no partner.
+"""
+function guess_vector_partner(dataset::CDFDataset,
+                              variable::String)::Union{Nothing, String}
+    isempty(variable) && return nothing
+    head = variable[1]
+    head in ('u', 'U') || return nothing
+    guess = (head == 'u' ? "v" : "V") * variable[nextind(variable, 1):end]
+    is_vector_partner(dataset, variable, guess) ? guess : nothing
+end
+
+"Every variable that could partner `variable` as a second component."
+function vector_partner_options(dataset::CDFDataset,
+                                variable::String)::Vector{String}
+    [v for v in dataset.variables if is_vector_partner(dataset, variable, v)]
+end
+
+"""
+    get_display_name(dataset, var)
+
+The human-readable name of `var`: its `long_name` attribute when present,
+otherwise the variable name itself.
+"""
+function get_display_name(dataset::CDFDataset, var::String)::String
+    var ∉ keys(dataset.ds) && return var
+    atts = dataset.ds[var].attrib
+    haskey(atts, "long_name") ? String(atts["long_name"]) : var
+end
+
+"Append the unit bracket to a label -- nothing at all when there is no unit."
+with_unit(label::AbstractString, unit::AbstractString)::String =
+    unit == "" ? String(label) : String(label) * " [" * unit * "]"
+
 function get_label(dataset::CDFDataset, var::String;
                    target_unit::Union{Nothing, String} = nothing)::String
     # some dimensions may not be stored as variables in the dataset
     var ∉ keys(dataset.ds) && return var
-    # Get the attributes of the variable
-    atts = dataset.ds[var].attrib
-    # Get the long name and units
-    label = haskey(atts, "long_name") ? atts["long_name"] : var
+    label = get_display_name(dataset, var)
     unit = RescaleUnits.get_remapped_unit(dataset.ds, var)
     # An axis rendered in a converted display unit labels that unit instead
     if target_unit !== nothing
@@ -289,10 +341,50 @@ function get_label(dataset::CDFDataset, var::String;
             unit = RescaleUnits.display_unit(target_unit).canonical
         end
     end
-    if unit != ""
-        label *= " [" * unit * "]"
-    end
-    return label
+    with_unit(label, unit)
+end
+
+"""
+    shared_unit(dataset, variable, partner)
+
+The unit both components of a vector field carry, or `""` when they carry
+different ones -- one of two units is worse on a combined label than none.
+"""
+function shared_unit(dataset::CDFDataset, variable::String,
+                     partner::String)::String
+    unit = RescaleUnits.get_remapped_unit(dataset.ds, variable)
+    unit == RescaleUnits.get_remapped_unit(dataset.ds, partner) ? unit : ""
+end
+
+"""
+    get_vector_label(dataset, variable, partner)
+
+The label of a vector field, for the figure title: both components' names
+joined, and the unit they share appended once. Falls back to the plain
+label of `variable` when `partner` is not one.
+"""
+function get_vector_label(dataset::CDFDataset, variable::String,
+                          partner::String)::String
+    is_vector_partner(dataset, variable, partner) ||
+        return get_label(dataset, variable)
+    with_unit(get_display_name(dataset, variable) * " / " *
+              get_display_name(dataset, partner),
+              shared_unit(dataset, variable, partner))
+end
+
+"""
+    get_magnitude_label(dataset, variable, partner)
+
+The label of the magnitude a vector plot colors by, for the colorbar. It
+names the scalar rather than the field, so it stays short: the raw
+variable names inside magnitude bars, plus the shared unit.
+"""
+function get_magnitude_label(dataset::CDFDataset, variable::String,
+                             partner::String)::String
+    is_vector_partner(dataset, variable, partner) ||
+        return get_label(dataset, variable)
+    with_unit("|($variable, $partner)|",
+              shared_unit(dataset, variable, partner))
 end
 
 "Render a number with a runtime printf spec, falling back to \"%g\"."

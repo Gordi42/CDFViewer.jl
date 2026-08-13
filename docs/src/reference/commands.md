@@ -13,7 +13,7 @@ command name is applied as plot keyword arguments (see
 
 | Command | Usage | Description |
 |:--------|:------|:------------|
-| `v` | `v [variable_name]` | Select a variable |
+| `v` | `v [variable_name]` | Select a variable (`v u,v` selects both components of a vector plot) |
 | `p` | `p [plot_type]` | Select a plot type |
 | `x` | `x [variable_name]` | Select x-axis variable |
 | `y` | `y [variable_name]` | Select y-axis variable |

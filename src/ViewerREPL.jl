@@ -55,6 +55,12 @@ function select_menu_option!(menu:: Menu, command:: String)::String
         selection = parts[2]
     end
 
+    apply_menu_selection!(menu, selection)
+end
+
+"Pick one named option, reporting what happened."
+function apply_menu_selection!(menu:: Menu, selection:: AbstractString)::String
+    avail_opt = menu.options[]
     if !(selection in avail_opt)
         @warn "Invalid selection: $selection"
         return "Available options: \n" * join(avail_opt, ", ")
@@ -66,9 +72,26 @@ end
 # ============================================================ 
 #  Command Implementations
 # ============================================================ 
+"""
+    select_variable(state, command)
+
+Select the variable, or both components of a vector plot at once:
+`v u,v` puts `u` in the first dropdown and `v` in the second. The comma
+keeps the pair one token, so it also survives `--kwargs`, the export
+string and tab completion.
+"""
 function select_variable(state:: REPLState, command:: String)::String
     menu = state.controller.ui.main_menu.variable_menu
-    select_menu_option!(menu, command)
+    parts = split(command, ' ', limit=2)
+    length(parts) < 2 && return select_menu_option!(menu, command)
+    names = [String(strip(name)) for name in split(parts[2], ',')]
+    filter!(!isempty, names)
+    isempty(names) && return select_menu_option!(menu, String(parts[1]))
+    # the primary first: it rebuilds the partner's options
+    status = apply_menu_selection!(menu, names[1])
+    length(names) < 2 && return status
+    partner_menu = state.controller.ui.main_menu.variable2_menu
+    status * "\n" * apply_menu_selection!(partner_menu, names[2])
 end
 
 function select_plot_type(state:: REPLState, command:: String)::String
@@ -634,7 +657,12 @@ function completion_candidates(state:: REPLState, prefix:: String)::Tuple{String
         # Continuation of a `key=value, key2=value2` line
         candidates = get_kwarg_names(state) .* "="
     else
-        candidates = get_argument_candidates(state, String(tokens[1]))
+        cmd = String(tokens[1])
+        # past a comma in "v u,…" the second component is being named, so
+        # only the variables that can partner the first one are offered
+        candidates = cmd == "v" && occursin(',', String(tokens[end])) ?
+            String.(state.controller.ui.main_menu.variable2_menu.options[]) :
+            get_argument_candidates(state, cmd)
     end
     word, sort(candidates)
 end

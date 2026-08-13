@@ -538,7 +538,7 @@ NS = Constants.NOT_SELECTED_LABEL
             dim_names[2][] = "lon"
             dim_names[1][] = "lat"
             @test all(Point2f(xi, yi) in controller.fd.ax[].finallimits[]
-                            for xi in controller.fd.plot_data.x[], yi in controller.fd.plot_data.d[1][])
+                            for xi in controller.fd.plot_data.x[], yi in controller.fd.plot_data.d[1][1][])
 
             # Cleanup
             cleanup(controller)
@@ -667,7 +667,7 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert: should update the interpolation ranges
             @test rc.lon == -2:0.5:2
             @test controller.fd.plot_data.x[] == collect(-2:0.5:2)
-            @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
+            @test size(controller.fd.plot_data.d[1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to Range
             kwarg_text[] = "lon=0:4"
@@ -676,7 +676,7 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert: should update the interpolation ranges
             @test rc.lon == 0:4
             @test controller.fd.plot_data.x[] == collect(0:4)
-            @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
+            @test size(controller.fd.plot_data.d[1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to Vector
             kwarg_text[] = "lon=[-1, 0, 1]"
@@ -685,7 +685,7 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert: should update the interpolation ranges
             @test rc.lon == [-1, 0, 1]
             @test controller.fd.plot_data.x[] == [-1, 0, 1]
-            @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
+            @test size(controller.fd.plot_data.d[1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to Tuple
             kwarg_text[] = "lon=(-1, 0, 10)"
@@ -694,7 +694,7 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert: should update the interpolation ranges
             @test rc.lon == LinRange(-1, 0, 10)
             @test controller.fd.plot_data.x[] == collect(LinRange(-1, 0, 10))
-            @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
+            @test size(controller.fd.plot_data.d[1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to nothing
             kwarg_text[] = "lon=nothing"
@@ -703,7 +703,7 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert: should update the interpolation ranges
             @test rc.lon ≈ rc.interp.ds["lon"][:]
             @test controller.fd.plot_data.x[] == rc.interp.ds["lon"][:]
-            @test size(controller.fd.plot_data.d[2][]) == (length(rc.lon), length(rc.lat))
+            @test size(controller.fd.plot_data.d[1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Cleanup
             cleanup(controller)
@@ -763,6 +763,90 @@ NS = Constants.NOT_SELECTED_LABEL
             assert_export(controller, [r"figsize=\(300, 400\)"])
 
             # Cleanup
+            cleanup(controller)
+        end
+    end
+
+    @testset "Vector components" begin
+        @testset "Command line pair" begin
+            # Arrange & Act: -v names both components in one token
+            parsed = Dict{String, Any}(
+                "var" => "u,v", "x-axis" => "lon", "y-axis" => "lat",
+                "plot_type" => "quiver", "files" => ["vector.nc"])
+            controller = Controller.ViewerController(
+                make_vector_temp_dataset(); headless = true,
+                parsed_args = parsed)
+
+            # Assert
+            state = controller.ui.state
+            @test state.variable[] == "u"
+            @test state.variable2[] == "v"
+            @test state.plot_type_name[] == "quiver"
+            @test controller.fd.plot_obj[] isa Makie.Arrows2D
+            # ... and it round-trips through the export string
+            @test occursin(r"-vu,v", Controller.get_export_string(controller))
+            @test occursin(r"-pquiver", Controller.get_export_string(controller))
+
+            cleanup(controller)
+        end
+
+        @testset "Command line partner override" begin
+            parsed = Dict{String, Any}(
+                "var" => "u,temp", "x-axis" => "lon", "y-axis" => "lat",
+                "plot_type" => "streamplot", "files" => ["vector.nc"])
+            controller = Controller.ViewerController(
+                make_vector_temp_dataset(); headless = true,
+                parsed_args = parsed)
+            @test controller.ui.state.variable2[] == "temp"
+            @test controller.fd.plot_obj[] isa Makie.StreamPlot
+            cleanup(controller)
+        end
+
+        @testset "Command line partner rejected" begin
+            parsed = Dict{String, Any}(
+                "var" => "u,vmix", "files" => ["vector.nc"])
+            local controller
+            @test_warn "cannot be a second component" begin
+                controller = Controller.ViewerController(
+                    make_vector_temp_dataset(); headless = true,
+                    parsed_args = parsed)
+            end
+            @test controller.ui.state.variable[] == "u"
+            @test controller.ui.state.variable2[] == NS
+            cleanup(controller)
+        end
+
+        @testset "Dropdown visibility" begin
+            controller = Controller.ViewerController(
+                make_vector_temp_dataset(), headless = true)
+            menu = controller.ui.main_menu.variable2_menu
+            pt_menu = controller.ui.main_menu.plot_menu.plot_type
+            var_menu = controller.ui.main_menu.variable_menu
+            var_menu.i_selected[] = findfirst(==("u"), var_menu.options[])
+
+            # a scalar type keeps the second dropdown out of the way
+            pt_menu.i_selected[] = findfirst(==("heatmap"), pt_menu.options[])
+            @test !menu.blockscene.visible[]
+            @test menu.width[] == 0
+
+            # a vector type shows it, filled with the guessed partner
+            pt_menu.i_selected[] = findfirst(==("quiver"), pt_menu.options[])
+            @test menu.blockscene.visible[]
+            # the width a Menu is built with, so it shares the row evenly
+            @test menu.width[] === nothing
+            @test menu.selection[] == "v"
+            # and it only offers variables that can actually partner `u`
+            @test "vmix" ∉ menu.options[]
+            @test "v" ∈ menu.options[]
+
+            # switching back hides it again
+            pt_menu.i_selected[] = findfirst(==("heatmap"), pt_menu.options[])
+            @test !menu.blockscene.visible[]
+
+            # a scalar type exports no second component
+            @test !occursin(",", split(
+                Controller.get_export_string(controller))[1])
+
             cleanup(controller)
         end
     end

@@ -63,7 +63,9 @@ Deleting the keyword (`del colorrange`) returns to the default pinning.
 The colorbar starts without a label. `cbarlabel="auto"` labels it with the
 variable's name and unit -- the string the figure title uses by default --
 and the label follows when you switch variables. Any other string is drawn
-as given.
+as given. On a vector plot, where the colors are a magnitude, `"auto"`
+names that magnitude instead (see
+[Plot Types](plot_types.md#Quiver-and-streamplot-(vector-fields))).
 
 ```@example cst
 repl(session, "cbarlabel=\"auto\"") # hide
@@ -132,6 +134,8 @@ A few special keywords control the figure itself rather than the plot.
 | `rotatev=5` | `0` | move the 3D camera vertically, bouncing inside `rotatevlim` |
 | `rotatelim=(-45, 45)` | (none) | bound the orbit to an azimuth sector (back-and-forth sweep) |
 | `rotatevlim=(0, 80)` | `(0, 80)` | elevation range of the vertical bounce |
+| `arrows=(24, 16)` | `(24, 16)` | arrows per axis in a `quiver` plot |
+| `every=4` | (none) | draw every n-th grid point instead (`quiver`) |
 
 The label showing the current playback value is configured the same way,
 through its own `animlabel...` keywords (see
@@ -140,7 +144,8 @@ through its own `animlabel...` keywords (see
 ## Geographic plots
 
 For 2D fields on longitude/latitude axes, `geographic=true` switches the
-axis to a map projection. `heatmap`, `contour`, and `contourf` support it.
+axis to a map projection. `heatmap`, `contour`, `contourf`, `quiver`, and
+`streamplot` support it.
 The automatic longitude tick labels tend to bunch up at the curved map
 edge, so we hide them here with a regular axis keyword.
 

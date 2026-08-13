@@ -25,11 +25,18 @@ struct Plot
     colorbar::Bool
     func::Function
     make_axis::Function
+    # how many data components the type draws: one for a scalar field,
+    # two for the vector types, which take a zonal and a meridional one
+    nfields::Int
+
+    Plot(type::String, ndims::Int, colorbar::Bool, func::Function,
+         make_axis::Function; nfields::Int = 1) =
+        new(type, ndims, colorbar, func, make_axis, nfields)
 end
 
 const PLOT_TYPES = OrderedDict(plot.type => plot for plot in [
     Plot(Constants.NOT_SELECTED_LABEL, 0, false,
-        (ax, x, y, z, d) -> nothing,
+        (fd, ax, x, y, z, d) -> nothing,
         (fd) -> nothing),
 ])
 
@@ -117,6 +124,10 @@ struct FigureSettings
     # and elevation bounce range
     rotatelim::Observable{Union{Nothing, NTuple{2, Float64}}}
     rotatevlim::Observable{NTuple{2, Float64}}
+    # Vector-plot density: how many arrows to aim for along each axis, and
+    # an exact grid stride that overrides that target when set
+    arrows::Observable{Tuple{Int, Int}}
+    every::Observable{Union{Nothing, Int}}
 
     FigureSettings() = new(
         Observable(Constants.FIGSIZE),
@@ -151,6 +162,8 @@ struct FigureSettings
         Observable(0.0),                                  # rotatev
         Observable{Union{Nothing, NTuple{2, Float64}}}(nothing),  # rotatelim
         Observable((0.0, 80.0)),                          # rotatevlim
+        Observable(Constants.VECTOR_ARROWS),              # arrows
+        Observable{Union{Nothing, Int}}(nothing),         # every
     )
 end
 
@@ -160,21 +173,51 @@ end
 
 struct FigureLabels
     title::Observable{String}
+    # what `cbarlabel="auto"` shows -- the same as the title for a scalar
+    # plot, but a vector plot's bar carries the magnitude, not the field
+    cbar::Observable{String}
     xlabel::Observable{String}
     ylabel::Observable{String}
     zlabel::Observable{String}
 end
 
+"""
+    auto_title(dataset, variable, partner, nfields)
+
+The name a plot gives itself: the variable's label, or -- for a vector
+plot, which draws two components -- both of them.
+"""
+auto_title(dataset::Data.CDFDataset, variable::String, partner::String,
+           nfields::Int)::String =
+    nfields < 2 ? Data.get_label(dataset, variable) :
+        Data.get_vector_label(dataset, variable, partner)
+
+"""
+    auto_cbarlabel(dataset, variable, partner, nfields)
+
+What `cbarlabel="auto"` shows. It deliberately differs from the title for
+a vector plot: the title names the field, the bar names the scalar the
+colors actually stand for, which is the magnitude.
+"""
+auto_cbarlabel(dataset::Data.CDFDataset, variable::String, partner::String,
+               nfields::Int)::String =
+    nfields < 2 ? Data.get_label(dataset, variable) :
+        Data.get_magnitude_label(dataset, variable, partner)
+
 function FigureLabels(ui_state::UI.State, dataset::Data.CDFDataset,
                       settings::FigureSettings)::FigureLabels
-    title = @lift(Data.get_label(dataset, $(ui_state.variable)))
+    nfields = @lift(PLOT_TYPES[$(ui_state.plot_type_name)].nfields)
+    title = @lift(auto_title(dataset, $(ui_state.variable),
+                             $(ui_state.variable2), $nfields))
+    cbar = @lift(auto_cbarlabel(dataset, $(ui_state.variable),
+                                $(ui_state.variable2), $nfields))
     xlabel = @lift(Data.get_label(dataset, $(ui_state.x_name);
                                   target_unit = $(settings.xunit)))
     ylabel = @lift(Data.get_label(dataset, $(ui_state.y_name);
                                   target_unit = $(settings.yunit)))
     zlabel = @lift(Data.get_label(dataset, $(ui_state.z_name);
                                   target_unit = $(settings.zunit)))
-    FigureLabels(title, xlabel, ylabel, zlabel)
+    FigureLabels(title, cbar, xlabel, ylabel, zlabel)
 end
 
 # ============================================================
@@ -217,9 +260,9 @@ resolve_font(fonts::Attributes, name::AbstractString)::Makie.NativeFont =
 
 function ColorbarLabel(settings::FigureSettings, labels::FigureLabels,
                        fonts::Attributes)::ColorbarLabel
-    # "auto" follows the title observable, so the label tracks the
-    # variable instead of snapshotting its name
-    text = @lift(resolve_cbarlabel($(settings.cbarlabel), $(labels.title)))
+    # "auto" follows the labels' own colorbar observable, so the label
+    # tracks the variable instead of snapshotting its name
+    text = @lift(resolve_cbarlabel($(settings.cbarlabel), $(labels.cbar)))
     rotation = Observable{Any}(Makie.automatic)
     map!(rotation, settings.cbarlabelrotation) do value
         value === nothing ? Makie.automatic : value
@@ -289,10 +332,20 @@ function animlabel_font()
     end
 end
 
-"Measured pixel width of `s` at the given fontsize."
-measure_text(s::String, fontsize::Real = Constants.LABELSIZE)::Float64 =
+"The font the header title renders in (the theme's bold font)."
+function title_font()
+    try
+        Makie.to_font(Makie.to_value(Makie.theme(:fonts).bold))
+    catch
+        Makie.to_font("TeX Gyre Heros Makie")
+    end
+end
+
+"Measured pixel width of `s` at the given fontsize, in the given font."
+measure_text(s::String, fontsize::Real = Constants.LABELSIZE,
+             font = animlabel_font())::Float64 =
     isempty(s) ? 0.0 : Float64(Makie.widths(
-        Makie.text_bb(s, animlabel_font(), Float64(fontsize)))[1])
+        Makie.text_bb(s, font, Float64(fontsize)))[1])
 
 "Measured pixel height of `s` at the given fontsize."
 measure_height(s::String, fontsize::Real = Constants.LABELSIZE)::Float64 =
@@ -484,13 +537,31 @@ end
 #  Plot data
 # ============================================================
 
+"""
+    partner_data(dataset, ui_state, sel_dims)
+
+The second component's data, or nothing when no usable partner is
+selected. A partner that does not span the same dimensions cannot be
+sliced by the same indexing, so it yields nothing and the vector plot
+simply draws nothing until a fitting one is picked.
+"""
+function partner_data(dataset::Data.CDFDataset, ui_state::UI.State,
+                      sel_dims::Vector{String})::Union{Array, Nothing}
+    partner = ui_state.variable2[]
+    Data.is_vector_partner(dataset, ui_state.variable[], partner) ||
+        return nothing
+    Data.get_data(dataset, partner, sel_dims, ui_state.dim_obs[])
+end
+
 struct PlotData
     plot_type::Observable{Plot}
     sel_dims::Observable{Vector{String}}
     x::Observable{Union{Array, Nothing}}
     y::Observable{Union{Array, Nothing}}
     z::Observable{Union{Array, Nothing}}
-    d::Vector{Observable{Union{Array, Nothing}}}
+    # data arrays indexed [component][ndims]: component 1 is the selected
+    # variable, component 2 the partner a vector plot draws next to it
+    d::Vector{Vector{Observable{Union{Array, Nothing}}}}
     update_data_switch::Observable{Bool}
     labels::FigureLabels
     dataset::Data.CDFDataset
@@ -517,17 +588,23 @@ function PlotData(
     x = Data.get_dim_array(dataset, ui_state.x_name, update_switch)
     y = Data.get_dim_array(dataset, ui_state.y_name, update_switch)
     z = Data.get_dim_array(dataset, ui_state.z_name, update_switch)
-    # Observable for the data array
-    d = [Observable{Union{Array, Nothing}}(nothing) for _ in 1:3] # max 3D data
+    # Observables for the data arrays, one set per component (max 3D data)
+    d = [[Observable{Union{Array, Nothing}}(nothing) for _ in 1:3]
+         for _ in 1:Constants.MAX_PLOT_COMPONENTS]
 
     # Set up listeners to update the data array when relevant observables change
-    for trigger in (ui_state.variable, sel_dims, ui_state.dim_obs, update_switch)
+    for trigger in (ui_state.variable, ui_state.variable2, sel_dims,
+                    ui_state.dim_obs, update_switch)
         on(trigger) do _
             !(update_switch[]) && return
             ndims = length(sel_dims[])
             ndims == 0 && return
-            d[ndims][] = Data.get_data(
+            d[1][ndims][] = Data.get_data(
                 dataset, ui_state.variable[], sel_dims[], ui_state.dim_obs[])
+            # the partner is only read when a plot type asks for it: a
+            # scalar type must never pay for a second hyperslab read
+            plot_type[].nfields < 2 && return
+            d[2][ndims][] = partner_data(dataset, ui_state, sel_dims[])
         end
     end
 
@@ -681,8 +758,8 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
 
     # Keep the pinned color range reconciled; during playback only the
     # playback index changes, which leaves the scan key untouched.
-    for trigger in (ui_state.variable, plot_data.sel_dims, ui_state.pdim,
-                    ui_state.dim_obs)
+    for trigger in (ui_state.variable, ui_state.variable2, plot_data.sel_dims,
+                    ui_state.pdim, ui_state.dim_obs)
         on(trigger) do _
             update_colorrange!(fd)
         end
@@ -696,10 +773,12 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         cbar[] = nothing
         plot_data.plot_type[].type == Constants.NOT_SELECTED_LABEL && return  # TODO
 
-        # then we create the new plot
-        plot_obj[] = plot_data.plot_type[].func(
-            a, plot_data.x, plot_data.y, plot_data.z,
-            plot_data.d[plot_data.plot_type[].ndims])
+        # then we create the new plot, handing it one data observable per
+        # component the type draws
+        plot = plot_data.plot_type[]
+        components = Tuple(plot_data.d[c][plot.ndims] for c in 1:plot.nfields)
+        plot_obj[] = plot.func(
+            fd, a, plot_data.x, plot_data.y, plot_data.z, components...)
         # and add a colorbar if needed
         add_colorbar!(fd)
         add_earth!(fd)
@@ -788,6 +867,34 @@ function clear_header!(fd::FigureData)::Nothing
 end
 
 """
+    fit_title_size(available, text, size)
+
+The size the title is actually drawn at: the configured one, shrunk just
+enough to leave the animated-axis label its share of the header line, and
+never past `TITLESIZE_MIN`. The two share one line, so without this a
+title long enough to reach across the plot box is simply drawn over the
+label -- which a vector plot, naming both its components, easily is. Text
+width is linear in the font size, so one division lands it. Measured in
+the bold face the title is actually drawn in: the regular one is narrow
+enough here to under-shrink by a good 15%.
+"""
+function fit_title_size(available::Real, text::AbstractString,
+                        size::Real)::Float64
+    width = measure_text(String(text), size, title_font())
+    (width <= available || width <= 0) && return Float64(size)
+    max(Float64(size) * Float64(available) / width,
+        Float64(Constants.TITLESIZE_MIN))
+end
+
+"Width the animated-axis label claims of the header line, gap included."
+function header_label_width(fd::FigureData)::Float64
+    fd.settings.animlabelpos[] === :title || return 0.0
+    segments = fd.anim_segments[]
+    isempty(segments) && return 0.0
+    sum(seg.width for seg in segments) + Float64(Constants.HEADER_GAP)
+end
+
+"""
     rebuild_header!(fd)
 
 Draw the header -- the title on the left, the animated-axis label on the
@@ -806,9 +913,15 @@ function rebuild_header!(fd::FigureData)::Nothing
     gap = Float64(Constants.HEADER_GAP)
     titlepos = @lift(Point2f($vp.origin[1],
                              $vp.origin[2] + $vp.widths[2] + gap))
+    # the drawn size, not the configured one: it gives way to the label
+    # rather than being drawn across it. Only ever shrinks, so the header
+    # band (sized from the configured size) never has to grow for it.
+    claimed = header_label_width(fd)
+    titlesize = @lift(fit_title_size($vp.widths[1] - claimed, $(fd.title_text),
+                                     $(fd.settings.titlesize)))
     plt = text!(scene, titlepos; text = fd.title_text,
                 align = (:left, :bottom), font = :bold,
-                fontsize = fd.settings.titlesize, space = :pixel,
+                fontsize = titlesize, space = :pixel,
                 inspectable = false)
     push!(fd.anim_header[], (scene, plt))
     fd.settings.animlabelpos[] === :title || return nothing
@@ -1352,6 +1465,55 @@ function set_rotatevlim!(fd::FigureData, value::Tuple)::Bool
     false
 end
 
+# ------------------------------------------------------------
+#  Vector plot density
+#
+#  `arrows` targets a number of arrows per axis, `every` picks exact grid
+#  points and overrides the target. Both are read while the arrows are
+#  laid out, so re-notifying the data observable is enough -- no redraw,
+#  which would throw the user's zoom away. A plot type without arrows
+#  stores the value silently and starts using it once a vector type is
+#  selected; warning here would trip the kwargs path's revert-on-stderr
+#  machinery (see set_rotate!).
+# ------------------------------------------------------------
+
+# only the arrows sample the grid; streamlines follow the field, so the
+# density settings mean nothing to them and re-laying one would just
+# integrate every streamline again for no visible change
+is_arrow_type(fd::FigureData)::Bool =
+    fd.plot_data.plot_type[].type == "quiver"
+
+"Re-lay the arrows of the current vector plot, without rebuilding it."
+function refresh_vector_density!(fd::FigureData)::Nothing
+    is_arrow_type(fd) || return nothing
+    ndims = fd.plot_data.plot_type[].ndims
+    ndims in eachindex(fd.plot_data.d[1]) || return nothing
+    notify(fd.plot_data.d[1][ndims])
+    nothing
+end
+
+function set_arrows!(fd::FigureData, value::Tuple)::Bool
+    ok = length(value) == 2 && all(v -> v isa Integer && v > 0, value)
+    if !ok
+        @error ("arrows must be an (nx, ny) tuple of positive integers, " *
+                "got $value")
+        return false
+    end
+    fd.settings.arrows[] = (Int(value[1]), Int(value[2]))
+    refresh_vector_density!(fd)
+    false
+end
+
+function set_every!(fd::FigureData, value::Union{Nothing, Integer})::Bool
+    if value !== nothing && value < 1
+        @error "every must be a positive integer, got $value"
+        return false
+    end
+    fd.settings.every[] = value === nothing ? nothing : Int(value)
+    refresh_vector_density!(fd)
+    false
+end
+
 set_xunit!(fd::FigureData, value::Union{Nothing, AbstractString})::Bool =
     set_axis_unit!(fd, :xunit, fd.settings.xunit, fd.ui.state.x_name, value)
 set_yunit!(fd::FigureData, value::Union{Nothing, AbstractString})::Bool =
@@ -1410,6 +1572,9 @@ const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
     :rotatelim => FigureSettingsHandler(
         :rotatelim, Union{Nothing, Tuple}, set_rotatelim!),
     :rotatevlim => FigureSettingsHandler(:rotatevlim, Tuple, set_rotatevlim!),
+    :arrows => FigureSettingsHandler(:arrows, Tuple, set_arrows!),
+    :every => FigureSettingsHandler(
+        :every, Union{Nothing, Integer}, set_every!),
 )
     
 
@@ -1458,10 +1623,29 @@ function scan_pdim(fd::FigureData, variable::String)::Union{Nothing, String}
     pdim
 end
 
+"""
+    active_variables(fd)
+
+Every variable the current plot draws, in component order. A vector plot
+adds its partner, so the color range is scanned over both components and
+pins |V| rather than the signed first one.
+"""
+function active_variables(fd::FigureData)::Vector{String}
+    state = fd.ui.state
+    variable = state.variable[]
+    variables = [variable]
+    fd.plot_data.plot_type[].nfields < 2 && return variables
+    partner = state.variable2[]
+    Data.is_vector_partner(fd.plot_data.dataset, variable, partner) &&
+        push!(variables, partner)
+    variables
+end
+
 "The hyperslab key the active mode wants pinned, or nothing (autoscale)."
 function colorrange_key(fd::FigureData, mode::Symbol)::Any
     state = fd.ui.state
-    variable = state.variable[]
+    variables = active_variables(fd)
+    variable = variables[1]
     dataset = fd.plot_data.dataset
     haskey(dataset.var_coords, variable) || return nothing
     keep = if mode === :data
@@ -1477,7 +1661,7 @@ function colorrange_key(fd::FigureData, mode::Symbol)::Any
     catch
         return nothing
     end
-    (variable, Tuple(indexing))
+    (Tuple(variables), Tuple(indexing))
 end
 
 # contour plots re-bin an Int `levels` from each frame's extrema, so the
@@ -1584,7 +1768,8 @@ function update_colorrange!(fd::FigureData; sync::Bool = false)::Nothing
     # gate the range stays per-frame until the user explicitly asks.
     if key !== nothing && !haskey(scan.cache, key) && !colorrange_explicit(fd)
         elements = DataLimits.hyperslab_elements(
-            fd.plot_data.dataset, key[1], collect(Union{Colon, Int}, key[2]))
+            fd.plot_data.dataset, collect(String, key[1]),
+            collect(Union{Colon, Int}, key[2]))
         if elements > DataLimits.AUTO_SCAN_ELEMENTS[]
             if !scan.hinted
                 scan.hinted = true
@@ -1615,7 +1800,8 @@ function update_colorrange!(fd::FigureData; sync::Bool = false)::Nothing
     dataset = fd.plot_data.dataset
     runner = () -> begin
         result = DataLimits.hyperslab_extrema(
-            dataset, key[1], collect(Union{Colon, Int}, key[2]);
+            dataset, collect(String, key[1]),
+            collect(Union{Colon, Int}, key[2]);
             abort = () -> scan.generation != generation)
         scan.generation == generation || return
         scan.pending_key = nothing
@@ -1747,6 +1933,8 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
             :rotatev => 0.0,
             :rotatelim => nothing,
             :rotatevlim => (0.0, 80.0),
+            :arrows => Constants.VECTOR_ARROWS,
+            :every => nothing,
         )
         return haskey(defaults, property) ? defaults[property] : :delete
     elseif isa(target_object, Makie.AbstractAxis)
@@ -2308,41 +2496,368 @@ function custom_heatmap!(ax, x, y, z, d)
     end
 end
 
+# ============================================================
+#  Vector plots
+# ============================================================
+#
+# `quiver` and `streamplot` draw two components of one field. The arrows
+# thin the grid down to a *target* number per axis rather than a fixed
+# stride: Ctrl-I (`update_interpolate!`) rewrites the grid to the axis'
+# pixel resolution, so a stride's arrow count would grow with the window
+# while a target count stays where the user put it. `every=n` picks exact
+# grid points for the cases where that is what you want. Streamlines
+# follow the field rather than sampling it, so neither applies to them --
+# their line count is Makie's own `density`.
+#
+# On a map the arrows are drawn in lon/lat and projected afterwards, which
+# needs two fixes a plain axis does not: an arrow whose tip crosses the
+# ±180 seam has that tip projected onto the opposite map edge and draws a
+# streak across the whole figure, and the meridians converging toward the
+# poles would shrink a constant eastward wind into nothing.
+
+"Grid indices a vector plot samples: a target count, or an exact stride."
+function decimation_indices(n::Int, target::Int,
+                            every::Union{Nothing, Int})::StepRange{Int, Int}
+    n <= 0 && return 1:1:0
+    every !== nothing && every >= 1 && return 1:every:n
+    target <= 0 && return 1:1:n
+    1:max(1, cld(n, target)):n
+end
+
+"""
+    any_finite_vector(u, v)
+
+Whether any grid point carries a finite vector at all. A slab that is
+missing everywhere (a masked ocean level, say) has nothing to draw, and
+handing it on would leave the colorbar without a single tick to place.
+"""
+function any_finite_vector(u, v)::Bool
+    usable(value) = value isa Number && isfinite(value)
+    for k in eachindex(u)
+        (usable(u[k]) && usable(v[k])) && return true
+    end
+    false
+end
+
+"The `p`-quantile of the finite values in `values`, or 0 without any."
+function finite_quantile(values::AbstractArray, p::Float64)::Float64
+    finite = Float64[v for v in values if isfinite(v)]
+    isempty(finite) && return 0.0
+    sort!(finite)
+    finite[clamp(ceil(Int, p * length(finite)), 1, length(finite))]
+end
+
+"One frame of a vector field, thinned down to what actually gets drawn."
+struct VectorField
+    x::Vector{Float64}
+    y::Vector{Float64}
+    u::Matrix{Float64}
+    v::Matrix{Float64}
+    # |V| per sample, in the column-major order arrows2d! draws them in
+    magnitude::Vector{Float64}
+    lengthscale::Float64
+end
+
+"""
+The stand-in for "nothing to draw" -- no partner selected, or a grid and
+a field that do not line up (yet). It is not empty: Makie cannot build an
+arrow mesh out of zero arrows at all, and a colorbar over a single
+repeated value finds no ticks and says so on stderr, which would trip the
+kwargs path's revert machinery. Two samples spanning 0..1 keep both out
+of their degenerate corners, and the plot is hidden while this is what it
+holds.
+"""
+const EMPTY_VECTOR_FIELD = VectorField([0.0, 1.0], [0.0], zeros(2, 1),
+                                       zeros(2, 1), [0.0, 1.0], 1.0)
+
+"""
+    wraps_globally(x)
+
+Whether a longitude axis closes on itself, so that its two edges are the
+same meridian and there is a seam for an arrow to cross. A global grid
+stops one cell short of a full turn -- its last point is not a repeat of
+its first -- so what has to close the circle is the span *plus one cell*,
+which is what keeps a coarse 30-degree global grid global.
+"""
+function wraps_globally(x)::Bool
+    n = length(x)
+    n >= 2 || return false
+    span = Float64(maximum(x)) - Float64(minimum(x))
+    span + span / (n - 1) >= Constants.GLOBAL_LONGITUDE_SPAN
+end
+
+"""
+    mask_outside_domain!(x, y, u, v, lengthscale, xlim, ylim)
+
+Blank every arrow whose tip leaves the drawn domain. Past the ±180 seam
+the projection throws the tip onto the opposite map edge, which draws a
+streak clean across the figure; a NaN direction drops the arrow instead.
+Only worth doing on a domain that has such a seam -- see `wraps_globally`.
+"""
+function mask_outside_domain!(x::Vector{Float64}, y::Vector{Float64},
+                              u::Matrix{Float64}, v::Matrix{Float64},
+                              lengthscale::Float64,
+                              xlim::Tuple{Float64, Float64},
+                              ylim::Tuple{Float64, Float64})::Nothing
+    for j in eachindex(y), i in eachindex(x)
+        tipx = x[i] + lengthscale * u[i, j]
+        tipy = y[j] + lengthscale * v[i, j]
+        if !(xlim[1] <= tipx <= xlim[2]) || !(ylim[1] <= tipy <= ylim[2])
+            u[i, j] = NaN
+            v[i, j] = NaN
+        end
+    end
+    nothing
+end
+
+"""
+    decimate_vector_field(x, y, u, v, target, every, geographic)
+
+Thin a vector field down to the arrows that get drawn and derive their
+length scale. Returns the empty field whenever the inputs do not line up:
+`x`, `y` and the data arrive in separate observable notifications, so a
+lift over them transiently sees a grid and a field of different shapes.
+"""
+function decimate_vector_field(
+    x, y, u, v,
+    target::Tuple{Int, Int}, every::Union{Nothing, Int}, geographic::Bool,
+)::VectorField
+    any(isnothing, (x, y, u, v)) && return EMPTY_VECTOR_FIELD
+    nx, ny = length(x), length(y)
+    (nx >= 2 && ny >= 2) || return EMPTY_VECTOR_FIELD
+    (size(u) == (nx, ny) && size(v) == (nx, ny)) || return EMPTY_VECTOR_FIELD
+    ix = decimation_indices(nx, target[1], every)
+    iy = decimation_indices(ny, target[2], every)
+    dx = Float64[x[i] for i in ix]
+    dy = Float64[y[j] for j in iy]
+    # indexing with the strides already copies, so these are ours to
+    # correct and mask in place
+    du = convert(Matrix{Float64}, u[ix, iy])
+    dv = convert(Matrix{Float64}, v[ix, iy])
+    any_finite_vector(du, dv) || return EMPTY_VECTOR_FIELD
+    # the colors are the *physical* magnitudes, taken before the
+    # projection correction below inflates the zonal component
+    magnitude = vec(hypot.(du, dv))
+    # a high percentile rather than the maximum: a single outlier gust
+    # would otherwise shrink the whole field into invisibility
+    reference = finite_quantile(magnitude, Constants.VECTOR_SCALE_QUANTILE)
+    reference > 0 || (reference = 1.0)
+    cellx = length(dx) > 1 ? abs(dx[2] - dx[1]) : 1.0
+    celly = length(dy) > 1 ? abs(dy[2] - dy[1]) : 1.0
+    lengthscale = Constants.VECTOR_ARROW_FILL * min(cellx, celly) / reference
+    if geographic
+        # a degree of longitude covers cos(latitude) of the distance a
+        # degree of latitude does, so an eastward wind has to be spread
+        # over that many more degrees to keep its drawn length; the floor
+        # stops the arrows next to the poles from blowing up
+        for j in eachindex(dy), i in eachindex(dx)
+            du[i, j] /= max(cosd(dy[j]), Constants.COS_LATITUDE_FLOOR)
+        end
+        # a regional cut-out has no seam to cross, and masking it would
+        # only punch holes along its own borders
+        wraps_globally(x) && mask_outside_domain!(
+            dx, dy, du, dv, lengthscale,
+            extrema(Float64, x), extrema(Float64, y))
+    end
+    VectorField(dx, dy, du, dv, magnitude, lengthscale)
+end
+
+"""
+    vector_field_observable(fd, ax, x, y, u, v)
+
+The drawn field, kept in step with the grid and both data components.
+Reads the density settings without subscribing to them, so changing one
+costs a `notify` on the data (see `refresh_vector_density!`) instead of a
+listener that outlives the plot.
+"""
+function vector_field_observable(fd::FigureData, ax::Makie.AbstractAxis,
+                                 x::Observable, y::Observable,
+                                 u::Observable, v::Observable,
+                                 )::Observable{VectorField}
+    geographic = ax isa GeoAxis
+    field = Observable(EMPTY_VECTOR_FIELD)
+    update = (xs, ys, us, vs) -> begin
+        field[] = decimate_vector_field(
+            xs, ys, us, vs, fd.settings.arrows[], fd.settings.every[],
+            geographic)
+    end
+    update(x[], y[], u[], v[])
+    onany(update, x, y, u, v)
+    field
+end
+
+function quiver_plot!(fd::FigureData, ax::Makie.AbstractAxis,
+                      x::Observable, y::Observable,
+                      u::Observable, v::Observable)
+    field = vector_field_observable(fd, ax, x, y, u, v)
+    # arrows2d!, not the deprecated arrows!: the shim warns, and a stray
+    # write to stderr trips the kwargs path's revert machinery
+    arrows2d!(ax,
+        @lift($field.x), @lift($field.y), @lift($field.u), @lift($field.v);
+        lengthscale = @lift($field.lengthscale),
+        color = @lift($field.magnitude),
+        visible = @lift($field !== EMPTY_VECTOR_FIELD),
+        colormap = Constants.VECTOR_COLORMAP, inspectable = false)
+end
+
+"""
+Bilinear sampler over a regular grid, in the shape `streamplot!` wants.
+It only accepts a `Function` -- a plain callable struct is taken silently
+and then fails deep inside the compute graph with a length error -- so
+this is declared as one. Being a named type it also precompiles, which an
+anonymous closure would not.
+"""
+struct GridField <: Function
+    x::Vector{Float64}
+    y::Vector{Float64}
+    u::Matrix{Float64}
+    v::Matrix{Float64}
+end
+
+function (field::GridField)(p)
+    nx, ny = length(field.x), length(field.y)
+    (nx >= 2 && ny >= 2) || return Point2f(0, 0)
+    spanx = field.x[end] - field.x[1]
+    spany = field.y[end] - field.y[1]
+    (isfinite(spanx) && spanx != 0 && isfinite(spany) && spany != 0) ||
+        return Point2f(0, 0)
+    tx = (p[1] - field.x[1]) / spanx * (nx - 1)
+    ty = (p[2] - field.y[1]) / spany * (ny - 1)
+    (isfinite(tx) && isfinite(ty)) || return Point2f(0, 0)
+    i = clamp(floor(Int, tx) + 1, 1, nx - 1)
+    j = clamp(floor(Int, ty) + 1, 1, ny - 1)
+    fx = clamp(tx - (i - 1), 0.0, 1.0)
+    fy = clamp(ty - (j - 1), 0.0, 1.0)
+    w11 = (1 - fx) * (1 - fy)
+    w21 = fx * (1 - fy)
+    w12 = (1 - fx) * fy
+    w22 = fx * fy
+    Point2f(
+        w11 * field.u[i, j] + w21 * field.u[i + 1, j] +
+            w12 * field.u[i, j + 1] + w22 * field.u[i + 1, j + 1],
+        w11 * field.v[i, j] + w21 * field.v[i + 1, j] +
+            w12 * field.v[i, j + 1] + w22 * field.v[i + 1, j + 1],
+    )
+end
+
+# The stand-in for "nothing to draw", for the same reasons as
+# EMPTY_VECTOR_FIELD: a constant field colors every streamline alike,
+# which leaves the colorbar without ticks and writing to stderr. The
+# ramp along x spans a range instead; the plot is hidden meanwhile.
+const EMPTY_GRID_FIELD = GridField([0.0, 1.0], [0.0, 1.0],
+                                   [0.0 0.0; 1.0 1.0], zeros(2, 2))
+
+"""
+    grid_field_state(x, y, u, v)
+
+Everything `streamplot!` needs for one frame -- the sampler, the domain
+it integrates in, and a step derived from that domain -- or nothing when
+the inputs do not line up. `x`, `y` and the data arrive in separate
+observable notifications, so this transiently sees shapes that do not
+match, and a slab that is missing everywhere has nothing to follow.
+"""
+function grid_field_state(x, y, u,
+                          v)::Union{Nothing, Tuple{GridField, Rect2{Float64},
+                                                   Float64}}
+    any(isnothing, (x, y, u, v)) && return nothing
+    nx, ny = length(x), length(y)
+    (nx >= 2 && ny >= 2) || return nothing
+    (size(u) == (nx, ny) && size(v) == (nx, ny)) || return nothing
+    any_finite_vector(u, v) || return nothing
+    gx = convert(Vector{Float64}, x)
+    gy = convert(Vector{Float64}, y)
+    spanx = gx[end] - gx[1]
+    spany = gy[end] - gy[1]
+    (isfinite(spanx) && spanx != 0 && isfinite(spany) && spany != 0) ||
+        return nothing
+    # `convert`, not the constructor: the streamlines read the full grid,
+    # and a copy of it per animation frame is not free. Nothing mutates
+    # these, and `get_data` hands out a fresh array every time anyway.
+    (GridField(gx, gy, convert(Matrix{Float64}, u), convert(Matrix{Float64}, v)),
+     Rect2(min(gx[1], gx[end]), min(gy[1], gy[end]), abs(spanx), abs(spany)),
+     min(abs(spanx), abs(spany)) / Constants.STREAMPLOT_STEPS)
+end
+
+"""
+    streamplot_plot!(fd, ax, x, y, u, v)
+
+Streamlines of the field. They sample the full grid rather than the
+thinned one the arrows use -- how many lines are drawn is Makie's own
+`density`, not a grid stride -- and they skip the geographic corrections:
+the lines are not scaled to a drawn length, `limits` already ends a line
+that reaches the ±180 seam, and the cos(latitude) factor would inflate
+exactly the magnitudes their color comes from.
+"""
+function streamplot_plot!(fd::FigureData, ax::Makie.AbstractAxis,
+                          x::Observable, y::Observable,
+                          u::Observable, v::Observable)
+    sampler = Observable(EMPTY_GRID_FIELD)
+    limits = Observable(Rect2(0.0, 0.0, 1.0, 1.0))
+    # Makie's default stepsize (0.01) is in data units: on a lon/lat grid
+    # every step would travel 5 degrees and maxsteps would cut the line
+    # off after a handful of them
+    stepsize = Observable(0.01)
+    live = Observable(false)
+    update = (xs, ys, us, vs) -> begin
+        state = grid_field_state(xs, ys, us, vs)
+        if state === nothing
+            live[] = false
+            return
+        end
+        sampler[], limits[], stepsize[] = state
+        live[] = true
+    end
+    update(x[], y[], u[], v[])
+    onany(update, x, y, u, v)
+    streamplot!(ax, sampler, limits;
+        stepsize = stepsize, gridsize = Constants.STREAMPLOT_GRIDSIZE,
+        visible = live,
+        colormap = Constants.VECTOR_COLORMAP, inspectable = false)
+end
+
 
 for plot in [
     # 2D plots
     Plot("heatmap", 2, true,
-        (ax, x, y, z, d) -> custom_heatmap!(ax, x, y, z, d),
+        (fd, ax, x, y, z, d) -> custom_heatmap!(ax, x, y, z, d),
         create_2d_axis),
     Plot("contour", 2, false,
-        (ax, x, y, z, d) -> contour!(ax, x, y, d, colormap = :balance, inspectable=false),
+        (fd, ax, x, y, z, d) -> contour!(ax, x, y, d, colormap = :balance, inspectable=false),
         create_2d_axis),
     Plot("contourf", 2, true,
-        (ax, x, y, z, d) -> contourf!(ax, x, y, d, colormap = :balance, inspectable=false),
+        (fd, ax, x, y, z, d) -> contourf!(ax, x, y, d, colormap = :balance, inspectable=false),
         create_2d_axis),
     Plot("surface", 2, true,
-        (ax, x, y, z, d) -> surface!(ax, x, y, d, colormap = :balance, inspectable=false),
+        (fd, ax, x, y, z, d) -> surface!(ax, x, y, d, colormap = :balance, inspectable=false),
         create_3d_axis),
     Plot("wireframe", 2, false,
-        (ax, x, y, z, d) -> wireframe!(ax, x, y, d, color = :royalblue3, inspectable=false),
+        (fd, ax, x, y, z, d) -> wireframe!(ax, x, y, d, color = :royalblue3, inspectable=false),
         create_3d_axis),
+
+    # 2D vector plots (two components)
+    Plot("quiver", 2, true,
+        (fd, ax, x, y, z, u, v) -> quiver_plot!(fd, ax, x, y, u, v),
+        create_2d_axis; nfields = 2),
+    Plot("streamplot", 2, true,
+        (fd, ax, x, y, z, u, v) -> streamplot_plot!(fd, ax, x, y, u, v),
+        create_2d_axis; nfields = 2),
 
     # 1D plots
     Plot("line", 1, false,
-        (ax, x, y, z, d) -> lines!(ax, x, d, color = :royalblue3, inspectable=false, linestyle = :solid),
+        (fd, ax, x, y, z, d) -> lines!(ax, x, d, color = :royalblue3, inspectable=false, linestyle = :solid),
         create_2d_axis),
     Plot("scatter", 1, false,
-        (ax, x, y, z, d) -> scatter!(ax, x, d, color = :royalblue3, inspectable=false),
+        (fd, ax, x, y, z, d) -> scatter!(ax, x, d, color = :royalblue3, inspectable=false),
         create_2d_axis),
 
     # 3D plots
     Plot("volume", 3, true,
-        (ax, x, y, z, d) -> volume!(
+        (fd, ax, x, y, z, d) -> volume!(
             ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
             d, colormap = :balance),
         create_3d_axis),
     Plot("contour3d", 3, true,
-        (ax, x, y, z, d) -> contour!(
+        (fd, ax, x, y, z, d) -> contour!(
             ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
             d, colormap = :balance),
         create_3d_axis),

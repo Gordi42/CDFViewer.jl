@@ -90,6 +90,77 @@ function make_temp_dataset()
 end
 
 # ========================================
+#  Vector Components
+# ========================================
+# A lon/lat/time file with wind components, for the vector plot types:
+# `u`/`v` are the pair, `uas`/`vas` and `U10`/`V10` exercise the name
+# guessing, `uodd` has no partner at all and `umix` only one over the
+# wrong dimensions. Every field is deterministic, so a test can compute
+# the true |V| range from the file.
+
+VECTOR_LON = collect(range(-180.0, 150.0, 12))
+VECTOR_LAT = collect(range(-70.0, 70.0, 8))
+VECTOR_TIME = collect(1.0:3.0)
+
+# `u` deliberately changes sign, so its own range is nothing like |V|'s
+vector_u(lon, lat, time) =
+    [12.0 * sind(2la) - 4.0 * sind(2lo) + 0.5t
+     for lo in lon, la in lat, t in time]
+vector_v(lon, lat, time) =
+    [6.0 * cosd(lo) * cosd(la) - 0.3t for lo in lon, la in lat, t in time]
+
+function init_vector_temp_dataset()::String
+    file = tempname() * ".nc"
+    lon, lat, time = VECTOR_LON, VECTOR_LAT, VECTOR_TIME
+    u = vector_u(lon, lat, time)
+    v = vector_v(lon, lat, time)
+
+    NCDataset(file, "c", attrib = OrderedDict(
+            "title" => "this is a test file with wind components")) do ds
+        defVar(ds, "lon", lon, ("lon",), attrib = OrderedDict(
+            "standard_name" => "longitude", "units" => "degrees_east"))
+        defVar(ds, "lat", lat, ("lat",), attrib = OrderedDict(
+            "standard_name" => "latitude", "units" => "degrees_north"))
+        defVar(ds, "time", time, ("time",), attrib = OrderedDict(
+            "units" => "days since 2000-01-01 00:00:00"))
+
+        dims = ("lon", "lat", "time")
+        defVar(ds, "u", u, dims, attrib = OrderedDict(
+            "units" => "m s-1", "long_name" => "Eastward wind"))
+        defVar(ds, "v", v, dims, attrib = OrderedDict(
+            "units" => "m s-1", "long_name" => "Northward wind"))
+        defVar(ds, "uas", 0.5 .* u, dims, attrib = OrderedDict("units" => "m s-1"))
+        defVar(ds, "vas", 0.5 .* v, dims, attrib = OrderedDict("units" => "m s-1"))
+        defVar(ds, "U10", 2.0 .* u, dims, attrib = OrderedDict("units" => "m s-1"))
+        defVar(ds, "V10", 2.0 .* v, dims, attrib = OrderedDict("units" => "m s-1"))
+        defVar(ds, "temp", abs.(u), dims, attrib = OrderedDict("units" => "K"))
+        # a pair whose unit is the CF spelling of "dimensionless"
+        defVar(ds, "ufrac", 0.1 .* u, dims, attrib = OrderedDict(
+            "units" => "1", "long_name" => "Zonal fraction"))
+        defVar(ds, "vfrac", 0.1 .* v, dims, attrib = OrderedDict(
+            "units" => "1", "long_name" => "Meridional fraction"))
+        # a u-named variable whose partner does not exist
+        defVar(ds, "uodd", u[:, :, 1], ("lon", "lat"),
+               attrib = OrderedDict("units" => "m s-1"))
+        # a pair whose dimensions disagree
+        defVar(ds, "umix", u, dims, attrib = OrderedDict("units" => "m s-1"))
+        defVar(ds, "vmix", v[:, :, 1], ("lon", "lat"),
+               attrib = OrderedDict("units" => "m s-1"))
+    end
+
+    file
+end
+
+make_vector_temp_dataset() = Data.CDFDataset([init_vector_temp_dataset()])
+
+"The true |V| range of the whole `u`/`v` field of the vector fixture."
+function vector_magnitude_range(dataset::Data.CDFDataset)
+    u = dataset.ds["u"][:, :, :]
+    v = dataset.ds["v"][:, :, :]
+    extrema(hypot.(u, v))
+end
+
+# ========================================
 #  Unstructured Data
 # ========================================
 

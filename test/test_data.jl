@@ -810,4 +810,86 @@ using GLMakie
 
     end
 
+    @testset "Vector components" begin
+        dataset = make_vector_temp_dataset()
+
+        # a partner spans exactly the same dimensions
+        @test Data.is_vector_partner(dataset, "u", "v")
+        @test Data.is_vector_partner(dataset, "u", "temp")
+        # ... which "vmix" does not
+        @test !Data.is_vector_partner(dataset, "umix", "vmix")
+        # a variable is never its own partner, and neither is a name the
+        # dataset does not hold
+        @test !Data.is_vector_partner(dataset, "u", "u")
+        @test !Data.is_vector_partner(dataset, "u", "nope")
+        @test !Data.is_vector_partner(dataset, "nope", "v")
+
+        # the guess follows the name, case preserved
+        @test Data.guess_vector_partner(dataset, "u") == "v"
+        @test Data.guess_vector_partner(dataset, "uas") == "vas"
+        @test Data.guess_vector_partner(dataset, "U10") == "V10"
+        # no partner in the file, so no guess
+        @test Data.guess_vector_partner(dataset, "uodd") === nothing
+        # a partner over the wrong dimensions is not a partner
+        @test Data.guess_vector_partner(dataset, "umix") === nothing
+        # names that do not start with u/U have nothing to guess from
+        @test Data.guess_vector_partner(dataset, "temp") === nothing
+        @test Data.guess_vector_partner(dataset, "v") === nothing
+        @test Data.guess_vector_partner(dataset, "") === nothing
+
+        # the options a menu offers: every variable over the same dims,
+        # the variable itself excluded
+        options = Data.vector_partner_options(dataset, "u")
+        @test "v" in options
+        @test "vas" in options
+        @test "temp" in options
+        @test "u" ∉ options
+        @test "vmix" ∉ options
+        @test "uodd" ∉ options
+        @test Data.vector_partner_options(dataset, "uodd") == ["vmix"]
+
+        close(dataset.ds)
+    end
+
+    @testset "Vector labels" begin
+        dataset = make_vector_temp_dataset()
+
+        # both names, and the unit they share written once
+        @test Data.get_vector_label(dataset, "u", "v") ==
+            "Eastward wind / Northward wind [m s-1]"
+        @test Data.get_magnitude_label(dataset, "u", "v") == "|(u, v)| [m s-1]"
+
+        # a component without a long_name falls back to its own name, and
+        # units that disagree are dropped rather than misreported
+        @test Data.get_vector_label(dataset, "u", "temp") ==
+            "Eastward wind / temp"
+        @test Data.get_magnitude_label(dataset, "u", "temp") == "|(u, temp)|"
+        @test Data.shared_unit(dataset, "u", "v") == "m s-1"
+        @test Data.shared_unit(dataset, "u", "temp") == ""
+
+        # a dimensionless unit prints nothing, as everywhere else
+        @test Data.get_vector_label(dataset, "ufrac", "vfrac") ==
+            "Zonal fraction / Meridional fraction"
+        @test Data.get_magnitude_label(dataset, "ufrac", "vfrac") ==
+            "|(ufrac, vfrac)|"
+        @test Data.shared_unit(dataset, "ufrac", "vfrac") == ""
+
+        # without a usable partner both fall back to the plain label
+        for partner in (Constants.NOT_SELECTED_LABEL, "vmix", "u")
+            @test Data.get_vector_label(dataset, "u", partner) ==
+                Data.get_label(dataset, "u")
+            @test Data.get_magnitude_label(dataset, "u", partner) ==
+                Data.get_label(dataset, "u")
+        end
+
+        # the pieces get_label is now built from
+        @test Data.get_display_name(dataset, "u") == "Eastward wind"
+        @test Data.get_display_name(dataset, "temp") == "temp"
+        @test Data.get_display_name(dataset, "not_in_file") == "not_in_file"
+        @test Data.with_unit("Speed", "m s-1") == "Speed [m s-1]"
+        @test Data.with_unit("Speed", "") == "Speed"
+
+        close(dataset.ds)
+    end
+
 end
