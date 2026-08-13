@@ -2184,6 +2184,22 @@ using CDFViewer.Plotting
             (fd, state, dataset)
         end
 
+        "How many points each drawn streamline has (they are NaN separated)."
+        function streamline_lengths(plot)::Vector{Int}
+            lengths = Int[]
+            run = 0
+            for p in plot.line_points[]
+                if all(isfinite, p)
+                    run += 1
+                else
+                    run > 0 && push!(lengths, run)
+                    run = 0
+                end
+            end
+            run > 0 && push!(lengths, run)
+            lengths
+        end
+
         @testset "Registry" begin
             for name in VECTOR_TYPES
                 plot = Plotting.PLOT_TYPES[name]
@@ -2537,6 +2553,324 @@ using CDFViewer.Plotting
             @test isempty(output)
             @test fd.settings.arrows[] == (10, 8)
             @test fd.settings.every[] == 2
+            cleanup(dataset)
+        end
+
+        @testset "Streamline stability defaults" begin
+            (fd, state, dataset) = init_vector_figure("streamplot")
+            plot = Plotting.primary(fd)
+
+            # the seeding grid, the line length and the fill fraction are
+            # the app's, not Makie's: a line short enough to end at the
+            # step cap ends for a geometric reason instead of by running
+            # into a line drawn before it, and then survives the next
+            # frame instead of being reshuffled
+            @test plot.gridsize[] == Constants.STREAMPLOT_GRIDSIZE
+            @test plot.maxsteps[] == Constants.STREAMPLOT_MAXSTEPS
+            @test plot.density[] == Constants.STREAMPLOT_DENSITY
+            # the step itself is unchanged, still derived from the domain
+            @test plot.stepsize[] ≈ 140.0 / Constants.STREAMPLOT_STEPS
+            # and the cap really is what ends a line: most of them stop
+            # at it, where with Makie's own 500 not one line ever does --
+            # they all end by running into a line drawn before them
+            lengths = streamline_lengths(plot)
+            @test maximum(lengths) == Constants.STREAMPLOT_MAXSTEPS
+            @test count(==(Constants.STREAMPLOT_MAXSTEPS), lengths) >
+                  length(lengths) / 2
+            plot.maxsteps[] = 500
+            @test count(==(500), streamline_lengths(plot)) == 0
+            plot.maxsteps[] = Constants.STREAMPLOT_MAXSTEPS
+
+            # every one of them stays an ordinary Makie attribute
+            set_kwargs!(fd, "maxsteps=120, density=1.0, gridsize=(20, 20)")
+            @test plot.maxsteps[] == 120
+            @test plot.density[] == 1.0
+            @test plot.gridsize[] == (20, 20)
+
+            # ... and deleting one goes back to the app's value, not to
+            # Makie's, so the override is reversible
+            set_kwargs!(fd, "")
+            @test plot.maxsteps[] == Constants.STREAMPLOT_MAXSTEPS
+            @test plot.density[] == Constants.STREAMPLOT_DENSITY
+            @test plot.gridsize[] == Constants.STREAMPLOT_GRIDSIZE
+            cleanup(dataset)
+        end
+
+        @testset "Streamlines hold still between frames" begin
+            # what made an animation boil: Makie seeds on a grid of cells
+            # and marks every cell a line crosses as taken, so a seed
+            # whose cell an earlier line already crossed draws nothing.
+            # Long lines take many cells, and a line shifting by one cell
+            # then flips whole streamlines on and off. Short ones leave
+            # the cells free, and nearly every seed fires again.
+
+            # a drifting jet, sampled by the app's own interpolator
+            gx = collect(range(-180.0, 150.0, 61))
+            gy = collect(range(-70.0, 70.0, 31))
+            frame(t) = Plotting.GridField(
+                gx, gy,
+                [18cosd(la) - 10sind(2 * (lo + 15t)) * cosd(2la)
+                 for lo in gx, la in gy],
+                [9cosd(lo + 15t) * cosd(la)^2 for lo in gx, la in gy])
+            limits = Makie.Rect2(-180.0, -70.0, 330.0, 140.0)
+
+            # where each line starts, which is the set the churn is in
+            function seeds(t; maxsteps, density)
+                plot = streamplot(
+                    frame(t), limits;
+                    stepsize = 140.0 / Constants.STREAMPLOT_STEPS,
+                    gridsize = Constants.STREAMPLOT_GRIDSIZE,
+                    maxsteps = maxsteps, density = density).plot
+                Set(plot.arrow_positions[])
+            end
+            app(t) = seeds(t; maxsteps = Constants.STREAMPLOT_MAXSTEPS,
+                          density = Constants.STREAMPLOT_DENSITY)
+            makie(t) = seeds(t; maxsteps = 500, density = 1.0)
+            kept(a, b) = length(intersect(a, b)) / length(union(a, b))
+
+            # the seeding is deterministic, so an unchanged field gives
+            # back exactly the same lines -- everything below is the
+            # field moving, and how the defaults answer to it
+            @test kept(app(0.0), app(0.0)) == 1.0
+            ours = kept(app(0.0), app(1.0))
+            theirs = kept(makie(0.0), makie(1.0))
+            @test ours > 0.85
+            @test ours > 3 * theirs
+        end
+
+        @testset "Speed cutoff" begin
+            mask! = Plotting.mask_weak!
+
+            # the cutoff is an absolute speed, so it blanks the same
+            # samples whatever else is in the frame
+            u = [3.0 0.1; 0.0 5.0]
+            v = [4.0 0.0; 0.2 0.0]
+            mask!(u, v, 2.0)               # |V| = 5, 0.1, 0.2, 5
+            @test u[1, 1] == 3.0 && v[1, 1] == 4.0
+            @test u[2, 2] == 5.0
+            @test isnan(u[1, 2]) && isnan(v[1, 2])
+            @test isnan(u[2, 1]) && isnan(v[2, 1])
+
+            # off blanks nothing at all, not even a sample of exactly zero
+            u = zeros(1, 1)
+            v = zeros(1, 1)
+            mask!(u, v, 0.0)
+            @test u[1, 1] == 0.0 && v[1, 1] == 0.0
+
+            # the sampler the streamlines follow answers NaN below the
+            # cutoff, which is what stops one and seeds none
+            weak = Plotting.GridField([0.0, 1.0], [0.0, 1.0],
+                                      [0.1 0.1; 3.0 3.0], zeros(2, 2), 1.0)
+            @test all(isnan, weak(Point2f(0.0, 0.5)))
+            @test weak(Point2f(1.0, 0.5)) ≈ Point2f(3.0, 0.0)
+            # and without one it answers as it always did
+            plain = Plotting.GridField([0.0, 1.0], [0.0, 1.0],
+                                       [0.1 0.1; 3.0 3.0], zeros(2, 2))
+            @test plain.minspeed == 0.0
+            @test plain(Point2f(0.0, 0.5)) ≈ Point2f(0.1, 0.0)
+            @test Plotting.EMPTY_GRID_FIELD.minspeed == 0.0
+
+            # the decimated field the arrows draw drops the weak samples
+            # but keeps their magnitudes, so the colorbar still spans the
+            # whole field and a value can be read off it
+            x = collect(1.0:4.0)
+            y = collect(1.0:3.0)
+            uu = [Float64(i) for i in 1:4, _ in 1:3]
+            vv = zeros(4, 3)
+            field = Plotting.decimate_vector_field(
+                x, y, uu, vv, (4, 3), nothing, false, 2.5)
+            @test all(isnan, field.u[1:2, :])
+            @test field.u[3:4, :] == uu[3:4, :]
+            @test field.magnitude == vec(hypot.(uu, vv))
+        end
+
+        @testset "Speed cutoff setting" begin
+            (fd, state, dataset) = init_vector_figure("quiver")
+            drawn(fd) = count(p -> all(isfinite, p),
+                              Plotting.primary(fd).directions[])
+
+            # off by default
+            @test fd.settings.minspeed[] === nothing
+            @test Plotting.layer_minspeed(fd, 1) == 0.0
+            full = drawn(fd)
+
+            # ... and applied without a rebuild, so the zoom stays put
+            axis = fd.ax[]
+            set_kwargs!(fd, "minspeed=6.0")
+            @test fd.settings.minspeed[] == 6.0
+            @test Plotting.layer_minspeed(fd, 1) == 6.0
+            @test drawn(fd) < full
+            @test fd.ax[] === axis
+            # the colors are the whole field's, cutoff or not
+            @test minimum(Plotting.primary(fd).color[]) < 6.0
+
+            # a cutoff above the whole frame hides the arrows outright,
+            # which is what "nothing to draw" looks like everywhere else
+            output = @capture_err set_kwargs!(fd, "minspeed=1e6")
+            @test isempty(output)
+            @test !Plotting.primary(fd).visible[]
+
+            # deleting it draws everything again
+            set_kwargs!(fd, "")
+            @test fd.settings.minspeed[] === nothing
+            @test drawn(fd) == full
+            @test Plotting.primary(fd).visible[]
+
+            # a negative cutoff is refused and changes nothing
+            @test_logs (:error,) match_mode = :any begin
+                Plotting.set_minspeed!(fd, -1.0)
+            end
+            @test fd.settings.minspeed[] === nothing
+            cleanup(dataset)
+
+            # the streamlines read it too, and no line runs through the
+            # region it blanks: the sampler answers NaN there, which ends
+            # an integration and seeds nothing
+            (fd, state, dataset) = init_vector_figure("streamplot")
+            sampler() = Plotting.primary(fd).f[]
+            @test sampler().minspeed == 0.0
+
+            output = @capture_err set_kwargs!(fd, "minspeed=6.0")
+            @test isempty(output)
+            @test sampler().minspeed == 6.0
+            let f = sampler(), pts = Plotting.primary(fd).line_points[]
+                blank(p) = all(isfinite, p) && !all(isfinite, f(p))
+                # a line may take the one step that carries it into the
+                # blank and stop there, but no drawn segment lies inside
+                @test !any(k -> blank(pts[k]) && blank(pts[k - 1]),
+                           2:length(pts))
+            end
+
+            # a cutoff above everything in the frame leaves nothing to
+            # draw, and the plot is hidden rather than colored all-NaN
+            output = @capture_err set_kwargs!(fd, "minspeed=1e6")
+            @test isempty(output)
+            @test !Plotting.primary(fd).visible[]
+
+            set_kwargs!(fd, "")
+            @test sampler().minspeed == 0.0
+            @test Plotting.primary(fd).visible[]
+            cleanup(dataset)
+        end
+
+        @testset "Speed cutoff without a vector plot" begin
+            # a scalar plot stores the value silently: a warning here
+            # would trip the kwargs path's revert-on-stderr machinery
+            (fd, state, dataset) = arrange_and_create_axis(
+                "2d_float", ["lon", "lat"], "heatmap")
+            output = @capture_err Plotting.set_minspeed!(fd, 2.0)
+            @test isempty(output)
+            @test fd.settings.minspeed[] == 2.0
+            cleanup(dataset)
+        end
+
+        @testset "Uniform vector color" begin
+            black = Makie.to_color(:black)
+
+            for name in VECTOR_TYPES
+                (fd, state, dataset) = init_vector_figure(name)
+                plot = Plotting.primary(fd)
+                @test plot.colormap[] == Constants.VECTOR_COLORMAP
+
+                # Makie types every node of its compute graph from the
+                # first value it sees, so switching a magnitude-colored
+                # plot to a flat color and back has to leave the types
+                # alone -- do it repeatedly, which is what breaks
+                for _ in 1:3
+                    output = @capture_err set_kwargs!(fd, "color=:black")
+                    @test isempty(output)
+                    @test plot.colormap[] == fill(black, 2)
+                    output = @capture_err set_kwargs!(fd, "")
+                    @test isempty(output)
+                    @test plot.colormap[] == Constants.VECTOR_COLORMAP
+                end
+
+                # an alpha comes through, and an explicit colormap is what
+                # deleting the color goes back to
+                set_kwargs!(fd, "colormap=:plasma, color=(:red, 0.6)")
+                @test plot.colormap[] == fill(Makie.to_color((:red, 0.6)), 2)
+                set_kwargs!(fd, "colormap=:plasma")
+                @test plot.colormap[] == :plasma
+
+                # what the bar is labelled is none of the color's business
+                @test fd.plot_data.labels.cbar[] == "|(u, v)| [m s-1]"
+                cleanup(dataset)
+            end
+
+            # the quiver keeps coloring its arrows by magnitude: the flat
+            # color is a colormap, the numbers stay numbers
+            (fd, state, dataset) = init_vector_figure("quiver")
+            set_kwargs!(fd, "color=:black")
+            @test Plotting.primary(fd).color[] isa AbstractVector{<:Real}
+            cleanup(dataset)
+
+            # and a streamplot's `color` stays the function of the field
+            # value it was -- that is the node whose type must not move
+            (fd, state, dataset) = init_vector_figure("streamplot")
+            before = Plotting.primary(fd).color[]
+            set_kwargs!(fd, "color=:black")
+            @test Plotting.primary(fd).color[] === before
+            @test before isa Function
+            cleanup(dataset)
+
+            # a value that is not a color at all is handed on untouched
+            @test Plotting.flat_colormap(:black) == fill(black, 2)
+            @test Plotting.flat_colormap("red") == fill(Makie.to_color("red"), 2)
+            @test Plotting.flat_colormap(1.5) === nothing
+            @test Plotting.flat_colormap([1.0, 2.0]) === nothing
+            @test Plotting.flat_colormap(:not_a_color) === nothing
+
+            # a whole colormap arrives under `color` on the revert path,
+            # where the store is keyed by what the user typed
+            @test Plotting.is_colormap(:viridis)
+            @test Plotting.is_colormap(fill(black, 2))
+            @test !Plotting.is_colormap(1.5)
+            @test !Plotting.is_colormap(:not_a_color)
+        end
+
+        @testset "A flat color outlives the frame it was set on" begin
+            # the obvious fix -- writing a vector of one repeated color
+            # into `color` -- would last exactly until the next frame
+            # recomputed the magnitudes underneath it. A colormap is not
+            # on that path, and neither is the cutoff.
+            # what one layer draws now, in a form two frames can differ in
+            drawn(fd, name) = name == "quiver" ?
+                copy(Plotting.primary(fd).directions[]) :
+                copy(Plotting.primary(fd).f[].u)
+
+            for name in VECTOR_TYPES
+                (fd, state, dataset) = init_vector_figure(name)
+                plot = Plotting.primary(fd)
+                flat = fill(Makie.to_color(:black), 2)
+                set_kwargs!(fd, "color=:black, minspeed=4.0")
+                @test plot.colormap[] == flat
+                before = drawn(fd, name)
+
+                output = @capture_err begin
+                    state.dim_obs[]["time"] = 2
+                    notify(state.dim_obs)
+                end
+                @test isempty(output)
+                # the frame really did change underneath the color
+                # (`isequal`: a blanked sample is NaN, and NaN != NaN
+                # would make this pass without any frame change at all)
+                @test !isequal(drawn(fd, name), before)
+                @test plot.colormap[] == flat
+                @test Plotting.layer_minspeed(fd, 1) == 4.0
+                name == "streamplot" && @test plot.f[].minspeed == 4.0
+                cleanup(dataset)
+            end
+        end
+
+        @testset "A line's color is untouched" begin
+            # only the vector types color themselves by a number; a line
+            # takes a color to begin with and must keep taking one
+            (fd, state, dataset) = arrange_and_create_axis(
+                "1d_float", ["lon"], "line")
+            output = @capture_err set_kwargs!(fd, "color=:black")
+            @test isempty(output)
+            @test Makie.to_color(Plotting.primary(fd).color[]) ==
+                  Makie.to_color(:black)
             cleanup(dataset)
         end
 
@@ -2941,6 +3275,44 @@ using CDFViewer.Plotting
             cleanup(dataset)
         end
 
+        @testset "Speed cutoff per layer" begin
+            (fd, state, dataset) = init_overlay_figure(over_type = "quiver",
+                                                       over = "u")
+            # unset, a layer follows the figure -- and 0 is "draw it all"
+            @test Plotting.layer_minspeed(fd, 2) == 0.0
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                :minspeed => 2.0, Symbol("over.minspeed") => 7.0))
+            @test fd.settings.minspeed[] == 2.0
+            @test Plotting.layer_minspeed(fd, 1) == 2.0
+            @test Plotting.layer_minspeed(fd, 2) == 7.0
+            # deleting the override falls back to the figure's own
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                :minspeed => 2.0))
+            @test Plotting.layer_minspeed(fd, 2) == 2.0
+            cleanup(dataset)
+        end
+
+        @testset "A flat color on one layer only" begin
+            # the case the flat color is for: arrows over another field,
+            # where the colors belong to the field and not to the arrows
+            (fd, state, dataset) = init_overlay_figure(over_type = "quiver",
+                                                       over = "u")
+            field = Plotting.primary(fd)
+            arrows = fd.layers[2].plot_obj[]
+            output = @capture_err Plotting.update_kwargs!(
+                fd, OrderedDict{Symbol, Any}(Symbol("over.color") => :black))
+            @test isempty(output)
+            @test arrows.colormap[] == fill(Makie.to_color(:black), 2)
+            # the field underneath keeps its own colors throughout
+            @test field.colormap[] == :balance
+            # ... and deleting it restores the vector colormap, not the
+            # base's
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}())
+            @test arrows.colormap[] == Constants.VECTOR_COLORMAP
+            @test field.colormap[] == :balance
+            cleanup(dataset)
+        end
+
         @testset "A bad per-layer density value is refused" begin
             # `over.arrows` and `over.every` used to reach `setproperty!`
             # and surface a bare InexactError; they say what their
@@ -2950,7 +3322,9 @@ using CDFViewer.Plotting
             settings = fd.layers[2].settings
             for (property, value) in [(:arrows, (6.5, 4)), (:arrows, (0, 4)),
                                       (:arrows, (1, 2, 3)), (:arrows, 5),
-                                      (:every, 2.5), (:every, 0)]
+                                      (:every, 2.5), (:every, 0),
+                                      (:minspeed, -1.0), (:minspeed, NaN),
+                                      (:minspeed, "fast")]
                 # word for word, source location included: one complaint,
                 # made in one place
                 layer = @capture_err Plotting.set_property_mapping(
@@ -2964,6 +3338,7 @@ using CDFViewer.Plotting
             end
             @test fd.settings.arrows[] == Constants.VECTOR_ARROWS
             @test fd.settings.every[] === nothing
+            @test fd.settings.minspeed[] === nothing
 
             # the wording is the figure-level setters' own
             normalize(text) = replace(text, r"\s+" => " ")

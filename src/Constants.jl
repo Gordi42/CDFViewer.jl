@@ -150,8 +150,36 @@ const VECTOR_COLORMAP = :viridis
 # Streamline seeding grid, and the integrator step as a fraction of the
 # domain. Makie's default stepsize (0.01) is in data units: on a lon/lat
 # grid every step would travel 5 degrees.
-const STREAMPLOT_GRIDSIZE = (40, 25)
+const STREAMPLOT_GRIDSIZE = (80, 50)
 const STREAMPLOT_STEPS = 200
+
+# How far one streamline runs in each direction, as a fraction of the
+# shorter side of the domain, and how much of the seeding grid gets
+# filled.
+#
+# These are what keep an animation from boiling. Makie seeds its
+# streamlines on the cells of the grid above, in a fixed quasirandom
+# order, and marks every cell a line passes through as taken: a seed
+# whose cell is already taken draws nothing, and a line that runs into a
+# taken cell stops there (`Makie/src/basic_recipes/streamplot.jl`: the
+# `mask[c]` test at the seed, the `!mask[idx]` break in the integration).
+# With Makie's own `maxsteps` (500) no line ever reaches the step cap --
+# they all end by colliding with an earlier line -- so which lines exist
+# is decided by the order the lines happen to be drawn in. One line
+# shifting by a cell then flips whole streamlines on and off.
+#
+# A cap short enough that a line ends geometrically instead breaks that
+# chain: it leaves fewer cells taken, so nearly every seed fires, and the
+# lines that do collide were short anyway. Measured on a drifting wind
+# field over eight frames, the seeds that survive into the next frame go
+# from 25% to 94%, and the drawn line pixels from 33% to 71%. The finer
+# seeding grid spreads the lines out more evenly and the halved density
+# keeps the picture as full as it was -- the same amount of line, in more
+# and shorter pieces -- and the shorter lines are the cheaper ones: one
+# frame of the field above costs 32 ms instead of 49.
+const STREAMPLOT_LENGTH = 0.10
+const STREAMPLOT_MAXSTEPS = round(Int, STREAMPLOT_LENGTH * STREAMPLOT_STEPS)
+const STREAMPLOT_DENSITY = 0.5
 
 # ============================================
 #  Available File Formats

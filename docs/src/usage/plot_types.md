@@ -104,16 +104,63 @@ plot_figure(session) # hide
 |:--------|:--------|:-------|
 | `arrows=(24, 16)` | `(24, 16)` | how many arrows to aim for along x and y |
 | `every=4` | (none) | draw every n-th grid point instead, exactly |
+| `minspeed=9` | (none) | leave everything slower than this undrawn |
 
 `streamplot` follows the field instead of sampling it, so `arrows` does not
-apply to it. How many lines are drawn is Makie's own `density`, the
-fraction of the seeding grid that gets filled (1 by default); `gridsize`,
-`stepsize`, `maxsteps` and `arrow_size` are available as usual.
+apply to it. Its lines are short on purpose: each one runs 10% of the
+shorter side of the domain in either direction from where it starts. A
+long line ends where it runs into a line drawn before it, so a small
+change in the data reshuffles which lines exist at all and an animation of
+them boils. A short line ends at its own length instead and stays put from
+frame to frame.
+
+How many are drawn is Makie's own `density`, the fraction of the seeding
+grid that gets filled. It defaults to `0.5`, so there is room to go both
+ways; `gridsize`, `stepsize`, `maxsteps` and `arrow_size` are available as
+usual, and `maxsteps=500` gives you the long lines back.
 
 ```@example pt
-run!(session, "del arrows", "p streamplot", "density=0.5") # hide
+run!(session, "del arrows", "p streamplot") # hide
 plot_figure(session) # hide
 ```
+
+### Leaving out the slow parts
+
+Streamlines drawn where the field barely moves are noise: they wander, and
+they change from frame to frame. `minspeed` leaves them out.
+
+```@example pt
+run!(session, "minspeed=9") # hide
+plot_figure(session) # hide
+```
+
+The value is a speed in the data's own units, and the colorbar is already
+showing you that range -- read a value off it and type it. It is
+deliberately not a fraction of the fastest wind in the frame: that would
+be recomputed on every frame, so the blank region itself would move as the
+data moves. An absolute cutoff holds still for a whole playback, the same
+way a pinned color range does.
+
+`minspeed` works on `quiver` as well, where it drops the arrows rather than
+the lines, and `del minspeed` draws everything again.
+
+### One color for the whole field
+
+The colors are the magnitude of the vector by default. `color=` paints the
+whole field in a single color instead, which is what you want when the
+arrows sit over another field and the colors belong to that one.
+
+```@example pt
+run!(session, "del minspeed", "p quiver", "color=:black, cbar=false") # hide
+plot_figure(session) # hide
+```
+
+The bar would otherwise go on showing a magnitude the arrows no longer
+carry, so the two go together: `color=:black, cbar=false`. Any color Makie
+accepts works, `(:black, 0.6)` included, and `del color` brings the
+magnitude colors back.
+
+### On a map
 
 On a map both types are drawn in longitude/latitude and projected
 afterwards, which needs two corrections you do not have to ask for. Arrows
@@ -123,7 +170,7 @@ would cross the ±180° seam is dropped rather than smeared across the map.
 A regional cut-out has no seam, so nothing is dropped there.
 
 ```@example pt
-run!(session, "del density", "p quiver", "proj=\"+proj=moll\"") # hide
+run!(session, "del color cbar", "proj=\"+proj=moll\"") # hide
 plot_figure(session) # hide
 ```
 
