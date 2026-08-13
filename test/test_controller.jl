@@ -1,5 +1,6 @@
 using Test
 using GLMakie
+using Makie
 using CDFViewer.Constants
 using CDFViewer.Data
 using CDFViewer.UI
@@ -631,6 +632,31 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert: should revert to original settings
             @test Plotting.primary(controller.fd).levels[] == 5
             @test Plotting.primary(controller.fd).colormap[] == :balance
+
+            # Cleanup
+            cleanup(controller)
+        end
+
+        @testset "Expression keyword" begin
+            # Arrange
+            controller, var_name, plot_type, dim_names = setup_controller(var="2d_float", plot="heatmap")
+            kwarg_text = controller.fd.ui.main_menu.plot_menu.plot_kw.stored_string
+
+            # Act: the reported line -- a module-qualified call next to a
+            # plain symbol
+            kwarg_text[] = "colorscale=Makie.Symlog10(1e-2), colormap=:viridis"
+
+            # wait until all tasks are finished
+            [wait(t) for t in controller.fd.tasks[]]
+
+            # Assert: both are set. The colormap is the tell: it used to be
+            # dragged down by the all-or-nothing revert when the colorscale
+            # arrived as a string
+            scale = Plotting.primary(controller.fd).colorscale[]
+            @test !(scale isa AbstractString)
+            @test scale isa Makie.ReversibleScale
+            @test scale.name === :Symlog10
+            @test Plotting.primary(controller.fd).colormap[] == :viridis
 
             # Cleanup
             cleanup(controller)
