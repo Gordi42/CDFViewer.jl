@@ -840,7 +840,9 @@ using CDFViewer.Plotting
                 empty!(fig)
                 (x, y, z, d) = create_dummy_data(plot.ndims)
                 ax = plot.make_axis(fd)
-                plotobj = plot.func(ax, x, y, z, d)
+                # a vector type draws two components, so it gets two
+                components = Tuple(d for _ in 1:plot.nfields)
+                plotobj = plot.func(fd, ax, x, y, z, components...)
 
                 # Assert
                 plot.type === Constants.NOT_SELECTED_LABEL && continue  # Skip the Info plot as it does nothing
@@ -1062,8 +1064,8 @@ using CDFViewer.Plotting
             @test plot_data.y[] == collect(Float64, 1:1)
             @test plot_data.z[] == collect(Float64, 1:1)
             for i in 1:3
-                @test plot_data.d[i] isa Observable
-                @test plot_data.d[i][] === nothing
+                @test plot_data.d[1][i] isa Observable
+                @test plot_data.d[1][i][] === nothing
             end
 
             # cleanup
@@ -1106,9 +1108,9 @@ using CDFViewer.Plotting
             # Assert
             @test plot_data.plot_type[] == Plotting.PLOT_TYPES["line"]
             @test plot_data.sel_dims[] == ["lon"]
-            @test plot_data.d[1][].size == (5,)
-            @test plot_data.d[2][] === nothing
-            @test plot_data.d[3][] === nothing
+            @test plot_data.d[1][1][].size == (5,)
+            @test plot_data.d[1][2][] === nothing
+            @test plot_data.d[1][3][] === nothing
 
             # cleanup
             cleanup(dataset)
@@ -1125,9 +1127,9 @@ using CDFViewer.Plotting
             # Assert
             @test plot_data.plot_type[] == Plotting.PLOT_TYPES["heatmap"]
             @test plot_data.sel_dims[] == ["lon", "lat"]
-            @test plot_data.d[1][] === nothing
-            @test plot_data.d[2][].size == (5, 7)
-            @test plot_data.d[3][] === nothing
+            @test plot_data.d[1][1][] === nothing
+            @test plot_data.d[1][2][].size == (5, 7)
+            @test plot_data.d[1][3][] === nothing
 
             # cleanup
             cleanup(dataset)
@@ -1145,9 +1147,9 @@ using CDFViewer.Plotting
             # Assert
             @test plot_data.plot_type[] == Plotting.PLOT_TYPES["volume"]
             @test plot_data.sel_dims[] == ["lon", "lat", "only_long"]
-            @test plot_data.d[1][] === nothing
-            @test plot_data.d[2][] === nothing
-            @test plot_data.d[3][].size == (5, 7, 4)
+            @test plot_data.d[1][1][] === nothing
+            @test plot_data.d[1][2][] === nothing
+            @test plot_data.d[1][3][].size == (5, 7, 4)
 
             # cleanup
             cleanup(dataset)
@@ -1166,7 +1168,7 @@ using CDFViewer.Plotting
 
             # Assert
             @test plot_data.sel_dims[] == ["only_unit", "lat"]
-            @test plot_data.d[2][].size == (3, 7)
+            @test plot_data.d[1][2][].size == (3, 7)
 
             # cleanup
             cleanup(dataset)
@@ -1183,21 +1185,21 @@ using CDFViewer.Plotting
             # Act: disable updates
             plot_data.update_data_switch[] = false
             x_ori = plot_data.x[]
-            d_ori = plot_data.d[1][]
+            d_ori = plot_data.d[1][1][]
             state.x_name[] = "lat"  # change x dimension
             state.variable[] = "2d_float"  # change variable
             state.plot_type_name[] = "line"  # change plot type
 
             # Assert: data should not have changed
             @test plot_data.x[] == x_ori
-            @test plot_data.d[1][] == d_ori
+            @test plot_data.d[1][1][] == d_ori
 
             # Act: enable updates
             plot_data.update_data_switch[] = true
 
             # Assert: data should now reflect the changes
             @test length(plot_data.x[]) == 7
-            @test plot_data.d[1][].size == (7,)
+            @test plot_data.d[1][1][].size == (7,)
 
             # cleanup
             cleanup(dataset)
@@ -1995,6 +1997,360 @@ using CDFViewer.Plotting
             @test Plotting.resolve_cbarlabel(true, "Temp") == "Temp"
             # anything else is literal
             @test Plotting.resolve_cbarlabel("Salinity", "Temp") == "Salinity"
+        end
+    end
+
+    # ============================================
+    #  Vector plots
+    # ============================================
+
+    @testset "Vector plots" begin
+        VECTOR_TYPES = ("quiver", "streamplot")
+
+        # arrows keep the range in Float64, a heatmap converts it to a
+        # Vec2f, so compare the numbers rather than their storage type
+        crange(fd) = Float64.(Tuple(fd.plot_obj[].colorrange[]))
+        approx(a, b) = all(isapprox.(a, b; rtol = 1e-6))
+
+        function init_vector_figure(plot_type::String = "quiver";
+                                    variable::String = "u",
+                                    partner::String = "v",
+                                    geographic::Bool = false)
+            dataset = make_vector_temp_dataset()
+            ui = UI.UIElements(dataset)
+            plot_data = Plotting.PlotData(ui.state, dataset)
+            fd = Plotting.FigureData(plot_data, ui)
+            state = ui.state
+            state.variable[] = variable
+            state.variable2[] = partner
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+            state.z_name[] = Constants.NOT_SELECTED_LABEL
+            fd.settings.geographic[] = geographic
+            state.plot_type_name[] = plot_type
+            Plotting.create_axis!(fd, state)
+            (fd, state, dataset)
+        end
+
+        @testset "Registry" begin
+            for name in VECTOR_TYPES
+                plot = Plotting.PLOT_TYPES[name]
+                @test plot.ndims == 2
+                @test plot.colorbar
+                @test plot.nfields == 2
+                @test plot.make_axis === Plotting.create_2d_axis
+                @test name ∈ Constants.GEOGRAPHIC_PLOT_TYPES
+                @test name ∈ Plotting.get_plot_options(2)
+                @test name ∉ Plotting.get_plot_options(1)
+            end
+            # every other type still draws a single component
+            for (name, plot) in Plotting.PLOT_TYPES
+                name ∈ VECTOR_TYPES && continue
+                @test plot.nfields == 1
+            end
+            # the 2D defaults are untouched
+            @test Plotting.get_dimension_plot(2) == "heatmap"
+            @test Plotting.get_fallback_plot(2) == "heatmap"
+        end
+
+        @testset "Decimation indices" begin
+            dec = Plotting.decimation_indices
+            # a target count, so the sample count follows the target and
+            # not the grid: both grids land on ~24 columns
+            @test length(dec(72, 24, nothing)) == 24
+            @test length(dec(360, 24, nothing)) == 24
+            @test length(dec(1000, 24, nothing)) == 24
+            # never more samples than grid points
+            @test dec(5, 24, nothing) == 1:1:5
+            @test dec(1, 24, nothing) == 1:1:1
+            # `every` picks exact grid points and overrides the target
+            @test dec(72, 24, 6) == 1:6:72
+            @test length(dec(72, 24, 6)) == 12
+            @test dec(72, 24, 1) == 1:1:72
+            # degenerate inputs stay empty rather than throwing
+            @test isempty(dec(0, 24, nothing))
+        end
+
+        @testset "Robust length scale" begin
+            q = Plotting.finite_quantile
+            @test q([1.0, 2.0, 3.0, 4.0], 1.0) == 4.0
+            @test q([1.0, 2.0, 3.0, 4.0], 0.5) == 2.0
+            @test q(Float64[], 0.98) == 0.0
+            @test q([1.0, NaN, 2.0, Inf], 1.0) == 2.0
+
+            # one outlier must not shrink the field: the scale comes from
+            # the 98th percentile, not the maximum
+            x = collect(0.0:1.0:99.0)
+            y = collect(0.0:1.0:9.0)
+            u = ones(100, 10)
+            u[50, 5] = 1000.0
+            field = Plotting.decimate_vector_field(
+                x, y, u, zeros(100, 10), (100, 10), nothing, false)
+            @test field.lengthscale ≈ 0.9 * 1.0 / 1.0
+            @test maximum(field.magnitude) == 1000.0
+        end
+
+        @testset "Decimated field" begin
+            x = collect(1.0:12.0)
+            y = collect(1.0:8.0)
+            u = [Float64(i) for i in 1:12, j in 1:8]
+            v = [Float64(j) for i in 1:12, j in 1:8]
+
+            field = Plotting.decimate_vector_field(
+                x, y, u, v, (4, 4), nothing, false)
+            @test length(field.x) == 4
+            @test length(field.y) == 4
+            @test size(field.u) == (4, 4)
+            # the magnitudes line up element for element with vec(u)
+            @test field.magnitude == vec(hypot.(field.u, field.v))
+            @test length(field.magnitude) == 16
+
+            # `every` overrides the target
+            field = Plotting.decimate_vector_field(
+                x, y, u, v, (4, 4), 2, false)
+            @test field.x == x[1:2:12]
+            @test field.y == y[1:2:8]
+
+            # the guard: x, y and the data arrive in separate notifications
+            @test Plotting.decimate_vector_field(
+                x, y, nothing, v, (4, 4), nothing, false) ===
+                Plotting.EMPTY_VECTOR_FIELD
+            @test Plotting.decimate_vector_field(
+                x, collect(1.0:9.0), u, v, (4, 4), nothing, false) ===
+                Plotting.EMPTY_VECTOR_FIELD
+            @test Plotting.decimate_vector_field(
+                [1.0], [1.0], ones(1, 1), ones(1, 1), (4, 4), nothing, false) ===
+                Plotting.EMPTY_VECTOR_FIELD
+        end
+
+        @testset "Geographic corrections" begin
+            lon = collect(-180.0:30.0:150.0)
+            lat = [0.0, 60.0]
+            u = ones(length(lon), 2)
+            v = zeros(length(lon), 2)
+
+            # a plain axis draws the components as they are
+            plain = Plotting.decimate_vector_field(
+                lon, lat, u, v, (100, 100), nothing, false)
+            @test all(plain.u .== 1.0)
+
+            # on a map the zonal component is spread over the longitude
+            # degrees it actually covers
+            geo = Plotting.decimate_vector_field(
+                lon, lat, u, v, (100, 100), nothing, true)
+            @test geo.u[1, 1] ≈ 1.0                  # equator: no change
+            @test geo.u[1, 2] ≈ 1.0 / cosd(60.0)     # 60 N: stretched
+            # ... but the colors stay the physical magnitudes
+            @test all(geo.magnitude .== 1.0)
+
+            # the floor keeps the pole finite
+            polar = Plotting.decimate_vector_field(
+                lon, [0.0, 89.999], u, v, (100, 100), nothing, true)
+            @test polar.u[1, 2] ≈ 1.0 / Constants.COS_LATITUDE_FLOOR
+        end
+
+        @testset "Dateline mask" begin
+            mask! = Plotting.mask_outside_domain!
+            # an arrow whose tip stays inside is kept
+            u = fill(1.0, 1, 1)
+            v = zeros(1, 1)
+            mask!([0.0], [0.0], u, v, 1.0, (-180.0, 180.0), (-90.0, 90.0))
+            @test u[1, 1] == 1.0
+
+            # one whose tip crosses the seam is dropped: projected, it
+            # would be thrown onto the opposite map edge
+            u = fill(20.0, 1, 1)
+            v = zeros(1, 1)
+            mask!([170.0], [0.0], u, v, 1.0, (-180.0, 180.0), (-90.0, 90.0))
+            @test isnan(u[1, 1]) && isnan(v[1, 1])
+
+            # the same past the poles
+            u = zeros(1, 1)
+            v = fill(20.0, 1, 1)
+            mask!([0.0], [80.0], u, v, 1.0, (-180.0, 180.0), (-90.0, 90.0))
+            @test isnan(u[1, 1]) && isnan(v[1, 1])
+
+            # the domain comes from the data, so a 0..360 grid wraps at 360
+            u = fill(20.0, 1, 1)
+            v = zeros(1, 1)
+            mask!([350.0], [0.0], u, v, 1.0, (0.0, 360.0), (-90.0, 90.0))
+            @test isnan(u[1, 1])
+
+            # and the whole geographic path applies it: a steady eastward
+            # wind reaches past the eastern edge only from the last column
+            lon = collect(-180.0:30.0:150.0)
+            field = Plotting.decimate_vector_field(
+                lon, [0.0, 10.0], ones(length(lon), 2), zeros(length(lon), 2),
+                (100, 100), nothing, true)
+            @test all(isnan, field.u[end, :])
+            @test all(isfinite, field.u[1:(end - 1), :])
+            # the colors are computed before the mask, so they survive
+            @test all(isfinite, field.magnitude)
+        end
+
+        @testset "Partner data" begin
+            dataset = make_vector_temp_dataset()
+            ui = UI.UIElements(dataset)
+            state = ui.state
+            plot_data = Plotting.PlotData(state, dataset)
+            state.variable[] = "u"
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+
+            # a scalar type never reads a second component
+            state.plot_type_name[] = "heatmap"
+            state.variable2[] = "v"
+            @test plot_data.d[1][2][] !== nothing
+            @test plot_data.d[2][2][] === nothing
+
+            # a vector type does
+            state.plot_type_name[] = "quiver"
+            @test size(plot_data.d[2][2][]) == size(plot_data.d[1][2][])
+            @test plot_data.d[2][2][] == dataset.ds["v"][:, :, 1]
+
+            # a partner over the wrong dimensions yields nothing
+            state.variable2[] = "vmix"
+            @test plot_data.d[2][2][] === nothing
+
+            # and so does no partner at all
+            state.variable2[] = Constants.NOT_SELECTED_LABEL
+            @test plot_data.d[2][2][] === nothing
+
+            cleanup(dataset)
+        end
+
+        @testset "Plot objects" begin
+            (fd, state, dataset) = init_vector_figure("quiver")
+            @test fd.ax[] isa Axis
+            @test fd.plot_obj[] isa Makie.Arrows2D
+            @test fd.cbar[] isa Colorbar
+            # 12x8 grid thinned to the default (24, 16) target: nothing
+            # to thin, so every grid point is drawn
+            @test length(fd.plot_obj[].points[]) == 12 * 8
+            cleanup(dataset)
+
+            (fd, state, dataset) = init_vector_figure("streamplot")
+            @test fd.plot_obj[] isa Makie.StreamPlot
+            @test fd.cbar[] isa Colorbar
+            # the step is derived from the domain, not Makie's 0.01
+            @test fd.plot_obj[].stepsize[] ≈ 140.0 / Constants.STREAMPLOT_STEPS
+            cleanup(dataset)
+
+            # both types survive a geographic axis
+            for name in VECTOR_TYPES
+                (fd, state, dataset) = init_vector_figure(
+                    name, geographic = true)
+                @test fd.ax[] isa GeoAxis
+                @test fd.plot_obj[] !== nothing
+                cleanup(dataset)
+            end
+        end
+
+        @testset "Density settings" begin
+            (fd, state, dataset) = init_vector_figure("quiver")
+            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
+
+            @test fd.settings.arrows[] == Constants.VECTOR_ARROWS
+            @test fd.settings.every[] === nothing
+
+            # a target count thins the grid without rebuilding the axis
+            axis = fd.ax[]
+            kwarg_text[] = "arrows=(6, 4)"
+            @test fd.settings.arrows[] == (6, 4)
+            @test length(fd.plot_obj[].points[]) == 6 * 4
+            @test fd.ax[] === axis
+
+            # `every` picks exact grid points
+            kwarg_text[] = "every=3"
+            @test fd.settings.every[] == 3
+            @test length(fd.plot_obj[].points[]) == 4 * 3
+
+            # and deleting both restores the defaults
+            kwarg_text[] = ""
+            @test fd.settings.arrows[] == Constants.VECTOR_ARROWS
+            @test fd.settings.every[] === nothing
+            @test length(fd.plot_obj[].points[]) == 12 * 8
+
+            # bad values are rejected and change nothing
+            @test_logs (:error,) match_mode = :any begin
+                Plotting.set_arrows!(fd, (0, 4))
+            end
+            @test fd.settings.arrows[] == Constants.VECTOR_ARROWS
+            @test_logs (:error,) match_mode = :any begin
+                Plotting.set_every!(fd, 0)
+            end
+            @test fd.settings.every[] === nothing
+            cleanup(dataset)
+        end
+
+        @testset "Density settings without arrows" begin
+            # a scalar plot stores the value silently: a warning here
+            # would trip the kwargs path's revert-on-stderr machinery
+            (fd, state, dataset) = arrange_and_create_axis(
+                "2d_float", ["lon", "lat"], "heatmap")
+            output = @capture_err begin
+                Plotting.set_arrows!(fd, (10, 8))
+                Plotting.set_every!(fd, 2)
+            end
+            @test isempty(output)
+            @test fd.settings.arrows[] == (10, 8)
+            @test fd.settings.every[] == 2
+            cleanup(dataset)
+        end
+
+        @testset "Magnitude color range" begin
+            wait_scan(fd) = let t = fd.crange_scan.task
+                t === nothing || wait(t)
+            end
+            (fd, state, dataset) = init_vector_figure("quiver")
+            fd.ui.main_menu.playback_menu.var.selection[] = "time"
+            wait_scan(fd)
+
+            # the key names both components, so the scan reads both
+            key = Plotting.colorrange_key(fd, :cycle)
+            @test key[1] == ("u", "v")
+
+            expected = vector_magnitude_range(dataset)
+            @test approx(crange(fd), expected)
+
+            # the signed u range is emphatically not what got pinned
+            urange = extrema(dataset.ds["u"][:, :, :])
+            @test urange[1] < 0 < expected[1]
+            @test !approx(crange(fd), urange)
+
+            # and it holds still across the playback cycle
+            for idx in 1:length(VECTOR_TIME)
+                fd.ui.main_menu.coord_sliders.sliders["time"].value[] = idx
+                wait_scan(fd)
+                @test approx(crange(fd), expected)
+            end
+
+            # every drawn magnitude fits inside the pin
+            drawn = fd.plot_obj[].color[]
+            @test minimum(drawn) >= expected[1] - 1e-9
+            @test maximum(drawn) <= expected[2] + 1e-9
+
+            # arrows carry no levels, so the contour pin stays inert
+            @test !Plotting.is_contour_type(fd)
+            @test :levels ∉ propertynames(fd.plot_obj[])
+            @test fd.crange_scan.base_levels === nothing
+            cleanup(dataset)
+        end
+
+        @testset "Single-variable types are unaffected" begin
+            wait_scan(fd) = let t = fd.crange_scan.task
+                t === nothing || wait(t)
+            end
+            # the same dataset drawn as a heatmap still pins the signed
+            # range of the one variable it shows
+            (fd, state, dataset) = init_vector_figure("heatmap")
+            fd.ui.main_menu.playback_menu.var.selection[] = "time"
+            wait_scan(fd)
+            key = Plotting.colorrange_key(fd, :cycle)
+            @test key[1] == ("u",)
+            urange = extrema(dataset.ds["u"][:, :, :])
+            @test approx(crange(fd), urange)
+            cleanup(dataset)
         end
     end
 

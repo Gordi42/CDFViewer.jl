@@ -273,6 +273,45 @@ function get_var_dims(dataset::CDFDataset, var::String)::Vector{String}
     return sort_coordinates(dataset.ds, dataset.var_coords[var])
 end
 
+"""
+    is_vector_partner(dataset, variable, partner)
+
+Whether `partner` can serve as the second component of `variable`: it has
+to exist and span exactly the same dimensions, since both components are
+sliced with one and the same indexing.
+"""
+function is_vector_partner(dataset::CDFDataset, variable::String,
+                           partner::String)::Bool
+    haskey(dataset.var_coords, variable) || return false
+    haskey(dataset.var_coords, partner) || return false
+    partner == variable && return false
+    get_var_dims(dataset, partner) == get_var_dims(dataset, variable)
+end
+
+"""
+    guess_vector_partner(dataset, variable)
+
+The meridional partner of a zonal component, guessed from its name: a
+leading `u` becomes `v` and a leading `U` becomes `V`, so `u` finds `v`,
+`uas` finds `vas`, `ua` finds `va` and `U10` finds `V10`. The guess only
+counts when the dataset really holds that variable over the same
+dimensions; otherwise there is no partner.
+"""
+function guess_vector_partner(dataset::CDFDataset,
+                              variable::String)::Union{Nothing, String}
+    isempty(variable) && return nothing
+    head = variable[1]
+    head in ('u', 'U') || return nothing
+    guess = (head == 'u' ? "v" : "V") * variable[nextind(variable, 1):end]
+    is_vector_partner(dataset, variable, guess) ? guess : nothing
+end
+
+"Every variable that could partner `variable` as a second component."
+function vector_partner_options(dataset::CDFDataset,
+                                variable::String)::Vector{String}
+    [v for v in dataset.variables if is_vector_partner(dataset, variable, v)]
+end
+
 function get_label(dataset::CDFDataset, var::String;
                    target_unit::Union{Nothing, String} = nothing)::String
     # some dimensions may not be stored as variables in the dataset

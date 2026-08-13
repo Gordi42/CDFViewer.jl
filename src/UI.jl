@@ -230,6 +230,9 @@ end
 
 struct MainMenu
     variable_menu::Menu
+    # second component of a vector plot; shares the variable row and only
+    # shows while a plot type that draws two components is selected
+    variable2_menu::Menu
     plot_menu::PlotMenu
     playback_menu::PlaybackMenu
     coord_menu::CoordinateMenu
@@ -240,18 +243,39 @@ end
 
 function MainMenu(fig::Figure, dataset::Data.CDFDataset)::MainMenu
     variable_menu = Menu(fig, options = dataset.variables)
+    variable2_menu = Menu(
+        fig, options = [Constants.NOT_SELECTED_LABEL; dataset.variables])
     plot_menu = PlotMenu(fig)
     coord_sliders = CoordinateSliders(fig, dataset)
     playback_menu = PlaybackMenu(fig, dataset, coord_sliders.sliders)
     coord_menu = CoordinateMenu(fig)
     export_menu = ExportMenu(fig)
-    MainMenu(variable_menu, plot_menu, playback_menu, coord_menu, coord_sliders, export_menu, fig)
+    MainMenu(variable_menu, variable2_menu, plot_menu, playback_menu,
+             coord_menu, coord_sliders, export_menu, fig)
+end
+
+"""
+    show_variable2!(main_menu, show)
+
+Show or hide the second variable dropdown. A Menu has no `visible`
+attribute, so the block's own scene is hidden and its width collapsed --
+which lets the first dropdown take the whole row back, exactly as if the
+second one were never there. Showing restores `nothing`, the width a Menu
+is built with, so the two dropdowns end up sharing the row evenly (an
+`Auto()` here leaves the second one a stub).
+"""
+function show_variable2!(main_menu::MainMenu, show::Bool)::Nothing
+    menu = main_menu.variable2_menu
+    menu.blockscene.visible[] = show
+    menu.width[] = show ? nothing : 0
+    nothing
 end
 
 function layout(main_menu::MainMenu)::GridLayout
     vgrid!(
         Label(main_menu.fig, rich("CDF Viewer", font = :bold), halign = :center, fontsize=30, tellwidth=false),
-        hgrid!(Label(main_menu.fig, rich("Variable", font = :bold), width = nothing), main_menu.variable_menu),
+        hgrid!(Label(main_menu.fig, rich("Variable", font = :bold), width = nothing),
+               main_menu.variable_menu, main_menu.variable2_menu),
         layout(main_menu.plot_menu),
         layout(main_menu.coord_menu),
         layout(main_menu.playback_menu),
@@ -267,6 +291,9 @@ end
 
 struct State
     variable::Observable{String}
+    # second component of a vector plot, mirrored off its dropdown;
+    # NOT_SELECTED_LABEL when none is picked
+    variable2::Observable{String}
     plot_type_name::Observable{String}
     x_name::Observable{String}
     y_name::Observable{String}
@@ -311,8 +338,17 @@ function State(main_menu::MainMenu)::State
         pdim[] = as_dim(v)
     end
 
+    # Mirror the second variable dropdown. Unlike the first variable, this
+    # one follows its menu directly: nothing else has to reconcile before
+    # the partner component may be read.
+    variable2 = Observable(as_dim(main_menu.variable2_menu.selection[]))
+    on(main_menu.variable2_menu.selection) do v
+        variable2[] = as_dim(v)
+    end
+
     State(
         Observable(main_menu.variable_menu.selection[]),
+        variable2,
         Observable(main_menu.plot_menu.plot_type.selection[]),
         Observable(main_menu.coord_menu.menus[1].selection[]),
         Observable(main_menu.coord_menu.menus[2].selection[]),
@@ -354,8 +390,10 @@ function UIElements(dataset::Data.CDFDataset)::UIElements
     state.range_control[] = dataset.interp.rc
     # Put the menus in the figure
     menu[1, 1] = layout(main_menu)
-    # Resize the window to fit the content
+    # Resize the window to fit the content, then fold the second variable
+    # dropdown away until a plot type asks for it
     resize_to_layout!(menu)
+    show_variable2!(main_menu, false)
     # Return the UI elements
     UIElements(main_menu, state, menu)
 end
@@ -426,6 +464,11 @@ end
 
 function select_variable!(ui::UIElements, var_name::String)::Nothing
     var_menu = ui.main_menu.variable_menu
+    select_menu_option!(var_menu, var_name)
+end
+
+function select_variable2!(ui::UIElements, var_name::String)::Nothing
+    var_menu = ui.main_menu.variable2_menu
     select_menu_option!(var_menu, var_name)
 end
 

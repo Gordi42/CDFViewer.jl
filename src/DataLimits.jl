@@ -42,42 +42,74 @@ function scan_indexing(
 end
 
 """
-    hyperslab_elements(dataset, variable, indexing)
+    hyperslab_elements(dataset, variables, indexing)
 
-Number of values the hyperslab covers -- known before reading a single
-byte, so callers can decide whether a scan is affordable.
+Number of values the scan reads -- known before reading a single byte, so
+callers can decide whether a scan is affordable. Every variable
+contributes one hyperslab, so a two-component vector plot reads twice as
+much as a scalar one.
 """
 function hyperslab_elements(
     dataset::Data.CDFDataset,
-    variable::String,
+    variables::Vector{String},
     indexing::Vector{Union{Colon, Int}},
 )::Int
-    sz = size(dataset.ds[variable])
+    isempty(variables) && return 0
+    sz = size(dataset.ds[variables[1]])
     length(sz) == length(indexing) || return 0
     n = 1
     for i in eachindex(indexing)
         indexing[i] isa Colon && (n *= sz[i])
     end
-    n
+    n * length(variables)
+end
+
+hyperslab_elements(dataset::Data.CDFDataset, variable::String,
+                   indexing::Vector{Union{Colon, Int}})::Int =
+    hyperslab_elements(dataset, [variable], indexing)
+
+"""
+    scan_value(components...)
+
+Reduce one element's components to the scalar the scan tracks: a lone
+value counts as itself, several count as their Euclidean magnitude --
+what a vector plot colors its arrows by.
+"""
+scan_value(value::Float64)::Float64 = value
+scan_value(u::Float64, v::Float64)::Float64 = hypot(u, v)
+scan_value(values::Float64...)::Float64 = sqrt(sum(abs2, values))
+
+"Apply the combiner without splatting a runtime-length vector."
+function apply_combine(combine::Function, buffer::Vector{Float64})::Float64
+    length(buffer) == 1 && return combine(buffer[1])
+    length(buffer) == 2 && return combine(buffer[1], buffer[2])
+    combine(buffer...)
 end
 
 """
-    hyperslab_extrema(dataset, variable, indexing; abort)
+    hyperslab_extrema(dataset, variables, indexing; combine, abort)
 
 Minimum and maximum of the hyperslab, skipping missing and non-finite
 values; nothing when no finite value exists or the scan was aborted.
-The read is chunked along the hyperslab's last whole dimension, and
-`abort` is polled between chunks.
+Several variables are read in lockstep -- the same hyperslab out of each
+-- and every element is reduced to one number by `combine` before it
+enters the range, so a vector plot pins |V| instead of one signed
+component. The read is chunked along the hyperslab's last whole
+dimension, and `abort` is polled between chunks.
 """
 function hyperslab_extrema(
     dataset::Data.CDFDataset,
-    variable::String,
+    variables::Vector{String},
     indexing::Vector{Union{Colon, Int}};
+    combine::Function = scan_value,
     abort::Function = () -> false,
 )::Union{Nothing, NTuple{2, Float64}}
-    var = dataset.ds[variable]
-    sz = size(var)
+    isempty(variables) && return nothing
+    vars = [dataset.ds[name] for name in variables]
+    sz = size(vars[1])
     length(sz) == length(indexing) || return nothing
+    # components are sliced with one indexing, so they must share a shape
+    all(v -> size(v) == sz, vars) || return nothing
     cpos = findlast(i -> i isa Colon, indexing)
     if cpos === nothing
         ranges = UnitRange{Int}[1:1]  # fully fixed: a single value
@@ -86,22 +118,36 @@ function hyperslab_extrema(
         for i in eachindex(indexing)
             i != cpos && indexing[i] isa Colon && (elements_per_step *= sz[i])
         end
-        step = clamp(CHUNK_ELEMENTS ÷ elements_per_step, 1, sz[cpos])
+        # the chunk budget covers all components together
+        step = clamp(CHUNK_ELEMENTS ÷ (elements_per_step * length(vars)),
+                     1, sz[cpos])
         ranges = [start:min(start + step - 1, sz[cpos])
                   for start in 1:step:sz[cpos]]
     end
     lo, hi = Inf, -Inf
+    buffer = Vector{Float64}(undef, length(vars))
     for r in ranges
         abort() && return nothing
         idx = cpos === nothing ? collect(Any, indexing) :
             Any[i == cpos ? r : indexing[i] for i in eachindex(indexing)]
-        chunk = var[idx...]
-        chunk isa AbstractArray || (chunk = [chunk])
-        for v in chunk
-            v === missing && continue
-            v isa Number || continue
-            isfinite(v) || continue
-            x = Float64(v)
+        chunks = map(var -> begin
+            chunk = var[idx...]
+            chunk isa AbstractArray ? chunk : [chunk]
+        end, vars)
+        all(c -> length(c) == length(chunks[1]), chunks) || return nothing
+        for k in eachindex(chunks[1])
+            usable = true
+            for (n, chunk) in enumerate(chunks)
+                v = chunk[k]
+                if v === missing || !(v isa Number) || !isfinite(v)
+                    usable = false
+                    break
+                end
+                buffer[n] = Float64(v)
+            end
+            usable || continue
+            x = apply_combine(combine, buffer)
+            isfinite(x) || continue
             x < lo && (lo = x)
             x > hi && (hi = x)
         end
@@ -109,5 +155,12 @@ function hyperslab_extrema(
     end
     lo > hi ? nothing : (lo, hi)
 end
+
+hyperslab_extrema(dataset::Data.CDFDataset, variable::String,
+                  indexing::Vector{Union{Colon, Int}};
+                  combine::Function = scan_value,
+                  abort::Function = () -> false) =
+    hyperslab_extrema(dataset, [variable], indexing;
+                      combine = combine, abort = abort)
 
 end

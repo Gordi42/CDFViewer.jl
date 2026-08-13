@@ -37,6 +37,16 @@ function create_demo_file(dir::String)::String
         for lo in lon, la in lat
     ]
 
+    # Wind as a pair of components: a zonal jet with drifting eddies
+    u = [
+        18.0 * cosd(la) - 10.0 * sind(2 * (lo + 15.0 * t)) * cosd(2 * la)
+        for lo in lon, la in lat, t in time
+    ]
+    v = [
+        9.0 * cosd(lo + 15.0 * t) * cosd(la)^2
+        for lo in lon, la in lat, t in time
+    ]
+
     NCDataset(file, "c", attrib = Dict{String, Any}(
         "title" => "CDFViewer documentation demo dataset")) do ds
         defVar(ds, "lon", lon, ("lon",), attrib = Dict(
@@ -54,6 +64,10 @@ function create_demo_file(dir::String)::String
             attrib = Dict("units" => "%", "long_name" => "Relative humidity"))
         defVar(ds, "pressure", pressure, ("lon", "lat"),
             attrib = Dict("units" => "hPa", "long_name" => "Surface pressure"))
+        defVar(ds, "u", u, ("lon", "lat", "time"),
+            attrib = Dict("units" => "m s-1", "long_name" => "Eastward wind"))
+        defVar(ds, "v", v, ("lon", "lat", "time"),
+            attrib = Dict("units" => "m s-1", "long_name" => "Northward wind"))
     end
     file
 end

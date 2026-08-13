@@ -103,8 +103,43 @@ const PLOT_DEFAULT_1D = "line"
 const PLOT_DEFAULT_2D = "heatmap"
 const PLOT_DEFAULT_3D = "volume"
 
-const GEOGRAPHIC_PLOT_TYPES = ["heatmap", "contour", "contourf"]
+const GEOGRAPHIC_PLOT_TYPES = ["heatmap", "contour", "contourf", "quiver",
+                               "streamplot"]
 const GEOGRAPHIC_DATA_SCALES = [10, 50, 110]  # available map scales in meters
+
+# ============================================
+#  VECTOR PLOTS
+# ============================================
+# `quiver` and `streamplot` draw two variables at once (the zonal and the
+# meridional component). How many components a plot type takes is its
+# `nfields`; this is the largest one any type asks for.
+const MAX_PLOT_COMPONENTS = 2
+
+# Default number of arrows along each axis. A target count, not a stride:
+# Ctrl-I rewrites the grid to the axis' pixel resolution, so a stride would
+# multiply the arrow count with the window size while a target count holds.
+const VECTOR_ARROWS = (24, 16)
+
+# Fraction of a grid cell the strongest drawn arrow spans, and the quantile
+# of |V| it is normalised to. The maximum would let one outlier gust shrink
+# the whole field into invisibility.
+const VECTOR_ARROW_FILL = 0.9
+const VECTOR_SCALE_QUANTILE = 0.98
+
+# Floor under cos(latitude) in the geographic arrow-length correction, so
+# arrows next to the poles stay finite.
+const COS_LATITUDE_FLOOR = 0.2
+
+# A magnitude is non-negative, so vector plots default to a sequential
+# colormap instead of the app-wide diverging one, which washes out the
+# middle of the range.
+const VECTOR_COLORMAP = :viridis
+
+# Streamline seeding grid, and the integrator step as a fraction of the
+# domain. Makie's default stepsize (0.01) is in data units: on a lon/lat
+# grid every step would travel 5 degrees.
+const STREAMPLOT_GRIDSIZE = (40, 25)
+const STREAMPLOT_STEPS = 200
 
 # ============================================
 #  Available File Formats

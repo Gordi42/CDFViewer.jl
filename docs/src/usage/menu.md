@@ -30,7 +30,9 @@ nothing # hide
 From top to bottom, the menu offers these controls.
 
 - **Variable** selects the data variable to plot, with one entry per
-  variable in the dataset (the `v` command).
+  variable in the dataset (the `v` command). A second dropdown appears
+  beside it while a vector plot type is selected, for the partner
+  component (see [Plot Types](plot_types.md#Quiver-and-streamplot-(vector-fields))).
 - **Plot Settings** selects the plot type (`p`). The list is filtered to
   the types that match the number of selected axes. The text box below
   takes plot keyword arguments, exactly like typing them at the prompt

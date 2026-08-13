@@ -38,6 +38,24 @@ repl(session, "x lon", "y lat") # hide
 Selecting a new variable keeps the axis assignments when they are compatible
 with the new variable's dimensions.
 
+## Two variables at once
+
+The vector plot types (`quiver` and `streamplot`) draw two components of
+one field, so `v` also takes a pair, comma-separated and without a space.
+
+```@example sel
+repl(session, "v u,v", "p quiver") # hide
+```
+
+The second name is the partner component. It has to span the same
+dimensions as the first, and leaving it out lets CDFViewer guess it from
+the name (see [Plot Types](plot_types.md#Quiver-and-streamplot-(vector-fields))).
+Every other plot type ignores the second variable.
+
+```@example sel
+repl(session, "p heatmap", "v temperature") # hide
+```
+
 ## Fixing the remaining dimensions
 
 Dimensions that are not on an axis are fixed at one index, which you move

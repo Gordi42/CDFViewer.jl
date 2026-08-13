@@ -1,9 +1,9 @@
 # Plot Types
 
-CDFViewer ships nine plot types, selected with the `p` command or the *Plot
-Settings* menu. Which types are offered depends on how many plot axes are
-assigned. A line plot needs one axis, a heatmap two, and volume rendering
-three. The `plots` command lists all types.
+CDFViewer ships eleven plot types, selected with the `p` command or the
+*Plot Settings* menu. Which types are offered depends on how many plot axes
+are assigned. A line plot needs one axis, a heatmap two, and volume
+rendering three. The `plots` command lists all types.
 
 ```@example pt
 using Main.DocHelpers # hide
@@ -18,13 +18,16 @@ repl(session, "plots") # hide
 | `heatmap` | 2 | yes | colored image of the field |
 | `contour` | 2 | no | contour lines |
 | `contourf` | 2 | yes | filled contours |
+| `quiver` | 2 | yes | arrows of a two-component field |
+| `streamplot` | 2 | yes | streamlines of a two-component field |
 | `surface` | 2 | yes | 3D surface, height = value |
 | `wireframe` | 2 | no | 3D surface as a wire mesh |
 | `volume` | 3 | yes | volume rendering |
 | `contour3d` | 3 | yes | 3D isosurfaces |
 
-`heatmap`, `contour`, and `contourf` can also be drawn on geographic map
-projections (see [Customizing Plots](customization.md)).
+`heatmap`, `contour`, `contourf`, `quiver`, and `streamplot` can also be
+drawn on geographic map projections (see
+[Customizing Plots](customization.md)).
 
 ## Line and scatter (1D)
 
@@ -61,6 +64,64 @@ plot_figure(session) # hide
 ```@example pt
 run!(session, "p contourf") # hide
 plot_figure(session) # hide
+```
+
+## Quiver and streamplot (vector fields)
+
+Wind and current are stored as two variables, one component each. `quiver`
+and `streamplot` draw both at once, so they need two variables instead of
+one. Name them in a single comma-separated token.
+
+```@example pt
+run!(session, "v u,v", "x lon", "y lat", "p quiver") # hide
+plot_figure(session) # hide
+```
+
+Selecting one of these types with only one variable set looks for the
+partner by name: `u` finds `v`, `uas` finds `vas`, `U10` finds `V10`. The
+guess counts only when the dataset really holds that variable over the same
+dimensions, so `p quiver` after `v u` usually needs no second name at all.
+The colors are the magnitude of the vector, which is why both types carry a
+colorbar and why they use a sequential colormap rather than the diverging
+default.
+
+How many arrows are drawn is a target count per axis, not a grid stride, so
+it stays put when the grid underneath changes.
+
+```@example pt
+run!(session, "arrows=(40, 24)") # hide
+plot_figure(session) # hide
+```
+
+| Keyword | Default | Effect |
+|:--------|:--------|:-------|
+| `arrows=(24, 16)` | `(24, 16)` | how many arrows to aim for along x and y |
+| `every=4` | (none) | draw every n-th grid point instead, exactly |
+
+`streamplot` follows the field instead of sampling it, so `arrows` does not
+apply to it. How many lines are drawn is Makie's own `density`, the
+fraction of the seeding grid that gets filled (1 by default); `gridsize`,
+`stepsize`, `maxsteps` and `arrow_size` are available as usual.
+
+```@example pt
+run!(session, "del arrows", "p streamplot", "density=0.5") # hide
+plot_figure(session) # hide
+```
+
+On a map both types are drawn in longitude/latitude and projected
+afterwards, which needs two corrections you do not have to ask for. Arrows
+are stretched by `1/cos(latitude)` so a steady eastward wind keeps its
+drawn length toward the poles, and an arrow whose tip would cross the
+±180° seam is dropped rather than smeared across the map.
+
+```@example pt
+run!(session, "del density", "p quiver", "proj=\"+proj=moll\"") # hide
+plot_figure(session) # hide
+```
+
+```@example pt
+run!(session, "del proj", "p heatmap", "v temperature") # hide
+nothing # hide
 ```
 
 ## Surface and wireframe (2D data in 3D)

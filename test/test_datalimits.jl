@@ -52,6 +52,56 @@ using CDFViewer.DataLimits
         close(ds)
     end
 
+    @testset "Several variables in lockstep" begin
+        dataset = make_vector_temp_dataset()
+        ds = dataset.ds
+        no_fix = Dict{String, Int}()
+        idx = DataLimits.scan_indexing(dataset, "u", ["lon", "lat", "time"],
+                                       no_fix)
+
+        u = ds["u"][:, :, :]
+        v = ds["v"][:, :, :]
+        # one variable still tracks its own signed values
+        @test DataLimits.hyperslab_extrema(dataset, ["u"], idx) ==
+            (minimum(u), maximum(u))
+        # two are reduced element by element -- the magnitude, not the
+        # range of either component
+        @test DataLimits.hyperslab_extrema(dataset, ["u", "v"], idx) ==
+            extrema(hypot.(u, v))
+        # an explicit combiner is honoured
+        @test DataLimits.hyperslab_extrema(dataset, ["u", "v"], idx;
+                                           combine = (a, b) -> a + b) ==
+            extrema(u .+ v)
+
+        # the combiner sees each element's components, in order
+        @test DataLimits.scan_value(-3.0) == -3.0
+        @test DataLimits.scan_value(3.0, 4.0) == 5.0
+
+        # every variable costs its own hyperslab
+        @test DataLimits.hyperslab_elements(dataset, ["u"], idx) ==
+            12 * 8 * 3
+        @test DataLimits.hyperslab_elements(dataset, ["u", "v"], idx) ==
+            2 * 12 * 8 * 3
+
+        # components of different shapes cannot share one indexing
+        @test DataLimits.hyperslab_extrema(dataset, ["u", "vmix"], idx) ===
+            nothing
+        @test DataLimits.hyperslab_extrema(dataset, String[], idx) === nothing
+
+        # a fixed dimension restricts every component alike
+        sel = Dict("lon" => 1, "lat" => 1, "time" => 2)
+        idx = DataLimits.scan_indexing(dataset, "u", ["lon", "lat"], sel)
+        @test DataLimits.hyperslab_extrema(dataset, ["u", "v"], idx) ==
+            extrema(hypot.(u[:, :, 2], v[:, :, 2]))
+
+        # a fully fixed hyperslab is one element out of each component
+        idx = DataLimits.scan_indexing(dataset, "u", String[], sel)
+        @test DataLimits.hyperslab_extrema(dataset, ["u", "v"], idx) ==
+            (hypot(u[1, 1, 2], v[1, 1, 2]), hypot(u[1, 1, 2], v[1, 1, 2]))
+
+        close(ds)
+    end
+
     @testset "Missing and NaN values" begin
         file = tempname() * ".nc"
         NCDataset(file, "c") do ds

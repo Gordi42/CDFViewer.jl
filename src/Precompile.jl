@@ -29,6 +29,12 @@ function create_workload_file()::String
         defVar(ds, "var4d", rand(nlon, nlat, nlev, ntime), ("lon", "lat", "lev", "time"),
             attrib = Dict("units" => "K", "long_name" => "Workload variable"))
 
+        # Vector components (quiver / streamplot, name-guessed partner)
+        defVar(ds, "u", rand(nlon, nlat, ntime), ("lon", "lat", "time"),
+            attrib = Dict("units" => "m s-1", "long_name" => "Eastward wind"))
+        defVar(ds, "v", rand(nlon, nlat, ntime), ("lon", "lat", "time"),
+            attrib = Dict("units" => "m s-1", "long_name" => "Northward wind"))
+
         # Unstructured part (ICON-style: paired coordinates on one dimension)
         defVar(ds, "clon", rand(ncells) .* 360.0 .- 180.0, ("ncells",), attrib = Dict(
             "standard_name" => "longitude", "units" => "degrees_east"))
@@ -61,6 +67,30 @@ function exercise_repl_commands!(state::ViewerREPL.REPLState)::Nothing
         ViewerREPL.evaluate_command(state, "p $plot_type")
         wait_tasks()
     end
+
+    # Vector plots: both components on a plain axis and on a map, plus the
+    # density settings and the two-variable color-range scan
+    wait_scan!() = let t = state.controller.fd.crange_scan.task
+        t === nothing || wait(t)
+    end
+    ViewerREPL.evaluate_command(state, "v u,v")
+    ViewerREPL.evaluate_command(state, "x lon")
+    ViewerREPL.evaluate_command(state, "y lat")
+    for plot_type in ("quiver", "streamplot")
+        ViewerREPL.evaluate_command(state, "p $plot_type")
+        wait_tasks()
+        wait_scan!()
+        ViewerREPL.evaluate_command(state, "proj=\"+proj=moll\"")
+        wait_tasks()
+        ViewerREPL.evaluate_command(state, "del proj")
+        wait_tasks()
+    end
+    ViewerREPL.evaluate_command(state, "p quiver")
+    wait_tasks()
+    ViewerREPL.evaluate_command(state, "arrows=(8, 6), every=2")
+    wait_tasks()
+    ViewerREPL.evaluate_command(state, "del arrows every")
+    wait_tasks()
 
     # Unstructured variable (nearest-neighbor interpolation path)
     ViewerREPL.evaluate_command(state, "v var_unstructured")

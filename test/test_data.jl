@@ -810,4 +810,45 @@ using GLMakie
 
     end
 
+    @testset "Vector components" begin
+        dataset = make_vector_temp_dataset()
+
+        # a partner spans exactly the same dimensions
+        @test Data.is_vector_partner(dataset, "u", "v")
+        @test Data.is_vector_partner(dataset, "u", "temp")
+        # ... which "vmix" does not
+        @test !Data.is_vector_partner(dataset, "umix", "vmix")
+        # a variable is never its own partner, and neither is a name the
+        # dataset does not hold
+        @test !Data.is_vector_partner(dataset, "u", "u")
+        @test !Data.is_vector_partner(dataset, "u", "nope")
+        @test !Data.is_vector_partner(dataset, "nope", "v")
+
+        # the guess follows the name, case preserved
+        @test Data.guess_vector_partner(dataset, "u") == "v"
+        @test Data.guess_vector_partner(dataset, "uas") == "vas"
+        @test Data.guess_vector_partner(dataset, "U10") == "V10"
+        # no partner in the file, so no guess
+        @test Data.guess_vector_partner(dataset, "uodd") === nothing
+        # a partner over the wrong dimensions is not a partner
+        @test Data.guess_vector_partner(dataset, "umix") === nothing
+        # names that do not start with u/U have nothing to guess from
+        @test Data.guess_vector_partner(dataset, "temp") === nothing
+        @test Data.guess_vector_partner(dataset, "v") === nothing
+        @test Data.guess_vector_partner(dataset, "") === nothing
+
+        # the options a menu offers: every variable over the same dims,
+        # the variable itself excluded
+        options = Data.vector_partner_options(dataset, "u")
+        @test "v" in options
+        @test "vas" in options
+        @test "temp" in options
+        @test "u" ∉ options
+        @test "vmix" ∉ options
+        @test "uodd" ∉ options
+        @test Data.vector_partner_options(dataset, "uodd") == ["vmix"]
+
+        close(dataset.ds)
+    end
+
 end

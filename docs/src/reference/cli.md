@@ -22,7 +22,7 @@ cdfviewer demo.nc -v temperature -x lon -y lat -p heatmap --dims="time=5" -a tim
 
 | Option | Short | Description |
 |:-------|:------|:------------|
-| `--var` | `-v` | Variable to plot |
+| `--var` | `-v` | Variable to plot (`-v u,v` names both components of a vector plot) |
 | `--x-axis` | `-x` | X-axis variable |
 | `--y-axis` | `-y` | Y-axis variable |
 | `--z-axis` | `-z` | Z-axis variable (for 3D plots) |

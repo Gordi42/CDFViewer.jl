@@ -63,6 +63,67 @@ using CDFViewer.ViewerREPL
             cleanup(state)
         end
 
+        @testset "Select both vector components" begin
+            # Arrange
+            controller = Controller.ViewerController(
+                make_vector_temp_dataset(), headless = true)
+            state = ViewerREPL.REPLState(controller)
+            ui_state = controller.ui.state
+
+            # Act & Assert: one comma-separated token names both
+            status = ViewerREPL.evaluate_command(state, "v uas,vas")
+            @test occursin("Selected: uas", status)
+            @test occursin("Selected: vas", status)
+            @test ui_state.variable[] == "uas"
+            @test ui_state.variable2[] == "vas"
+
+            # Act & Assert: the partner is overridable on its own
+            @test ViewerREPL.evaluate_command(state, "v uas,temp") ==
+                "Selected: uas\nSelected: temp"
+            @test ui_state.variable2[] == "temp"
+
+            # Act & Assert: a partner over the wrong dimensions is refused
+            @test_warn "Invalid selection:" begin
+                ViewerREPL.evaluate_command(state, "v u,vmix")
+            end
+            @test ui_state.variable[] == "u"
+
+            # Act & Assert: selecting a vector type guesses the partner
+            ViewerREPL.evaluate_command(state, "x lon")
+            ViewerREPL.evaluate_command(state, "y lat")
+            ViewerREPL.evaluate_command(state, "v u")
+            ViewerREPL.evaluate_command(state, "p quiver")
+            @test ui_state.variable2[] == "v"
+            @test controller.fd.plot_obj[] isa Makie.Arrows2D
+
+            # Act & Assert: an explicit partner survives a plot type
+            # change, but not a change of the variable it belongs to
+            ViewerREPL.evaluate_command(state, "v u,temp")
+            @test ui_state.variable2[] == "temp"
+            ViewerREPL.evaluate_command(state, "p streamplot")
+            @test ui_state.variable2[] == "temp"
+            ViewerREPL.evaluate_command(state, "v U10")
+            @test ui_state.variable2[] == "V10"
+
+            # Act & Assert: a variable with no partner in the file leaves
+            # the second component empty instead of failing
+            ViewerREPL.evaluate_command(state, "p quiver")
+            ViewerREPL.evaluate_command(state, "v temp")
+            @test ui_state.variable2[] == Constants.NOT_SELECTED_LABEL
+            @test controller.fd.plot_obj[] isa Makie.Arrows2D
+
+            # Act & Assert: tab completion past the comma offers the
+            # partners of the selected variable, not every variable
+            ViewerREPL.evaluate_command(state, "v U10")
+            word, cands = ViewerREPL.completion_candidates(state, "v U10,V")
+            @test word == "V"
+            @test "V10" in cands
+            @test "U10" ∉ cands
+
+            # Cleanup
+            cleanup(state)
+        end
+
         @testset "Select Plot Type" begin
             # Arrange
             state = init_state()
