@@ -218,6 +218,9 @@ struct FigureSettings
     # an exact grid stride that overrides that target when set
     arrows::Observable{Tuple{Int, Int}}
     every::Observable{Union{Nothing, Int}}
+    # Speed below which a vector plot draws nothing at all, in the data's
+    # own units (nothing = draw everything)
+    minspeed::Observable{Union{Nothing, Float64}}
 
     FigureSettings() = new(
         Observable(Constants.FIGSIZE),
@@ -254,6 +257,7 @@ struct FigureSettings
         Observable((0.0, 80.0)),                          # rotatevlim
         Observable(Constants.VECTOR_ARROWS),              # arrows
         Observable{Union{Nothing, Int}}(nothing),         # every
+        Observable{Union{Nothing, Float64}}(nothing),     # minspeed
     )
 end
 
@@ -883,18 +887,20 @@ ColorRangeScan() = ColorRangeScan(0, nothing, nothing, nothing,
 # ============================================================
 
 """
-The figure settings one layer may differ in. Only the vector-plot density
-so far: two quiver layers on one axis at the same arrow count are
+The figure settings one layer may differ in -- the vector-plot ones so
+far: two quiver layers on one axis at the same arrow count are
 unreadable, so `over2.arrows` has to reach that layer's arrows rather than
-every set of arrows on the figure. `nothing` means "whatever the figure
-says", which is what a plain `arrows=` sets.
+every set of arrows on the figure, and two layers holding different
+quantities have different speeds worth cutting off at. `nothing` means
+"whatever the figure says", which is what a plain `arrows=` sets.
 """
 mutable struct LayerSettings
     arrows::Union{Nothing, Tuple{Int, Int}}
     every::Union{Nothing, Int}
+    minspeed::Union{Nothing, Float64}
 end
 
-LayerSettings() = LayerSettings(nothing, nothing)
+LayerSettings() = LayerSettings(nothing, nothing, nothing)
 
 """
 One drawn layer: the plot object sitting on the axis, the settings it
@@ -2096,12 +2102,13 @@ function set_rotatevlim!(fd::FigureData, value::Tuple)::Bool
 end
 
 # ------------------------------------------------------------
-#  Vector plot density
+#  Vector plot density and speed cutoff
 #
 #  `arrows` targets a number of arrows per axis, `every` picks exact grid
-#  points and overrides the target. Both are read while the arrows are
-#  laid out, so re-notifying the data observable is enough -- no redraw,
-#  which would throw the user's zoom away. A plot type without arrows
+#  points and overrides the target, `minspeed` blanks everything slower
+#  than it. All three are read while the field is laid out, so
+#  re-notifying the data observable is enough -- no redraw, which would
+#  throw the user's zoom away. A plot type that consumes none of them
 #  stores the value silently and starts using it once a vector type is
 #  selected; warning here would trip the kwargs path's revert-on-stderr
 #  machinery (see set_rotate!).
@@ -2112,6 +2119,10 @@ end
 # integrate every streamline again for no visible change
 is_arrow_type(fd::FigureData, i::Int = 1)::Bool =
     layer_plot(fd, i).type == "quiver"
+
+# the speed cutoff, on the other hand, is read by both types
+is_vector_type(fd::FigureData, i::Int = 1)::Bool =
+    layer_plot(fd, i).nfields >= 2
 
 "How many arrows layer `i` aims for: its own setting, else the figure's."
 function layer_arrows(fd::FigureData, i::Int)::Tuple{Int, Int}
@@ -2127,17 +2138,45 @@ function layer_every(fd::FigureData, i::Int)::Union{Nothing, Int}
     own === nothing ? fd.settings.every[] : own
 end
 
-"Re-lay the arrows of every vector layer, without rebuilding them."
-function refresh_vector_density!(fd::FigureData)::Nothing
+"""
+    layer_minspeed(fd, i)
+
+The speed layer `i` blanks below, as a plain number: its own setting, else
+the figure's, and 0 for "draw everything". Zero rather than `nothing` so
+the samplers that read it stay type-stable, and because a cutoff of zero
+means exactly that -- no |V| is below it.
+"""
+function layer_minspeed(fd::FigureData, i::Int)::Float64
+    own = i <= length(fd.layers) ? fd.layers[i].settings.minspeed : nothing
+    value = own === nothing ? fd.settings.minspeed[] : own
+    value === nothing ? 0.0 : value
+end
+
+"""
+    refresh_vector_layers!(fd, wanted)
+
+Re-lay the field of every layer `wanted` accepts, without rebuilding it.
+Which layers those are depends on the setting that changed: an arrow count
+reaches only the arrows, a speed cutoff every vector plot there is.
+"""
+function refresh_vector_layers!(fd::FigureData, wanted::Function)::Nothing
     plot_data = fd.plot_data
     for i in eachindex(plot_data.layers)
-        is_arrow_type(fd, i) || continue
+        wanted(fd, i) || continue
         ndims = layer_plot(fd, i).ndims
         ndims in eachindex(plot_data.d[i][1]) || continue
         notify(plot_data.d[i][1][ndims])
     end
     nothing
 end
+
+"Re-lay the arrows of every vector layer, without rebuilding them."
+refresh_vector_density!(fd::FigureData)::Nothing =
+    refresh_vector_layers!(fd, is_arrow_type)
+
+"Re-lay every vector layer, arrows and streamlines alike."
+refresh_vector_field!(fd::FigureData)::Nothing =
+    refresh_vector_layers!(fd, is_vector_type)
 
 """
     checked_arrows(value)
@@ -2187,6 +2226,42 @@ function set_every!(fd::FigureData, value::Union{Nothing, Integer})::Bool
     end
     fd.settings.every[] = every
     refresh_vector_density!(fd)
+    false
+end
+
+"""
+    checked_minspeed(value)
+
+`value` as a speed cutoff, or `nothing` after saying what is wrong with
+it. The figure-level setting and the per-layer `over.minspeed` share it,
+so both refuse the same values in the same words.
+"""
+function checked_minspeed(value::Real)::Union{Nothing, Float64}
+    if !isfinite(value) || value < 0
+        @error "minspeed must be a non-negative speed, got $value"
+        return nothing
+    end
+    Float64(value)
+end
+
+"""
+Set the speed below which a vector plot draws nothing.
+
+The cutoff is an absolute speed in the data's own units, not a fraction of
+anything: a threshold read off each frame's own extrema would move as the
+frame does, and the blanked region would then flicker exactly the way the
+streamlines used to. An absolute one holds still across a playback cycle,
+which is also what the pinned color range does -- and the colorbar already
+shows the magnitude range to read a value off.
+"""
+function set_minspeed!(fd::FigureData, value::Union{Nothing, Real})::Bool
+    minspeed = value
+    if value !== nothing
+        minspeed = checked_minspeed(value)
+        minspeed === nothing && return false
+    end
+    fd.settings.minspeed[] = minspeed
+    refresh_vector_field!(fd)
     false
 end
 
@@ -2251,6 +2326,8 @@ const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
     :arrows => FigureSettingsHandler(:arrows, Tuple, set_arrows!),
     :every => FigureSettingsHandler(
         :every, Union{Nothing, Integer}, set_every!),
+    :minspeed => FigureSettingsHandler(
+        :minspeed, Union{Nothing, Real}, set_minspeed!),
 )
     
 
@@ -2634,6 +2711,99 @@ struct PropertyMapping
     intended_value::Any
 end
 
+# ------------------------------------------------------------
+#  A uniform color on a vector plot
+#
+#  A vector plot colors itself by the magnitude of the field: its `color`
+#  is an array of numbers Makie maps through the colormap, which is what
+#  puts a scale on the colorbar. Makie types every node of its compute
+#  graph from the first value that flows through it, so a `Colorant`
+#  handed to a node that once held a `Vector{Float32}` fails deep inside
+#  the graph -- and a failure there takes the whole keyword line with it,
+#  since `apply_kwargs!` reverts all or nothing.
+#
+#  So `color=:black` is drawn as a colormap that is that one color at
+#  every level. It looks the same, the numbers stay where Makie put them,
+#  and it can be switched back and forth any number of times. It is the
+#  same trick `contour_colormap` uses to draw a flat overlay.
+# ------------------------------------------------------------
+
+"""
+    vector_layer_of(fd, plot)
+
+The index of the layer `plot` draws, when that layer is a vector plot;
+`nothing` for anything else. A line's or a scatter's `color` is a color to
+begin with and needs none of this.
+"""
+function vector_layer_of(fd::FigureData, plot::Any)::Union{Nothing, Int}
+    plot isa Makie.AbstractPlot || return nothing
+    for i in eachindex(fd.layers)
+        fd.layers[i].plot_obj[] === plot || continue
+        return is_vector_type(fd, i) ? i : nothing
+    end
+    nothing
+end
+
+"""
+    flat_colormap(value)
+
+`value` as a colormap that is one flat color at every level, or `nothing`
+when `value` is not a color at all -- a number, an array, anything Makie
+would read as data rather than as a color. Those are handed on untouched
+and fail where they always did.
+"""
+function flat_colormap(value::Any)::Union{Nothing, Vector{RGBAf}}
+    color = try
+        Makie.to_color(value)
+    catch
+        return nothing
+    end
+    color isa Makie.Colorant || return nothing
+    fill(convert(RGBAf, color), 2)
+end
+
+"""
+The `streamplot!` attributes the app hands Makie values of its own for,
+so that deleting the keyword restores the app's value and not Makie's.
+`stepsize` is not among them: it is an observable derived from the domain,
+which the plot goes on following by itself.
+"""
+const STREAMPLOT_DEFAULTS = Dict{Symbol, Any}(
+    :gridsize => Constants.STREAMPLOT_GRIDSIZE,
+    :maxsteps => Constants.STREAMPLOT_MAXSTEPS,
+    :density => Constants.STREAMPLOT_DENSITY,
+)
+
+"Whether Makie reads `value` as a colormap in its own right."
+function is_colormap(value::Any)::Bool
+    try
+        return !isempty(Makie.to_colormap(value))
+    catch
+        return false
+    end
+end
+
+"""
+    vector_color_target(fd, target, property, value)
+
+The property and value a keyword really carries, once a `color=` aimed at
+a vector plot has been turned into the colormap that draws it. Everything
+else passes through unchanged.
+
+A whole colormap under `color` comes through here as well, because that is
+what the revert path hands back: the keyword store is keyed by what the
+user typed, while the value it remembers is what the keyword actually set.
+"""
+function vector_color_target(fd::FigureData, target::Any, property::Symbol,
+                             value::Any)::Tuple{Symbol, Any}
+    property === :color || return (property, value)
+    vector_layer_of(fd, target) === nothing && return (property, value)
+    value === :delete && return (:colormap, :delete)
+    flat = flat_colormap(value)
+    flat !== nothing && return (:colormap, flat)
+    is_colormap(value) ? (:colormap, value) : (property, value)
+end
+
 function get_default_value(fd::FigureData, target_object::Any, property::Symbol)::Any
     # a layer setting falls back to the figure's own
     isa(target_object, LayerSettings) && return nothing
@@ -2680,6 +2850,7 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
             :rotatevlim => (0.0, 80.0),
             :arrows => Constants.VECTOR_ARROWS,
             :every => nothing,
+            :minspeed => nothing,
         )
         return haskey(defaults, property) ? defaults[property] : :delete
     elseif isa(target_object, Makie.AbstractAxis)
@@ -2695,7 +2866,20 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
         )
         return haskey(defaults, property) ? defaults[property] : :delete
     end
-    
+    layer = vector_layer_of(fd, target_object)
+    if layer !== nothing
+        # `del color` puts the magnitude colors back: the colormap the
+        # user asked for if they asked for one, else the app's own
+        if property === :colormap
+            own = layer_kwarg(fd, layer, :colormap)
+            return own === nothing ? Constants.VECTOR_COLORMAP : own
+        end
+        # ... and the streamline attributes the app sets itself go back
+        # to what it set, not to Makie's, so `maxsteps=500` is reversible
+        haskey(STREAMPLOT_DEFAULTS, property) &&
+            return STREAMPLOT_DEFAULTS[property]
+    end
+
     :delete
 end
     
@@ -2766,8 +2950,12 @@ function get_property_mappings(kwargs::OrderedDict{Symbol, Any}, fig_data::Figur
             continue
         end
         for target_obj in targets
+            # a color aimed at a vector plot is drawn as a flat colormap;
+            # everything else keeps the property it resolved to
+            prop, wanted = vector_color_target(
+                fig_data, target_obj, property, intended_value)
             # Get the current value of the property
-            current_value = getproperty(target_obj, property)
+            current_value = getproperty(target_obj, prop)
             # If it's an Observable, get its value
             current_value = try
                 current_value[]
@@ -2777,10 +2965,10 @@ function get_property_mappings(kwargs::OrderedDict{Symbol, Any}, fig_data::Figur
 
             # a deletion resolves per target: keep the loop variable
             # intact so the next target still sees the :delete request
-            target_value = intended_value === :delete ?
-                get_default_value(fig_data, target_obj, property) : intended_value
+            target_value = wanted === :delete ?
+                get_default_value(fig_data, target_obj, prop) : wanted
 
-            push!(mappings, PropertyMapping(key, property, target_obj,
+            push!(mappings, PropertyMapping(key, prop, target_obj,
                                             current_value, target_value))
         end
         isempty(targets) && @warn "Property $key not found in any plot object"
@@ -2792,6 +2980,7 @@ end
 const LAYER_SETTING_CHECKS = Dict{Symbol, Function}(
     :arrows => checked_arrows,
     :every => checked_every,
+    :minspeed => checked_minspeed,
 )
 
 """
@@ -2812,8 +3001,10 @@ function set_layer_setting!(fd::FigureData, settings::LayerSettings,
         stored === nothing && return nothing
     end
     setproperty!(settings, property, stored)
-    # a plain struct notifies nobody, so re-lay the arrows by hand
-    refresh_vector_density!(fd)
+    # a plain struct notifies nobody, so re-lay the field by hand -- the
+    # arrows alone for a density setting, every vector plot for a cutoff
+    property === :minspeed ? refresh_vector_field!(fd) :
+        refresh_vector_density!(fd)
     nothing
 end
 
@@ -3448,6 +3639,24 @@ function any_finite_vector(u, v)::Bool
     false
 end
 
+"""
+    any_above_speed(u, v, minspeed)
+
+Whether any grid sample reaches `minspeed`, so that there is anything left
+to draw at all. Asked of the grid rather than of the interpolated field,
+which is sound: a bilinear sample is a convex combination of its four
+corners, so its length never exceeds the longest of them.
+"""
+function any_above_speed(u, v, minspeed::Float64)::Bool
+    minspeed > 0 || return true
+    for k in eachindex(u)
+        a, b = u[k], v[k]
+        (a isa Number && b isa Number && isfinite(a) && isfinite(b) &&
+         hypot(a, b) >= minspeed) && return true
+    end
+    false
+end
+
 "The `p`-quantile of the finite values in `values`, or 0 without any."
 function finite_quantile(values::AbstractArray, p::Float64)::Float64
     finite = Float64[v for v in values if isfinite(v)]
@@ -3496,6 +3705,27 @@ function wraps_globally(x)::Bool
 end
 
 """
+    mask_weak!(u, v, minspeed)
+
+Blank every sample slower than `minspeed`, so nothing is drawn where the
+field is barely moving. The cutoff is an absolute speed in the data's own
+units and the magnitudes it is compared against are the physical ones,
+taken before any projection correction inflates them. A `minspeed` of 0
+blanks nothing, which is what "off" means.
+"""
+function mask_weak!(u::Matrix{Float64}, v::Matrix{Float64},
+                    minspeed::Float64)::Nothing
+    minspeed > 0 || return nothing
+    for k in eachindex(u, v)
+        if hypot(u[k], v[k]) < minspeed
+            u[k] = NaN
+            v[k] = NaN
+        end
+    end
+    nothing
+end
+
+"""
     mask_outside_domain!(x, y, u, v, lengthscale, xlim, ylim)
 
 Blank every arrow whose tip leaves the drawn domain. Past the ±180 seam
@@ -3520,7 +3750,7 @@ function mask_outside_domain!(x::Vector{Float64}, y::Vector{Float64},
 end
 
 """
-    decimate_vector_field(x, y, u, v, target, every, geographic)
+    decimate_vector_field(x, y, u, v, target, every, geographic, minspeed)
 
 Thin a vector field down to the arrows that get drawn and derive their
 length scale. Returns the empty field whenever the inputs do not line up:
@@ -3530,6 +3760,7 @@ lift over them transiently sees a grid and a field of different shapes.
 function decimate_vector_field(
     x, y, u, v,
     target::Tuple{Int, Int}, every::Union{Nothing, Int}, geographic::Bool,
+    minspeed::Float64 = 0.0,
 )::VectorField
     any(isnothing, (x, y, u, v)) && return EMPTY_VECTOR_FIELD
     nx, ny = length(x), length(y)
@@ -3545,8 +3776,15 @@ function decimate_vector_field(
     dv = convert(Matrix{Float64}, v[ix, iy])
     any_finite_vector(du, dv) || return EMPTY_VECTOR_FIELD
     # the colors are the *physical* magnitudes, taken before the
-    # projection correction below inflates the zonal component
+    # projection correction below inflates the zonal component -- and
+    # before the cutoff blanks anything, so what the colorbar spans is
+    # still the whole field and the value to cut at can be read off it
     magnitude = vec(hypot.(du, dv))
+    mask_weak!(du, dv, minspeed)
+    # a cutoff set above the whole frame leaves nothing to draw, which is
+    # what the empty field stands for -- and what keeps the colorbar from
+    # looking for ticks in a range that is all NaN
+    any_finite_vector(du, dv) || return EMPTY_VECTOR_FIELD
     # a high percentile rather than the maximum: a single outlier gust
     # would otherwise shrink the whole field into invisibility
     reference = finite_quantile(magnitude, Constants.VECTOR_SCALE_QUANTILE)
@@ -3588,7 +3826,7 @@ function vector_field_observable(fd::FigureData, ax::Makie.AbstractAxis,
     update = (xs, ys, us, vs) -> begin
         field[] = decimate_vector_field(
             xs, ys, us, vs, layer_arrows(fd, i), layer_every(fd, i),
-            geographic)
+            geographic, layer_minspeed(fd, i))
     end
     update(x[], y[], u[], v[])
     onany(update, x, y, u, v)
@@ -3621,7 +3859,13 @@ struct GridField <: Function
     y::Vector{Float64}
     u::Matrix{Float64}
     v::Matrix{Float64}
+    # speed below which the field reads as "nothing here" (0 = off); a
+    # plain number rather than a `nothing`, so the sampler stays type
+    # stable on the hot path
+    minspeed::Float64
 end
+
+GridField(x, y, u, v) = GridField(x, y, u, v, 0.0)
 
 function (field::GridField)(p)
     nx, ny = length(field.x), length(field.y)
@@ -3641,12 +3885,17 @@ function (field::GridField)(p)
     w21 = fx * (1 - fy)
     w12 = (1 - fx) * fy
     w22 = fx * fy
-    Point2f(
-        w11 * field.u[i, j] + w21 * field.u[i + 1, j] +
-            w12 * field.u[i, j + 1] + w22 * field.u[i + 1, j + 1],
-        w11 * field.v[i, j] + w21 * field.v[i + 1, j] +
-            w12 * field.v[i, j + 1] + w22 * field.v[i + 1, j + 1],
-    )
+    u = w11 * field.u[i, j] + w21 * field.u[i + 1, j] +
+        w12 * field.u[i, j + 1] + w22 * field.u[i + 1, j + 1]
+    v = w11 * field.v[i, j] + w21 * field.v[i + 1, j] +
+        w12 * field.v[i, j + 1] + w22 * field.v[i + 1, j + 1]
+    # NaN, not zero: a streamline stepping onto a NaN leaves the domain on
+    # the next step and simply ends there, while a zero would divide by
+    # its own length. Makie asks the field before it seeds as well, so a
+    # blanked region grows no lines at all rather than losing them one
+    # step in.
+    hypot(u, v) < field.minspeed && return Point2f(NaN, NaN)
+    Point2f(u, v)
 end
 
 # The stand-in for "nothing to draw", for the same reasons as
@@ -3657,7 +3906,7 @@ const EMPTY_GRID_FIELD = GridField([0.0, 1.0], [0.0, 1.0],
                                    [0.0 0.0; 1.0 1.0], zeros(2, 2))
 
 """
-    grid_field_state(x, y, u, v)
+    grid_field_state(x, y, u, v, minspeed)
 
 Everything `streamplot!` needs for one frame -- the sampler, the domain
 it integrates in, and a step derived from that domain -- or nothing when
@@ -3665,14 +3914,18 @@ the inputs do not line up. `x`, `y` and the data arrive in separate
 observable notifications, so this transiently sees shapes that do not
 match, and a slab that is missing everywhere has nothing to follow.
 """
-function grid_field_state(x, y, u,
-                          v)::Union{Nothing, Tuple{GridField, Rect2{Float64},
-                                                   Float64}}
+function grid_field_state(x, y, u, v, minspeed::Float64 = 0.0,
+                          )::Union{Nothing, Tuple{GridField, Rect2{Float64},
+                                                  Float64}}
     any(isnothing, (x, y, u, v)) && return nothing
     nx, ny = length(x), length(y)
     (nx >= 2 && ny >= 2) || return nothing
     (size(u) == (nx, ny) && size(v) == (nx, ny)) || return nothing
     any_finite_vector(u, v) || return nothing
+    # ... and neither has a frame the speed cutoff blanks completely: a
+    # streamplot of nothing colors its lines NaN, which leaves the
+    # colorbar without a tick to place and writes to stderr
+    any_above_speed(u, v, minspeed) || return nothing
     gx = convert(Vector{Float64}, x)
     gy = convert(Vector{Float64}, y)
     spanx = gx[end] - gx[1]
@@ -3682,13 +3935,14 @@ function grid_field_state(x, y, u,
     # `convert`, not the constructor: the streamlines read the full grid,
     # and a copy of it per animation frame is not free. Nothing mutates
     # these, and `get_data` hands out a fresh array every time anyway.
-    (GridField(gx, gy, convert(Matrix{Float64}, u), convert(Matrix{Float64}, v)),
+    (GridField(gx, gy, convert(Matrix{Float64}, u), convert(Matrix{Float64}, v),
+               minspeed),
      Rect2(min(gx[1], gx[end]), min(gy[1], gy[end]), abs(spanx), abs(spany)),
      min(abs(spanx), abs(spany)) / Constants.STREAMPLOT_STEPS)
 end
 
 """
-    streamplot_plot!(fd, ax, x, y, u, v)
+    streamplot_plot!(fd, ax, i, x, y, u, v)
 
 Streamlines of the field. They sample the full grid rather than the
 thinned one the arrows use -- how many lines are drawn is Makie's own
@@ -3696,8 +3950,13 @@ thinned one the arrows use -- how many lines are drawn is Makie's own
 the lines are not scaled to a drawn length, `limits` already ends a line
 that reaches the ±180 seam, and the cos(latitude) factor would inflate
 exactly the magnitudes their color comes from.
+
+`maxsteps` is a default the app sets rather than Makie's: it is what
+keeps the lines from reorganising themselves on every animation frame
+(see `Constants.STREAMPLOT_LENGTH`). It stays an ordinary Makie
+attribute, so `maxsteps=`, `gridsize=` and `density=` still override it.
 """
-function streamplot_plot!(fd::FigureData, ax::Makie.AbstractAxis,
+function streamplot_plot!(fd::FigureData, ax::Makie.AbstractAxis, i::Int,
                           x::Observable, y::Observable,
                           u::Observable, v::Observable)
     sampler = Observable(EMPTY_GRID_FIELD)
@@ -3708,7 +3967,7 @@ function streamplot_plot!(fd::FigureData, ax::Makie.AbstractAxis,
     stepsize = Observable(0.01)
     live = Observable(false)
     update = (xs, ys, us, vs) -> begin
-        state = grid_field_state(xs, ys, us, vs)
+        state = grid_field_state(xs, ys, us, vs, layer_minspeed(fd, i))
         if state === nothing
             live[] = false
             return
@@ -3720,6 +3979,8 @@ function streamplot_plot!(fd::FigureData, ax::Makie.AbstractAxis,
     onany(update, x, y, u, v)
     streamplot!(ax, sampler, limits;
         stepsize = stepsize, gridsize = Constants.STREAMPLOT_GRIDSIZE,
+        maxsteps = Constants.STREAMPLOT_MAXSTEPS,
+        density = Constants.STREAMPLOT_DENSITY,
         visible = live,
         colormap = Constants.VECTOR_COLORMAP, inspectable = false)
 end
@@ -3777,7 +4038,7 @@ for plot in [
         (fd, ax, i, x, y, z, u, v) -> quiver_plot!(fd, ax, i, x, y, u, v),
         create_2d_axis; nfields = 2),
     Plot("streamplot", 2, true,
-        (fd, ax, i, x, y, z, u, v) -> streamplot_plot!(fd, ax, x, y, u, v),
+        (fd, ax, i, x, y, z, u, v) -> streamplot_plot!(fd, ax, i, x, y, u, v),
         create_2d_axis; nfields = 2),
 
     # 1D plots

@@ -80,6 +80,13 @@ function exercise_repl_commands!(state::ViewerREPL.REPLState)::Nothing
         wait_scan!()
         ViewerREPL.evaluate_command(state, "proj=\"+proj=moll\"")
         wait_tasks()
+        # the speed cutoff and the flat-color path: both rewrite the
+        # drawn field rather than the plot, and both are one keystroke
+        # away from a user who has a vector plot on screen
+        ViewerREPL.evaluate_command(state, "minspeed=0.5, color=:black")
+        wait_tasks()
+        ViewerREPL.evaluate_command(state, "del minspeed color")
+        wait_tasks()
         ViewerREPL.evaluate_command(state, "del proj")
         wait_tasks()
     end
