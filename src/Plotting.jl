@@ -2120,24 +2120,53 @@ function refresh_vector_density!(fd::FigureData)::Nothing
     nothing
 end
 
-function set_arrows!(fd::FigureData, value::Tuple)::Bool
+"""
+    checked_arrows(value)
+
+`value` as an `(nx, ny)` pair of counts, or `nothing` after saying what is
+wrong with it. The figure-level setting and the per-layer `over.arrows`
+share it, so both refuse the same values in the same words.
+"""
+function checked_arrows(value::Tuple)::Union{Nothing, Tuple{Int, Int}}
     ok = length(value) == 2 && all(v -> v isa Integer && v > 0, value)
     if !ok
         @error ("arrows must be an (nx, ny) tuple of positive integers, " *
                 "got $value")
-        return false
+        return nothing
     end
-    fd.settings.arrows[] = (Int(value[1]), Int(value[2]))
+    (Int(value[1]), Int(value[2]))
+end
+
+function set_arrows!(fd::FigureData, value::Tuple)::Bool
+    arrows = checked_arrows(value)
+    arrows === nothing && return false
+    fd.settings.arrows[] = arrows
     refresh_vector_density!(fd)
     false
 end
 
-function set_every!(fd::FigureData, value::Union{Nothing, Integer})::Bool
-    if value !== nothing && value < 1
+"""
+    checked_every(value)
+
+`value` as a grid stride, or `nothing` after saying what is wrong with
+it. The figure-level setting and the per-layer `over.every` share it, so
+both refuse the same values in the same words.
+"""
+function checked_every(value::Integer)::Union{Nothing, Int}
+    if value < 1
         @error "every must be a positive integer, got $value"
-        return false
+        return nothing
     end
-    fd.settings.every[] = value === nothing ? nothing : Int(value)
+    Int(value)
+end
+
+function set_every!(fd::FigureData, value::Union{Nothing, Integer})::Bool
+    every = value
+    if value !== nothing
+        every = checked_every(value)
+        every === nothing && return false
+    end
+    fd.settings.every[] = every
     refresh_vector_density!(fd)
     false
 end
@@ -2206,20 +2235,28 @@ const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
 )
     
 
+"""
+    checked_setting_type(property, value)
+
+Whether `value` has the type `property`'s handler declares, naming the
+type it wanted otherwise. A per-layer setting shadows the figure setting
+of the same name, so both read the declaration from here and complain in
+the same words.
+"""
+function checked_setting_type(property::Symbol, value::Any)::Bool
+    handler = FIGURE_SETTINGS_HANDLERS[property]
+    isa(value, handler.type) && return true
+    @error "Value for $property must be of type $(handler.type), got $(typeof(value))"
+    false
+end
+
 function apply_figure_settings!(fd::FigureData, property::Symbol, value::Any)::Bool
-    redraw = false
-    if haskey(FIGURE_SETTINGS_HANDLERS, property)
-        handler = FIGURE_SETTINGS_HANDLERS[property]
-        if isa(value, handler.type)
-            res = handler.handler(fd, value)
-            redraw = res ? true : redraw
-        else
-            @error "Value for $property must be of type $(handler.type), got $(typeof(value))"
-        end
-    else
+    if !haskey(FIGURE_SETTINGS_HANDLERS, property)
         @error "Property $property not recognized in FigureData"
+        return false
     end
-    redraw
+    checked_setting_type(property, value) || return false
+    FIGURE_SETTINGS_HANDLERS[property].handler(fd, value)
 end
 
 # ============================================================
@@ -2732,6 +2769,35 @@ function get_property_mappings(kwargs::OrderedDict{Symbol, Any}, fig_data::Figur
     return mappings
 end
 
+"The check each per-layer setting shares with its figure-level twin."
+const LAYER_SETTING_CHECKS = Dict{Symbol, Function}(
+    :arrows => checked_arrows,
+    :every => checked_every,
+)
+
+"""
+    set_layer_setting!(fd, settings, property, value)
+
+Store one setting on a single layer. `over.arrows` and `over.every`
+shadow the figure settings of the same name, so they are checked the way
+those are and refused with the same words -- a bare `setproperty!` would
+surface an `InexactError` out of `convert` instead. `nothing` always
+passes: that is the layer handing the setting back to the figure.
+"""
+function set_layer_setting!(fd::FigureData, settings::LayerSettings,
+                            property::Symbol, value::Any)::Nothing
+    stored = value
+    if value !== nothing && haskey(LAYER_SETTING_CHECKS, property)
+        checked_setting_type(property, value) || return nothing
+        stored = LAYER_SETTING_CHECKS[property](value)
+        stored === nothing && return nothing
+    end
+    setproperty!(settings, property, stored)
+    # a plain struct notifies nobody, so re-lay the arrows by hand
+    refresh_vector_density!(fd)
+    nothing
+end
+
 function set_property_mapping(fd::FigureData, target_object::Any, property::Symbol, value::Any)::Bool
     value === :delete && return false
     redraw = false
@@ -2747,9 +2813,7 @@ function set_property_mapping(fd::FigureData, target_object::Any, property::Symb
         elseif isa(target_object, FigureSettings)
             redraw = apply_figure_settings!(fd, property, value)
         elseif isa(target_object, LayerSettings)
-            # a plain struct notifies nobody, so re-lay the arrows by hand
-            setproperty!(target_object, property, value)
-            refresh_vector_density!(fd)
+            set_layer_setting!(fd, target_object, property, value)
         else
             setproperty!(target_object, property, value)
         end
@@ -3577,13 +3641,35 @@ function streamplot_plot!(fd::FigureData, ax::Makie.AbstractAxis,
 end
 
 
+"""
+    contour_colormap(i)
+
+The colormap the contour of layer `i` starts out with: the usual
+diverging one on the base, and a colormap that is black at every level on
+an overlay.
+
+The base layer owns the color dimension and the colorbar, so an overlay
+only has to add structure -- a second colormap fights the first, and the
+pale end of a diverging one vanishes into the field underneath. Flat
+lines over a filled field is the atlas convention as well, and it is what
+`wireframe`, `line` and `scatter` already do.
+
+The flatness is a colormap rather than a flat `color`, which would look
+the same, so that colors keep coming from the colormap on every layer:
+Makie reads a set `color` in preference to any colormap, so a later
+`over.colormap=` would have been swallowed without a word.
+"""
+contour_colormap(i::Int)::Union{Symbol, Vector{Symbol}} =
+    i == 1 ? :balance : [:black, :black]
+
 for plot in [
     # 2D plots
     Plot("heatmap", 2, true,
         (fd, ax, i, x, y, z, d) -> custom_heatmap!(ax, x, y, z, d),
         create_2d_axis),
     Plot("contour", 2, false,
-        (fd, ax, i, x, y, z, d) -> contour!(ax, x, y, d, colormap = :balance, inspectable=false),
+        (fd, ax, i, x, y, z, d) -> contour!(ax, x, y, d,
+            colormap = contour_colormap(i), inspectable=false),
         create_2d_axis),
     Plot("contourf", 2, true,
         (fd, ax, i, x, y, z, d) -> contourf!(ax, x, y, d, colormap = :balance, inspectable=false),

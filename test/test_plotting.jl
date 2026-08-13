@@ -2716,15 +2716,56 @@ using CDFViewer.Plotting
 
         @testset "Applying prefixed keywords" begin
             (fd, state, dataset) = init_overlay_figure()
+            # a color other than the overlay's own default, so the
+            # assignment is not skipped as a no-op
             Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
                 Symbol("base.colormap") => :thermal,
-                Symbol("over.color") => :black,
+                Symbol("over.color") => :red,
                 Symbol("over.levels") => 4))
             @test Plotting.primary(fd).colormap[] == :thermal
-            @test fd.layers[2].plot_obj[].color[] == :black
+            @test fd.layers[2].plot_obj[].color[] == :red
             @test fd.layers[2].plot_obj[].levels[] == 4
             # the overlay's colormap is untouched by the base's
             @test fd.layers[2].plot_obj[].colormap[] != :thermal
+            cleanup(dataset)
+        end
+
+        @testset "An overlay contour draws in black" begin
+            # the base layer owns the color dimension and the colorbar, so
+            # a second colormap only fights the first
+            black = Makie.to_color(:black)
+            (fd, state, dataset) = init_overlay_figure(base = "contour")
+            # the colors a layer actually draws its lines with
+            levels(i) = fd.layers[i].plot_obj[].level_colors[]
+            # the base keeps its colormap, byte for byte as before
+            @test Plotting.primary(fd).colormap[] == :balance
+            @test !all(==(black), levels(1))
+            # the overlay is black at every level, and it is the colormap
+            # saying so: a flat `color` would swallow a later colormap
+            @test fd.layers[2].plot_obj[].color[] === nothing
+            @test all(==(black), levels(2))
+            # every overlay, not only the second
+            Plotting.set_layer_variables!(fd, 3, ["temp"])
+            Plotting.set_layer_plot_type!(fd, 3, "contour")
+            @test all(==(black), levels(3))
+            # a colormap keyword colors the lines by level again, with no
+            # reset step in between
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                Symbol("over.colormap") => :thermal))
+            @test fd.layers[2].plot_obj[].colormap[] == :thermal
+            @test !all(==(black), levels(2))
+            # ... and a flat color still wins over the colormap
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                Symbol("over.colormap") => :thermal,
+                Symbol("over.color") => :red))
+            @test all(==(Makie.to_color(:red)), levels(2))
+            cleanup(dataset)
+
+            # the types that already draw in a flat color keep theirs
+            (fd, state, dataset) = init_overlay_figure(
+                base = "wireframe", over_type = "wireframe")
+            @test Plotting.primary(fd).color[] == :royalblue3
+            @test fd.layers[2].plot_obj[].color[] == :royalblue3
             cleanup(dataset)
         end
 
@@ -2773,6 +2814,56 @@ using CDFViewer.Plotting
             Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
                 :arrows => (10, 8)))
             @test Plotting.layer_arrows(fd, 2) == (10, 8)
+            cleanup(dataset)
+        end
+
+        @testset "A bad per-layer density value is refused" begin
+            # `over.arrows` and `over.every` used to reach `setproperty!`
+            # and surface a bare InexactError; they say what their
+            # figure-level twins say
+            (fd, state, dataset) = init_overlay_figure(over_type = "quiver",
+                                                       over = "u")
+            settings = fd.layers[2].settings
+            for (property, value) in [(:arrows, (6.5, 4)), (:arrows, (0, 4)),
+                                      (:arrows, (1, 2, 3)), (:arrows, 5),
+                                      (:every, 2.5), (:every, 0)]
+                # word for word, source location included: one complaint,
+                # made in one place
+                layer = @capture_err Plotting.set_property_mapping(
+                    fd, settings, property, value)
+                figure = @capture_err Plotting.apply_figure_settings!(
+                    fd, property, value)
+                @test !isempty(layer)
+                @test layer == figure
+                # and neither side stores anything
+                @test getproperty(settings, property) === nothing
+            end
+            @test fd.settings.arrows[] == Constants.VECTOR_ARROWS
+            @test fd.settings.every[] === nothing
+
+            # the wording is the figure-level setters' own
+            normalize(text) = replace(text, r"\s+" => " ")
+            arrows_msg = @capture_err Plotting.set_property_mapping(
+                fd, settings, :arrows, (6.5, 4))
+            every_msg = @capture_err Plotting.set_property_mapping(
+                fd, settings, :every, 0)
+            @test occursin("arrows must be an (nx, ny) tuple of positive " *
+                           "integers, got (6.5, 4)", normalize(arrows_msg))
+            @test occursin("every must be a positive integer, got 0",
+                           normalize(every_msg))
+
+            # values that pass are still stored, and still re-lay the
+            # arrows in place
+            axis = fd.ax[]
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                Symbol("over.arrows") => (6, 4)))
+            @test settings.arrows == (6, 4)
+            @test length(fd.layers[2].plot_obj[].points[]) == 6 * 4
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                Symbol("over.arrows") => (6, 4), Symbol("over.every") => 3))
+            @test settings.every == 3
+            @test length(fd.layers[2].plot_obj[].points[]) == 4 * 3
+            @test fd.ax[] === axis
             cleanup(dataset)
         end
 

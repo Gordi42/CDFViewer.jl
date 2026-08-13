@@ -28,11 +28,14 @@ plot_figure(session) # hide
 Over a flat 2D base the new layer starts as a `contour`, since a second
 heatmap would simply hide the first. `over.p` picks a different type.
 
-The overlay keeps the diverging default colormap, which is faint against a
-heatmap of the same colors. Give it a plain color instead.
+An overlay contour is drawn in black. The base layer owns the colors and
+the colorbar, and a second colormap would only fight the first: pale
+lines disappear into the pale band of the field underneath. `over.colormap=`
+colors the lines by level again, `over.color=` paints them all one color,
+and the rest of the line is styled as usual.
 
 ```@example ov
-repl(session, "over.color=:black, over.linewidth=2, over.levels=6") # hide
+repl(session, "over.linewidth=2, over.levels=6") # hide
 ```
 
 ```@example ov
@@ -152,7 +155,7 @@ n-th variable is drawn with the n-th plot type.
 cdfviewer demo.nc -v temperature -x lon -y lat -p heatmap \
     --over=pressure --over-plot=contour \
     --over='u,v'    --over-plot=quiver \
-    --kwargs='over.color=:black, over2.arrows=(20, 14)'
+    --kwargs='over.linewidth=2, over2.arrows=(20, 14)'
 ```
 
 `export` writes the flags back out, so a session built at the prompt
