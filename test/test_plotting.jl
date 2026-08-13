@@ -1440,10 +1440,9 @@ using CDFViewer.Plotting
             state.y_name[] = "lat"
             state.plot_type_name[] = "heatmap"
             Plotting.create_axis!(fig_data, state)
-            kwarg_text = fig_data.ui.main_menu.plot_menu.plot_kw.stored_string
 
             # Act - set some kwargs
-            kwarg_text[] = "colorrange = (0.2, 0.8), colormap=:ice, titlevisible = false, label=\"My Label\"";
+            set_kwargs!(fig_data, "colorrange = (0.2, 0.8), colormap=:ice, titlevisible = false, label=\"My Label\"")
 
             # wait until all tasks are finished
             [wait(t) for t in fig_data.tasks[]]
@@ -1478,12 +1477,11 @@ using CDFViewer.Plotting
             state.x_name[] = "lon"
             state.y_name[] = "lat"
             state.plot_type_name[] = "contour"
-            kwarg_text = fig_data.ui.main_menu.plot_menu.plot_kw.stored_string
             Plotting.create_axis!(fig_data, state)
 
             # Act & Assert - set nonexistent kwarg
             @test_logs (:warn, r"Property nonexistent not found in any plot object") begin
-                kwarg_text[] = "nonexistent = 123, colormap = :ice"
+                set_kwargs!(fig_data, "nonexistent = 123, colormap = :ice")
                 [wait(t) for t in fig_data.tasks[]]
             end
 
@@ -1530,7 +1528,6 @@ using CDFViewer.Plotting
         @testset "Resize Figure" begin
             # Arrange
             fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "contour")
-            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
             settings = fd.settings
 
             # Assert default size
@@ -1554,7 +1551,7 @@ using CDFViewer.Plotting
             assert_fig_size(fd.fig, new_size2)
 
             # resize figure via kwarg
-            kwarg_text[] = "figsize = $(new_size)"
+            set_kwargs!(fd, "figsize = $(new_size)")
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
             assert_fig_size(fd.fig, new_size)
 
@@ -1576,30 +1573,29 @@ using CDFViewer.Plotting
         @testset "cbar kwarg" begin
             # Arrange
             fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
-            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
             # Assert Check that a colorbar is present
             @test fd.cbar[] isa Colorbar
 
             # Act - remove colorbar via kwarg
-            kwarg_text[] = "cbar = false"
+            set_kwargs!(fd, "cbar = false")
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are
             @test fd.cbar[] === nothing
 
             # Act - add colorbar via kwarg
-            kwarg_text[] = "cbar = true"
+            set_kwargs!(fd, "cbar = true")
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are
             @test fd.cbar[] isa Colorbar
 
             # Act - set to non-Bool value
             @test_warn "Value for cbar must be of type" begin
-                kwarg_text[] = "cbar = 123"
+                set_kwargs!(fd, "cbar = 123")
                 [wait(t) for t in fd.tasks[]]  # wait until all tasks are
             end
             @test fd.cbar[] isa Colorbar  # should not have changed
 
             # Act - change to a plot type that does not support colorbar
-            kwarg_text[] = ""
+            set_kwargs!(fd, "")
             state.plot_type_name[] = "line"
             Plotting.create_axis!(fd, state)
 
@@ -1614,7 +1610,6 @@ using CDFViewer.Plotting
             # Arrange
             fd, state, dataset = arrange_and_create_axis(
                 "2d_float", ["lon", "lat"], "heatmap")
-            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
             settings = fd.settings
             fonts = Makie.theme(fd.fig.scene).fonts
 
@@ -1682,9 +1677,9 @@ using CDFViewer.Plotting
             @test cbar.labelrotation[] === Makie.automatic
 
             # Act - set everything through the keyword path instead
-            kwarg_text[] = ("cbarlabel=\"Salinity\", cbarlabelsize=18, " *
+            set_kwargs!(fd, ("cbarlabel=\"Salinity\", cbarlabelsize=18, " *
                             "cbarlabelcolor=:blue, cbarlabelfont=\"italic\", " *
-                            "cbarlabelrotation=1.5, cbarlabelpadding=8")
+                            "cbarlabelrotation=1.5, cbarlabelpadding=8"))
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
 
             # Assert
@@ -1696,7 +1691,7 @@ using CDFViewer.Plotting
             @test fd.cbar[].labelpadding[] == 8.0
 
             # Act - deleting the keywords restores the defaults
-            kwarg_text[] = ""
+            set_kwargs!(fd, "")
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
 
             # Assert
@@ -1716,13 +1711,12 @@ using CDFViewer.Plotting
             # Arrange - a plot type that has no colorbar at all
             fd, state, dataset = arrange_and_create_axis(
                 "2d_float", ["lon"], "line")
-            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
             @test fd.cbar[] === nothing
 
             # Act & Assert: the settings are stored silently -- a warning
             # here would make the kwargs path revert them
             @test_nowarn begin
-                kwarg_text[] = "cbarlabel=\"auto\", cbarlabelsize=26"
+                set_kwargs!(fd, "cbarlabel=\"auto\", cbarlabelsize=26")
                 [wait(t) for t in fd.tasks[]]  # wait until all tasks are
             end
             @test fd.settings.cbarlabel[] == "auto"
@@ -1744,31 +1738,30 @@ using CDFViewer.Plotting
         @testset "moveable" begin
             # Arrange
             fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
-            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
             # Assert Check that the axis is moveable by default
             @test fd.ax[] isa Axis
             @test fd.ax[].interactions[:dragpan][1]
 
             # Act - make axis non-moveable via kwarg
-            kwarg_text[] = "moveable = false"
+            set_kwargs!(fd, "moveable = false")
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are
             @test !fd.ax[].interactions[:dragpan][1]
 
             # Act - make axis moveable again via kwarg
-            kwarg_text[] = "moveable = true"
+            set_kwargs!(fd, "moveable = true")
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are
             @test fd.ax[].interactions[:dragpan][1]
 
             # Act - set to non-Bool value
             @test_warn "Value for moveable must be of type" begin
-                kwarg_text[] = "moveable = 123"
+                set_kwargs!(fd, "moveable = 123")
                 [wait(t) for t in fd.tasks[]]  # wait until all tasks are
             end
 
             # Act - Disable moveable and then delete kwarg
-            kwarg_text[] = "moveable = false"
-            kwarg_text[] = ""
+            set_kwargs!(fd, "moveable = false")
+            set_kwargs!(fd, "")
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are
             @test fd.ax[].interactions[:dragpan][1]
 
@@ -1780,7 +1773,6 @@ using CDFViewer.Plotting
             @testset "Geographic available" begin
                 # Arrange
                 fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
-                kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
                 # Assert Check that the axis is not geographic by default
                 @test fd.ax[] isa Axis
@@ -1791,7 +1783,7 @@ using CDFViewer.Plotting
                 @test fd.coastlines[] isa Lines
 
                 # Act - make axis geographic 
-                kwarg_text[] = "geographic = true"
+                set_kwargs!(fd, "geographic = true")
 
                 # Assert
                 @test fd.ax[] isa GeoAxis
@@ -1802,7 +1794,7 @@ using CDFViewer.Plotting
                 @test fd.coastlines[] isa Lines
 
                 # Act - disable geographic via kwarg
-                kwarg_text[] = "geographic = false"
+                set_kwargs!(fd, "geographic = false")
                 [wait(t) for t in fd.tasks[]]  # wait until all tasks are
 
                 # Assert
@@ -1820,7 +1812,6 @@ using CDFViewer.Plotting
             @testset "Geographic unavailable" begin
                 # Arrange
                 fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "float_dim"], "heatmap")
-                kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
                 # Assert Check that the axis is not geographic by default
                 @test fd.ax[] isa Axis
@@ -1831,7 +1822,7 @@ using CDFViewer.Plotting
                 @test fd.coastlines[] === nothing
 
                 # Act - make axis geographic 
-                kwarg_text[] = "geographic = true"
+                set_kwargs!(fd, "geographic = true")
 
                 # Assert
                 @test fd.ax[] isa Axis
@@ -1842,7 +1833,7 @@ using CDFViewer.Plotting
                 @test fd.coastlines[] === nothing
 
                 # Act - disable geographic via kwarg
-                kwarg_text[] = "geographic = false"
+                set_kwargs!(fd, "geographic = false")
                 [wait(t) for t in fd.tasks[]]  # wait until all tasks are
 
                 # Assert
@@ -1863,8 +1854,7 @@ using CDFViewer.Plotting
                 # metres writes a keyword that cannot be applied again
                 fd, state, dataset = arrange_and_create_axis(
                     "5d_float", ["lon", "lat"], "heatmap")
-                kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
-                kwarg_text[] = "geographic = true"
+                set_kwargs!(fd, "geographic = true")
                 ax = fd.ax[]
                 @test ax isa GeoAxis
 
@@ -1923,13 +1913,12 @@ using CDFViewer.Plotting
                     @testset "Projection: $proj" begin
                         # Arrange
                         fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
-                        kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
                         # Assert Check that the axis is not geographic by default
                         @test fd.ax[] isa Axis
 
                         # Act - set projection via kwarg
-                        kwarg_text[] = "proj=\"$proj\""
+                        set_kwargs!(fd, "proj=\"$proj\"")
                         [wait(t) for t in fd.tasks[]]  # wait until all tasks are
 
                         # Assert: Axis should now be a GeoAxis with the specified projection
@@ -1951,13 +1940,12 @@ using CDFViewer.Plotting
             @testset "Projection unavailable" begin
                 # Arrange
                 fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "float_dim"], "heatmap")
-                kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
                 # Assert Check that the axis is not geographic by default
                 @test fd.ax[] isa Axis
 
                 # Act - set projection via kwarg
-                kwarg_text[] = "proj=\"+proj=ortho\""
+                set_kwargs!(fd, "proj=\"+proj=ortho\"")
                 [wait(t) for t in fd.tasks[]]  # wait until all tasks are
 
                 # Assert: Axis should still be a regular Axis
@@ -1979,8 +1967,7 @@ using CDFViewer.Plotting
                 @testset "geographic = $geo" begin
                     # Arrange
                     fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
-                    kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
-                    kwarg_text[] = "geographic = $geo"
+                    set_kwargs!(fd, "geographic = $geo")
                     ax_type = geo ? GeoAxis : Axis
                     earth_type = geo ? Surface : Image
 
@@ -1991,7 +1978,7 @@ using CDFViewer.Plotting
                     @test fd.earth[] === nothing
 
                     # Act - add land via kwarg
-                    kwarg_text[] = "land = true, geographic = $geo"
+                    set_kwargs!(fd, "land = true, geographic = $geo")
                     [wait(t) for t in fd.tasks[]]  # wait until all tasks are
 
                     # Assert
@@ -2001,7 +1988,7 @@ using CDFViewer.Plotting
                     @test fd.earth[] === nothing
 
                     # Act - add earth via kwarg
-                    kwarg_text[] = "earth = true, geographic = $geo"
+                    set_kwargs!(fd, "earth = true, geographic = $geo")
                     [wait(t) for t in fd.tasks[]]  # wait until all tasks are
 
                     # Assert
@@ -2011,7 +1998,7 @@ using CDFViewer.Plotting
                     @test fd.earth[] isa earth_type
 
                     # Act - earth + land
-                    kwarg_text[] = "land = true, earth = true, geographic = $geo"
+                    set_kwargs!(fd, "land = true, earth = true, geographic = $geo")
                     [wait(t) for t in fd.tasks[]]  # wait until all tasks are
                     @test fd.ax[] isa ax_type
                     @test fd.coastlines[] isa Lines
@@ -2026,21 +2013,20 @@ using CDFViewer.Plotting
 
         @testset "Scale" begin
             fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
-            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
             # Assert default scale
             @test fd.settings.scale[] == 110
             @test fd.coastlines[] isa Lines
 
             # Act
-            kwarg_text[] = "scale = 50"
+            set_kwargs!(fd, "scale = 50")
 
             # Assert
             @test fd.settings.scale[] == 50
             @test fd.coastlines[] isa Lines
 
             # Act - change scale via kwarg
-            kwarg_text[] = "scale = 10"
+            set_kwargs!(fd, "scale = 10")
             [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
 
             # Assert
@@ -2049,7 +2035,7 @@ using CDFViewer.Plotting
 
             # Act - change scale to bad value
             @test_warn "Available scales are" begin
-                kwarg_text[] = "scale = 77"  # not an available scale
+                set_kwargs!(fd, "scale = 77")  # not an available scale
                 [wait(t) for t in fd.tasks[]]  # wait until all tasks are finished
             end
 
@@ -2443,25 +2429,24 @@ using CDFViewer.Plotting
 
         @testset "Density settings" begin
             (fd, state, dataset) = init_vector_figure("quiver")
-            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
 
             @test fd.settings.arrows[] == Constants.VECTOR_ARROWS
             @test fd.settings.every[] === nothing
 
             # a target count thins the grid without rebuilding the axis
             axis = fd.ax[]
-            kwarg_text[] = "arrows=(6, 4)"
+            set_kwargs!(fd, "arrows=(6, 4)")
             @test fd.settings.arrows[] == (6, 4)
             @test length(Plotting.primary(fd).points[]) == 6 * 4
             @test fd.ax[] === axis
 
             # `every` picks exact grid points
-            kwarg_text[] = "every=3"
+            set_kwargs!(fd, "every=3")
             @test fd.settings.every[] == 3
             @test length(Plotting.primary(fd).points[]) == 4 * 3
 
             # and deleting both restores the defaults
-            kwarg_text[] = ""
+            set_kwargs!(fd, "")
             @test fd.settings.arrows[] == Constants.VECTOR_ARROWS
             @test fd.settings.every[] === nothing
             @test length(Plotting.primary(fd).points[]) == 12 * 8
@@ -2485,8 +2470,7 @@ using CDFViewer.Plotting
             @test !Plotting.is_arrow_type(fd)
             before = Plotting.primary(fd).line_points[]
 
-            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
-            kwarg_text[] = "arrows=(6, 4), every=3"
+            set_kwargs!(fd, "arrows=(6, 4), every=3")
 
             @test fd.settings.arrows[] == (6, 4)
             @test fd.settings.every[] == 3

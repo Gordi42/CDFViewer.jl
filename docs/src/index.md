@@ -19,8 +19,8 @@ plot_figure(session) # hide
   keystrokes, without writing a script or a notebook.
 - A `CDFViewer>` prompt with tab completion, persistent history, and reverse
   search drives the whole application from the keyboard.
-- Every setting is also available in a menu window with dropdown menus,
-  sliders, and buttons. Both interfaces stay in sync.
+- What a plot shows is also selectable in a menu window with dropdown
+  menus, sliders, and buttons. Both interfaces stay in sync.
 - Nine plot types cover line and scatter plots, heatmaps, contours, 3D
   surfaces, and volume rendering.
 - 2D fields can be drawn on geographic map projections with coastlines,

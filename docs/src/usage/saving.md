@@ -25,8 +25,9 @@ Two options control the output.
 - `px_per_unit` multiplies the resolution. A value of `2` doubles the pixel
   resolution at the same figure layout, for print-quality output.
 
-Without a `filename`, a name is derived automatically. In the menu window,
-the options are typed into the text box at the very bottom.
+Without a `filename`, a name is derived automatically. Both options stay
+set until you change them, so the *Save* button of the menu writes with
+whatever you gave last.
 
 ## Recording videos
 

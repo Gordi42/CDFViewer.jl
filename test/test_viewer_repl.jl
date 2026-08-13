@@ -1,6 +1,7 @@
 using Test
 
 using GLMakie
+using Makie
 using Suppressor
 using CDFViewer.Constants
 using CDFViewer.Data
@@ -675,6 +676,67 @@ using CDFViewer.ViewerREPL
             @test occursin("color => :red", output)
             @test occursin("linewidth => 2", output)
             @test plot_obj.linewidth[] == 2
+
+            # Cleanup
+            cleanup(state)
+        end
+
+        @testset "Apply Expression Kwargs" begin
+            # a value like `Makie.Symlog10(1e-2)` has no text form that
+            # reads back. It used to be serialised into the menu's keyword
+            # box and parsed again, which lost it -- and the
+            # all-or-nothing revert took the keyword beside it down too.
+            # Arrange
+            state = init_state()
+            ViewerREPL.select_variable(state, "v 2d_float")
+            ViewerREPL.select_x_axis(state, "x lon")
+            ViewerREPL.select_y_axis(state, "y lat")
+            ViewerREPL.select_plot_type(state, "p heatmap")
+
+            # Act: both keywords on one line
+            ViewerREPL.evaluate_command(
+                state, "colorscale=Makie.Symlog10(1e-2), colormap=:plasma")
+            [wait(t) for t in state.controller.fd.tasks[]]
+
+            # Assert
+            plot_obj = Plotting.primary(state.controller.fd)
+            @test plot_obj.colorscale[] isa Makie.ReversibleScale
+            @test plot_obj.colormap[] == :plasma
+
+            # Act: and a third keyword after them, which reads the store
+            # back and would carry a mangled value along
+            ViewerREPL.evaluate_command(state, "title=\"Symlog\"")
+            [wait(t) for t in state.controller.fd.tasks[]]
+
+            # Assert: the first two are still on
+            @test plot_obj.colorscale[] isa Makie.ReversibleScale
+            @test plot_obj.colormap[] == :plasma
+            @test state.controller.fd.title_text[] == "Symlog"
+
+            # Cleanup
+            cleanup(state)
+        end
+
+        @testset "Apply Expression Kwargs One at a Time" begin
+            # Arrange
+            state = init_state()
+            ViewerREPL.select_variable(state, "v 2d_float")
+            ViewerREPL.select_x_axis(state, "x lon")
+            ViewerREPL.select_y_axis(state, "y lat")
+            ViewerREPL.select_plot_type(state, "p heatmap")
+
+            # Act: one line each
+            ViewerREPL.evaluate_command(state, "colorscale=Makie.Symlog10(1e-2)")
+            [wait(t) for t in state.controller.fd.tasks[]]
+            ViewerREPL.evaluate_command(state, "colormap=:plasma")
+            [wait(t) for t in state.controller.fd.tasks[]]
+
+            # Assert
+            plot_obj = Plotting.primary(state.controller.fd)
+            @test plot_obj.colorscale[] isa Makie.ReversibleScale
+            @test plot_obj.colormap[] == :plasma
+            # and the store holds the object, not a rendering of it
+            @test state.controller.ui.state.kwargs[][:colorscale] isa Makie.ReversibleScale
 
             # Cleanup
             cleanup(state)

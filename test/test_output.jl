@@ -11,6 +11,66 @@ all_formats = vcat(vid_formats, fig_formats)
 
 @testset "Output.jl" begin
 
+    @testset "apply_settings_string!" begin
+        settings = Output.OutputSettings("output")
+
+        # Act: every field the command line may name
+        Output.apply_settings_string!(
+            settings, "filename=\"movie.mp4\", framerate=12, px_per_unit=2, range=2:8")
+
+        # Assert
+        @test settings.filename == "movie.mp4"
+        @test settings.framerate == 12
+        @test settings.px_per_unit == 2
+        @test settings.range == 2:8
+
+        # Act & Assert: an empty line changes nothing
+        Output.apply_settings_string!(settings, "")
+        @test settings.filename == "movie.mp4"
+
+        # Act & Assert: a field that does not exist is named back
+        @test_warn "Unknown OutputSettings property: dpi" begin
+            Output.apply_settings_string!(settings, "dpi=300")
+        end
+
+        # Act & Assert: so is a value the field cannot take
+        @test_warn "Failed to set OutputSettings.framerate" begin
+            Output.apply_settings_string!(settings, "framerate=\"fast\"")
+        end
+        @test settings.framerate == 12
+    end
+
+    @testset "settings_string" begin
+        # Assert: settings a fresh start would reproduce write nothing
+        settings = Output.OutputSettings("demo")
+        @test Output.settings_string(settings; filename = "demo") == ""
+
+        # Assert: a name that was not derived from the data file travels
+        @test Output.settings_string(settings; filename = "other") ==
+            "filename=\"demo\""
+
+        # Act: change everything else
+        settings.framerate = 12
+        settings.px_per_unit = 2
+        settings.range = 2:8
+
+        # Assert
+        @test Output.settings_string(settings; filename = "demo") ==
+            "framerate=12, px_per_unit=2, range=2:8"
+
+        # Assert: the working directory is the process' own and stays out
+        settings.work_dir = tempdir()
+        @test !occursin("work_dir", Output.settings_string(settings; filename = "demo"))
+
+        # Assert: what it writes reads back as what it was given
+        parsed = Output.apply_settings_string!(
+            Output.OutputSettings("demo"),
+            Output.settings_string(settings; filename = "demo"))
+        @test parsed.framerate == settings.framerate
+        @test parsed.px_per_unit == settings.px_per_unit
+        @test parsed.range == settings.range
+    end
+
     @testset "check_extension" begin
         base = tempname()
         # Test when extension is missing

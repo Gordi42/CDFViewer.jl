@@ -1,8 +1,8 @@
 # Customizing Plots
 
 Almost every visual aspect of a plot can be changed at runtime with keyword
-arguments. Any input line containing `key=value` pairs, at the prompt or in
-the *Plot Settings* text box of the menu, is applied to the current plot.
+arguments. Any line you type at the prompt that contains `key=value` pairs
+is applied to the current plot.
 
 ```@example cst
 using Main.DocHelpers # hide

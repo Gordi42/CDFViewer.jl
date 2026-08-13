@@ -2,8 +2,18 @@ using DataStructures
 using NCDatasets
 
 using CDFViewer.Data
+using CDFViewer.Parsing
 using CDFViewer.UI
 using CDFViewer.Plotting
+
+"""
+    set_kwargs!(fd, kw_str)
+
+Apply a keyword line the way the prompt does: parse it, then hand the
+values to the store.
+"""
+set_kwargs!(fd::Plotting.FigureData, kw_str::AbstractString)::Nothing =
+    Plotting.update_kwargs!(fd, Parsing.parse_kwargs(kw_str))
 
 struct Dim
     name::String

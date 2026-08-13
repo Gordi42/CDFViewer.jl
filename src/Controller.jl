@@ -163,16 +163,13 @@ function process_parsed_args!(controller::ViewerController)::Nothing
 
     # Process kwargs if provided
     if haskey(parsed_args, "kwargs") && parsed_args["kwargs"] != ""
-        textbox = controller.ui.main_menu.plot_menu.plot_kw
-        textbox.displayed_string = parsed_args["kwargs"]
-        textbox.stored_string = parsed_args["kwargs"]
+        Plotting.update_kwargs!(
+            controller.fd, Parsing.parse_kwargs(parsed_args["kwargs"]))
     end
 
     # Process saveoptions if provided
-    if haskey(parsed_args, "saveoptions") && parsed_args["saveoptions"] != ""
-        textbox = controller.ui.main_menu.export_menu.options
-        textbox.displayed_string = parsed_args["saveoptions"]
-        textbox.stored_string = parsed_args["saveoptions"]
+    if haskey(parsed_args, "saveoptions")
+        UI.apply_output_settings!(controller.ui.state, parsed_args["saveoptions"])
     end
 
     nothing
@@ -768,16 +765,23 @@ function get_export_string(controller::ViewerController)::String
         exp *= " --kwargs='$text'"
     end
     # get the saveoptions
-    text = controller.ui.main_menu.export_menu.options.stored_string[]
-    if !isnothing(text) && !isempty(text)
+    text = get_save_option_string(controller)
+    if !isempty(text)
         exp *= " --saveoptions='$text'"
     end
-    
+
     exp
 end
 
+"The save options as a `-s` line, empty when a restart sets them anyway."
+get_save_option_string(controller::ViewerController)::String =
+    Output.settings_string(controller.ui.state.output_settings[];
+                           filename = get_standard_filename(controller.parsed_args))
+
 function get_standard_filename(parsed_args::Union{Nothing,Dict})::String
-    isnothing(parsed_args) && return "output"
+    # no command line to take a name from -- a controller built by hand
+    # carries an empty argument dict
+    (isnothing(parsed_args) || !haskey(parsed_args, "files")) && return "output"
     datafile = parsed_args["files"][1]
     splitext(basename(datafile))[1]
 end

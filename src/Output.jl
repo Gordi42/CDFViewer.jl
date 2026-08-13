@@ -47,6 +47,30 @@ function apply_settings_string!(settings::OutputSettings, settings_str::Abstract
     settings
 end
 
+"""
+    settings_string(settings; filename)
+
+The settings written back as a `-s` line, holding only what a fresh
+start would not set by itself.
+
+`filename` is the name the command line derives from the data file, so a
+name that was never changed stays out of the line. The working directory
+is the one the process was started in and never travels with it.
+"""
+function settings_string(settings::OutputSettings; filename::String)::String
+    defaults = OutputSettings(filename)
+    parts = String[]
+    settings.filename == defaults.filename ||
+        push!(parts, "filename=\"$(settings.filename)\"")
+    settings.framerate == defaults.framerate ||
+        push!(parts, "framerate=$(settings.framerate)")
+    settings.px_per_unit == defaults.px_per_unit ||
+        push!(parts, "px_per_unit=$(settings.px_per_unit)")
+    isnothing(settings.range) ||
+        push!(parts, "range=$(settings.range)")
+    join(parts, ", ")
+end
+
 # ============================================================
 #  Directory Management
 # ============================================================
