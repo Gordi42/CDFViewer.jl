@@ -165,16 +165,38 @@ const VIDEO_FILE_FORMATS = [".mkv", ".mp4", ".webm", ".gif"]
 #
 # The viewer's own chrome takes its colors from the Makie theme that is
 # installed (see `Themes`), so none of them is tabulated per theme. What
-# is tabulated here is how far a color is dragged from the theme's
-# background toward its text color: 0 is the ground, 1 the text.
+# is tabulated here is how far a color is dragged off the theme's
+# background: 0 is the ground, 1 is whatever it is dragged toward.
 #
-# The three fractions below reproduce `:lightgray`, `:lightgray` again and
-# `rgb(240, 240, 240)` on the black-on-white pair the app used to assume,
-# which is what land, a grayed-out label and an idle slider bar were
-# painted in before they were derived.
+# The two fractions below reproduce `:lightgray` twice on the black-on-white
+# pair the app used to assume, which is what land and a grayed-out label
+# were painted in before they were derived. Both are dragged toward the
+# theme's text color, because both are text or as faint as text is.
 const LAND_BLEND = 0.17254901960784313
 const INACTIVE_TEXT_BLEND = 0.17254901960784313
+
+# How far off the ground Makie paints a widget's own surface, and the
+# opacity it draws a dropdown's arrow at. A resting button, the frame of an
+# off toggle, an idle slider bar and the closed dropdown all sit one step
+# off a white page (`RGBf(0.94)`), and one row of an open dropdown half a
+# step (`RGBf(0.97)`). The coordinate sliders keep the slightly smaller
+# step the viewer has always grayed their own bars out by
+# (`rgb(240, 240, 240)`), which is what `Controller` writes over the top.
+#
+# These are dragged toward the *pole* the ground is furthest from -- black
+# off a light page, white off a dark one -- and not toward the text color.
+# `theme_dark` writes in `gray45` on a `gray10` ground, not half the
+# distance the pole is away: six percent of *that* is a surface nobody can
+# tell from the page it sits on.
+const WIDGET_FACE_BLEND = 0.06
+const MENU_CELL_BLEND = 0.03
 const SLIDER_BAR_BLEND = 0.058823529411764705
+const DROPDOWN_ARROW_ALPHA = 0.2
+
+# Below this luminance a theme's background counts as a dark ground, which
+# decides which pole the chrome steps toward and which diverging colormap
+# the data starts out in.
+const DARK_GROUND_LUMINANCE = 0.5
 
 # The accent Makie paints every widget with. The sliders read it from here
 # rather than from the theme so they keep agreeing with the buttons,
@@ -182,10 +204,13 @@ const SLIDER_BAR_BLEND = 0.058823529411764705
 const ACCENT_COLOR = parse(Colorant, "rgb(79, 122, 214)")
 const ACCENT_DIMMED_COLOR = parse(Colorant, "rgb(174, 192, 230)")
 
-# The face Makie paints a resting button in (`Button.buttoncolor`), light
-# gray under every theme. A label drawn on it has to read against *it* and
-# not against the window behind it, or a dark theme puts white lettering
-# on a white button.
-const WIDGET_FACE_COLOR = RGB{Float32}(0.94, 0.94, 0.94)
+# The diverging colormap a scalar field starts out in. `:balance` is white
+# in the middle, which is where a light page wants the middle of its range;
+# on a dark page that white band turns into the brightest thing on the
+# figure, so a dark ground gets `:berlin` -- the same diverging shape with
+# a dark middle and light ends. Which of the two applies follows the
+# luminance of the theme's background (see `Themes.theme_colors`).
+const COLORMAP = :balance
+const DARK_COLORMAP = :berlin
 
 end

@@ -254,12 +254,37 @@ plot_figure(session) # hide
 
 Everything CDFViewer draws itself follows the theme instead of assuming a
 white page: coastlines, the land fill, the colorbar label, the box behind
-the playback label, the contour lines of an overlay, and the labels in the
-menu window. All of them are derived from the two colors every theme
-fixes, its background and its text color, so black coastlines never end up
-on a black background. The data keeps its own colors -- the diverging
-colormap and the line color of a 1D plot read on any background and are
-left alone.
+the playback label, the contour lines of an overlay, and the whole of the
+menu window -- the face of every button, dropdown, toggle and slider as
+much as the lettering on it. All of it is derived from the two colors
+every theme fixes, its background and its text color, so black coastlines
+never end up on a black background and a dropdown is never a white box on
+a dark page. The one thing that keeps its own color under every theme is
+the blue a widget lights up in when you point at it or drag it, which is
+Makie's and reads on either ground.
+
+```@example cstt
+using GLMakie: save # hide
+run!(session, "theme dark") # hide
+save("menu_dark.png", menu_figure(session)) # hide
+publish_asset("menu_dark.png", "customization") # hide
+nothing # hide
+```
+
+```@raw html
+<img src="menu_dark.png" alt="The menu window under the dark theme" width="400"
+     style="border: 1px solid rgba(128, 128, 128, 0.6); border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);">
+```
+
+The colormap follows too. An untouched field is drawn in `:balance`, which
+is white in the middle, on a light page; on a dark page that white band
+would be the brightest thing on the figure, so a dark theme starts fields
+in `:berlin` instead -- the same diverging shape with its pale band moved
+off the middle of the range and onto its ends. Only the starting point
+moves: a `colormap=` you set yourself outranks it and is put back after
+the switch, like every other keyword. The line color of a 1D plot is left
+alone, a mid-blue that reads on either ground.
 
 A theme is not a keyword argument, because a figure takes its theme at the
 moment it is created and never looks at it again. Type `theme=dark` out of

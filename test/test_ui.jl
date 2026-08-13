@@ -76,22 +76,27 @@ using Makie
         end
 
         @testset "Labels read against the button, not the window" begin
-            # Arange & Act: a button's face is light gray whatever the
-            # theme says, so its label has to stay dark on a dark theme --
-            # inheriting the theme's text color would paint it white on
-            # a white button
+            # Arange & Act: the face and the lettering both come out of
+            # the installed theme, and a button says neither -- so this is
+            # what proves the theme actually reaches a built button, and
+            # that the two of them never land on top of each other
             previous = Themes.active()
             try
                 for name in Themes.theme_names()
                     Themes.activate!(name)
+                    colors = Themes.theme_colors()
                     export_menu = UI.ExportMenu(Figure())
                     for button in (export_menu.save_button,
                                    export_menu.record_button,
                                    export_menu.export_button)
                         face = Makie.to_color(button.buttoncolor[])
                         label = Makie.to_color(button.labelcolor[])
+                        @test face == colors.widget_face
+                        # theme_dark writes gray45 on gray10 and is a
+                        # low-contrast look by choice, so the bar is what
+                        # it asks for and not an absolute
                         @test abs(Themes.luminance(label) -
-                                  Themes.luminance(face)) > 0.4
+                                  Themes.luminance(face)) > 0.25
                     end
                 end
             finally

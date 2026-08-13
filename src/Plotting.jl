@@ -154,6 +154,20 @@ function rather than a constant because a theme switch has to move it.
 """
 default_cbarlabel_color()::RGBAf = Themes.theme_colors().text
 
+"""
+The colormap an untouched scalar field is drawn in: the diverging one the
+installed theme's ground asks for -- `:balance` on a light page, `:berlin`
+on a dark one, both diverging, the second with its pale band moved off the
+middle of the range and onto its ends.
+
+A function rather than a constant for the same reason as the label color,
+and it is only the *default*: an explicit `colormap=` is kept in the
+keyword store and put back over the top of it on every rebuild, so a theme
+switch does not take it away.
+"""
+default_colormap()::Symbol =
+    Themes.theme_colors().colormap
+
 struct FigureSettings
     figsize::Observable{Tuple{Int, Int}}
     cbar::Observable{Bool}
@@ -3385,9 +3399,9 @@ end
 
 function custom_heatmap!(ax, x, y, z, d)
     if ax isa GeoAxis
-        surface!(ax, x, y, d; colormap = :balance, inspectable=false, shading = NoShading)
+        surface!(ax, x, y, d; colormap = default_colormap(), inspectable=false, shading = NoShading)
     else
-        heatmap!(ax, x, y, d; colormap = :balance, inspectable=false)
+        heatmap!(ax, x, y, d; colormap = default_colormap(), inspectable=false)
     end
 end
 
@@ -3717,7 +3731,13 @@ end
 The colormap the contour of layer `i` starts out with: the usual
 diverging one on the base, and a colormap that is the theme's text color
 at every level on an overlay -- black on a white ground, white on a black
-one, so the lines read against the field underneath either way.
+one, so the lines read against the page they are drawn on.
+
+They read against the field underneath as well, because the field moves
+with the ground too: the middle of the range is pale under `:balance` on a
+light page and dark under `:berlin` on a dark one, which is the opposite
+end from the text color both times. What the lines lose either way are the
+extremes of the range, where the colormap has gone the other way.
 
 The base layer owns the color dimension and the colorbar, so an overlay
 only has to add structure -- a second colormap fights the first, and the
@@ -3731,7 +3751,7 @@ Makie reads a set `color` in preference to any colormap, so a later
 `over.colormap=` would have been swallowed without a word.
 """
 contour_colormap(i::Int)::Union{Symbol, Vector{RGBAf}} =
-    i == 1 ? :balance : fill(Themes.theme_colors().text, 2)
+    i == 1 ? default_colormap() : fill(Themes.theme_colors().text, 2)
 
 for plot in [
     # 2D plots
@@ -3743,10 +3763,10 @@ for plot in [
             colormap = contour_colormap(i), inspectable=false),
         create_2d_axis),
     Plot("contourf", 2, true,
-        (fd, ax, i, x, y, z, d) -> contourf!(ax, x, y, d, colormap = :balance, inspectable=false),
+        (fd, ax, i, x, y, z, d) -> contourf!(ax, x, y, d, colormap = default_colormap(), inspectable=false),
         create_2d_axis),
     Plot("surface", 2, true,
-        (fd, ax, i, x, y, z, d) -> surface!(ax, x, y, d, colormap = :balance, inspectable=false),
+        (fd, ax, i, x, y, z, d) -> surface!(ax, x, y, d, colormap = default_colormap(), inspectable=false),
         create_3d_axis; axis_kind = :ax3d),
     Plot("wireframe", 2, false,
         (fd, ax, i, x, y, z, d) -> wireframe!(ax, x, y, d, color = :royalblue3, inspectable=false),
@@ -3772,12 +3792,12 @@ for plot in [
     Plot("volume", 3, true,
         (fd, ax, i, x, y, z, d) -> volume!(
             ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
-            d, colormap = :balance),
+            d, colormap = default_colormap()),
         create_3d_axis; axis_kind = :ax3d),
     Plot("contour3d", 3, true,
         (fd, ax, i, x, y, z, d) -> contour!(
             ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
-            d, colormap = :balance),
+            d, colormap = default_colormap()),
         create_3d_axis; axis_kind = :ax3d),
 ]
     PLOT_TYPES[plot.type] = plot

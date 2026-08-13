@@ -1168,6 +1168,62 @@ NS = Constants.NOT_SELECTED_LABEL
             end
         end
 
+        @testset "A switch repaints the widgets, not only their labels" begin
+            with_default_theme() do
+                controller = init_default_controller()
+                widgets(c) = (
+                    c.ui.main_menu.export_menu.save_button.buttoncolor,
+                    c.ui.main_menu.variable_menu.selection_cell_color_inactive,
+                    c.ui.main_menu.playback_menu.toggle.framecolor_inactive,
+                    c.ui.main_menu.playback_menu.speed.color_inactive,
+                )
+                # the light gray Makie paints all four in, whatever theme
+                # is installed -- which is the whole reason they are stated
+                for widget in widgets(controller)
+                    @test Themes.luminance(Makie.to_color(widget[])) > 0.9
+                end
+
+                Controller.switch_theme!(controller, "black")
+
+                # a dark page turns every one of them round, and the
+                # lettering on them with it
+                for widget in widgets(controller)
+                    @test Themes.luminance(Makie.to_color(widget[])) < 0.1
+                end
+                @test Makie.to_color(
+                    controller.ui.main_menu.export_menu.save_button.labelcolor[]) ==
+                    Makie.to_color(:white)
+                @test Makie.to_color(
+                    controller.ui.main_menu.variable_menu.textcolor[]) ==
+                    Makie.to_color(:white)
+                cleanup(controller)
+            end
+        end
+
+        @testset "A switch moves the colormap but keeps a chosen one" begin
+            with_default_theme() do
+                controller = init_default_controller()
+                UI.select_variable!(controller.ui, "2d_float")
+                UI.select_x_axis!(controller.ui, "lon")
+                UI.select_y_axis!(controller.ui, "lat")
+                UI.select_plot_type!(controller.ui, "heatmap")
+                @test Plotting.primary(controller.fd).colormap[] == :balance
+
+                # a dark ground asks for a dark-centred colormap
+                Controller.switch_theme!(controller, "black")
+                @test Plotting.primary(controller.fd).colormap[] == :berlin
+
+                # but only as the default: a keyword outranks it, and the
+                # store is replayed into the rebuilt figure
+                Plotting.update_kwargs!(controller.fd, OrderedDict{Symbol, Any}(
+                    :colormap => :viridis))
+                @test Plotting.primary(controller.fd).colormap[] == :viridis
+                Controller.switch_theme!(controller, "minimal")
+                @test Plotting.primary(controller.fd).colormap[] == :viridis
+                cleanup(controller)
+            end
+        end
+
         @testset "The theme is part of what an export reproduces" begin
             with_default_theme() do
                 controller = init_default_controller()
