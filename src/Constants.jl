@@ -73,6 +73,11 @@ const FIGSIZE = (800, 600)
 const LABELSIZE = 20
 const TITLESIZE = 24
 
+# The title and the animated-axis label share one header line. A title too
+# long for the space left over is drawn smaller rather than across the
+# label -- but never smaller than this.
+const TITLESIZE_MIN = 12.0
+
 # Colorbar label. The size follows the axis labels; colour, font and
 # padding mirror Makie's own Colorbar defaults under the viewer's theme,
 # so an untouched option draws exactly as Makie would draw it.
@@ -129,6 +134,13 @@ const VECTOR_SCALE_QUANTILE = 0.98
 # Floor under cos(latitude) in the geographic arrow-length correction, so
 # arrows next to the poles stay finite.
 const COS_LATITUDE_FLOOR = 0.2
+
+# Longitude coverage from which a domain counts as global, its two edges
+# as one and the same meridian, and its edge arrows as worth masking; a
+# regional cut-out has no seam to cross and keeps them. Compared against
+# the span plus one cell, so grid resolution does not enter into it (see
+# `Plotting.wraps_globally`).
+const GLOBAL_LONGITUDE_SPAN = 350.0
 
 # A magnitude is non-negative, so vector plots default to a sequential
 # colormap instead of the app-wide diverging one, which washes out the

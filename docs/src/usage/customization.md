@@ -63,7 +63,9 @@ Deleting the keyword (`del colorrange`) returns to the default pinning.
 The colorbar starts without a label. `cbarlabel="auto"` labels it with the
 variable's name and unit -- the string the figure title uses by default --
 and the label follows when you switch variables. Any other string is drawn
-as given.
+as given. On a vector plot, where the colors are a magnitude, `"auto"`
+names that magnitude instead (see
+[Plot Types](plot_types.md#Quiver-and-streamplot-(vector-fields))).
 
 ```@example cst
 repl(session, "cbarlabel=\"auto\"") # hide

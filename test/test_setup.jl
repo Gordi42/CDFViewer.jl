@@ -134,6 +134,11 @@ function init_vector_temp_dataset()::String
         defVar(ds, "U10", 2.0 .* u, dims, attrib = OrderedDict("units" => "m s-1"))
         defVar(ds, "V10", 2.0 .* v, dims, attrib = OrderedDict("units" => "m s-1"))
         defVar(ds, "temp", abs.(u), dims, attrib = OrderedDict("units" => "K"))
+        # a pair whose unit is the CF spelling of "dimensionless"
+        defVar(ds, "ufrac", 0.1 .* u, dims, attrib = OrderedDict(
+            "units" => "1", "long_name" => "Zonal fraction"))
+        defVar(ds, "vfrac", 0.1 .* v, dims, attrib = OrderedDict(
+            "units" => "1", "long_name" => "Meridional fraction"))
         # a u-named variable whose partner does not exist
         defVar(ds, "uodd", u[:, :, 1], ("lon", "lat"),
                attrib = OrderedDict("units" => "m s-1"))

@@ -339,6 +339,32 @@ using CDFViewer.Plotting
             @test Plotting.animlabel_background_color((:black, 0.4)) == (:black, 0.4)
         end
 
+        @testset "Title gives way to the label" begin
+            fit = Plotting.fit_title_size
+            bold = Plotting.title_font()
+            text = "Eastward wind / Northward wind [m s-1]"
+            full = Plotting.measure_text(text, 24, bold)
+            @test full > 0
+
+            # room to spare: the configured size is kept untouched
+            @test fit(full + 10, text, 24) == 24.0
+            @test fit(full, text, 24) == 24.0
+
+            # too tight: shrunk exactly enough to fit beside the label
+            fitted = fit(0.8 * full, text, 24)
+            @test fitted ≈ 0.8 * 24 rtol = 0.02
+            @test Plotting.measure_text(text, fitted, bold) <= 0.8 * full + 1
+
+            # ... but never past the floor, and never on nothing to draw
+            @test fit(1.0, text, 24) == Constants.TITLESIZE_MIN
+            @test fit(0.0, text, 24) == Constants.TITLESIZE_MIN
+            @test fit(10.0, "", 24) == 24.0
+
+            # the bold face the title is drawn in is wider than the
+            # regular one, which is why it has to be measured separately
+            @test full > Plotting.measure_text(text, 24)
+        end
+
         @testset "Colorbar height matches the axis" begin
             (fig_data, state, dataset) = arrange_and_create_axis(
                 "2d_float", ["lon", "lat"], "heatmap")
@@ -2149,6 +2175,30 @@ using CDFViewer.Plotting
             @test polar.u[1, 2] ≈ 1.0 / Constants.COS_LATITUDE_FLOOR
         end
 
+        @testset "Global domains only" begin
+            wraps = Plotting.wraps_globally
+            # a global grid stops one cell short of a full turn, so the
+            # span alone would call a coarse one regional
+            @test wraps(collect(-180.0:30.0:150.0))      # span 330, 30 cells
+            @test wraps(collect(range(-180.0, 175.0, 72)))
+            @test wraps(collect(range(-179.75, 179.75, 720)))
+            @test wraps(collect(0.0:10.0:350.0))         # 0..360 grid
+            @test wraps([-180.0, 175.0])
+            # regional cut-outs are not
+            @test !wraps(collect(20.0:10.0:70.0))
+            @test !wraps(collect(range(-30.0, 40.0, 64)))
+            @test !wraps([0.0])
+            @test !wraps(Float64[])
+
+            # ... and the mask follows: the same eastward field keeps its
+            # edge arrows on a regional grid and loses them on a global one
+            edge_arrows(lon) = Plotting.decimate_vector_field(
+                lon, [0.0, 10.0], ones(length(lon), 2), zeros(length(lon), 2),
+                (100, 100), nothing, true).u[end, :]
+            @test all(isnan, edge_arrows(collect(-180.0:30.0:150.0)))
+            @test all(isfinite, edge_arrows(collect(20.0:10.0:70.0)))
+        end
+
         @testset "Dateline mask" begin
             mask! = Plotting.mask_outside_domain!
             # an arrow whose tip stays inside is kept
@@ -2186,6 +2236,58 @@ using CDFViewer.Plotting
             @test all(isfinite, field.u[1:(end - 1), :])
             # the colors are computed before the mask, so they survive
             @test all(isfinite, field.magnitude)
+        end
+
+        @testset "Labels name both components" begin
+            (fd, state, dataset) = init_vector_figure("quiver")
+            labels = fd.plot_data.labels
+
+            # the title names the field, the colorbar the scalar its
+            # colors stand for -- and the shared unit appears once
+            @test labels.title[] == "Eastward wind / Northward wind [m s-1]"
+            @test labels.cbar[] == "|(u, v)| [m s-1]"
+            @test fd.title_text[] == labels.title[]
+            @test fd.cbar_label.text[] == ""   # no label until asked for
+            Plotting.update_kwargs!(
+                fd, OrderedDict{Symbol, Any}(:cbarlabel => "auto"))
+            @test fd.cbar_label.text[] == "|(u, v)| [m s-1]"
+
+            # a component without a long_name falls back to its name, and
+            # units that disagree are dropped rather than misreported
+            state.variable2[] = "temp"
+            @test labels.title[] == "Eastward wind / temp"
+            @test labels.cbar[] == "|(u, temp)|"
+
+            # a dimensionless unit prints nothing at all, as everywhere
+            state.variable[] = "ufrac"
+            state.variable2[] = "vfrac"
+            @test labels.title[] == "Zonal fraction / Meridional fraction"
+            @test labels.cbar[] == "|(ufrac, vfrac)|"
+
+            # an explicit override still wins over both
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                :title => "Winds", :cbarlabel => "Speed"))
+            @test fd.title_text[] == "Winds"
+            @test fd.cbar_label.text[] == "Speed"
+            cleanup(dataset)
+        end
+
+        @testset "Scalar labels are unchanged" begin
+            (fd, state, dataset) = init_vector_figure("heatmap")
+            labels = fd.plot_data.labels
+            # with one component both labels are the variable's own, byte
+            # for byte what Data.get_label returns
+            expected = Data.get_label(dataset, "u")
+            @test labels.title[] == expected
+            @test labels.cbar[] == expected
+            @test expected == "Eastward wind [m s-1]"
+
+            # ... and a partner sitting in the second dropdown, left over
+            # from a vector type, changes nothing
+            state.variable2[] = "temp"
+            @test labels.title[] == expected
+            @test labels.cbar[] == expected
+            cleanup(dataset)
         end
 
         @testset "Partner data" begin
@@ -2280,6 +2382,22 @@ using CDFViewer.Plotting
                 Plotting.set_every!(fd, 0)
             end
             @test fd.settings.every[] === nothing
+            cleanup(dataset)
+        end
+
+        @testset "Streamlines ignore the arrow density" begin
+            # streamlines follow the field instead of sampling it, so the
+            # density settings are stored but must not cost an integration
+            (fd, state, dataset) = init_vector_figure("streamplot")
+            @test !Plotting.is_arrow_type(fd)
+            before = fd.plot_obj[].line_points[]
+
+            kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
+            kwarg_text[] = "arrows=(6, 4), every=3"
+
+            @test fd.settings.arrows[] == (6, 4)
+            @test fd.settings.every[] == 3
+            @test fd.plot_obj[].line_points[] === before
             cleanup(dataset)
         end
 

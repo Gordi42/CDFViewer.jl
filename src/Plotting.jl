@@ -173,21 +173,51 @@ end
 
 struct FigureLabels
     title::Observable{String}
+    # what `cbarlabel="auto"` shows -- the same as the title for a scalar
+    # plot, but a vector plot's bar carries the magnitude, not the field
+    cbar::Observable{String}
     xlabel::Observable{String}
     ylabel::Observable{String}
     zlabel::Observable{String}
 end
 
+"""
+    auto_title(dataset, variable, partner, nfields)
+
+The name a plot gives itself: the variable's label, or -- for a vector
+plot, which draws two components -- both of them.
+"""
+auto_title(dataset::Data.CDFDataset, variable::String, partner::String,
+           nfields::Int)::String =
+    nfields < 2 ? Data.get_label(dataset, variable) :
+        Data.get_vector_label(dataset, variable, partner)
+
+"""
+    auto_cbarlabel(dataset, variable, partner, nfields)
+
+What `cbarlabel="auto"` shows. It deliberately differs from the title for
+a vector plot: the title names the field, the bar names the scalar the
+colors actually stand for, which is the magnitude.
+"""
+auto_cbarlabel(dataset::Data.CDFDataset, variable::String, partner::String,
+               nfields::Int)::String =
+    nfields < 2 ? Data.get_label(dataset, variable) :
+        Data.get_magnitude_label(dataset, variable, partner)
+
 function FigureLabels(ui_state::UI.State, dataset::Data.CDFDataset,
                       settings::FigureSettings)::FigureLabels
-    title = @lift(Data.get_label(dataset, $(ui_state.variable)))
+    nfields = @lift(PLOT_TYPES[$(ui_state.plot_type_name)].nfields)
+    title = @lift(auto_title(dataset, $(ui_state.variable),
+                             $(ui_state.variable2), $nfields))
+    cbar = @lift(auto_cbarlabel(dataset, $(ui_state.variable),
+                                $(ui_state.variable2), $nfields))
     xlabel = @lift(Data.get_label(dataset, $(ui_state.x_name);
                                   target_unit = $(settings.xunit)))
     ylabel = @lift(Data.get_label(dataset, $(ui_state.y_name);
                                   target_unit = $(settings.yunit)))
     zlabel = @lift(Data.get_label(dataset, $(ui_state.z_name);
                                   target_unit = $(settings.zunit)))
-    FigureLabels(title, xlabel, ylabel, zlabel)
+    FigureLabels(title, cbar, xlabel, ylabel, zlabel)
 end
 
 # ============================================================
@@ -230,9 +260,9 @@ resolve_font(fonts::Attributes, name::AbstractString)::Makie.NativeFont =
 
 function ColorbarLabel(settings::FigureSettings, labels::FigureLabels,
                        fonts::Attributes)::ColorbarLabel
-    # "auto" follows the title observable, so the label tracks the
-    # variable instead of snapshotting its name
-    text = @lift(resolve_cbarlabel($(settings.cbarlabel), $(labels.title)))
+    # "auto" follows the labels' own colorbar observable, so the label
+    # tracks the variable instead of snapshotting its name
+    text = @lift(resolve_cbarlabel($(settings.cbarlabel), $(labels.cbar)))
     rotation = Observable{Any}(Makie.automatic)
     map!(rotation, settings.cbarlabelrotation) do value
         value === nothing ? Makie.automatic : value
@@ -302,10 +332,20 @@ function animlabel_font()
     end
 end
 
-"Measured pixel width of `s` at the given fontsize."
-measure_text(s::String, fontsize::Real = Constants.LABELSIZE)::Float64 =
+"The font the header title renders in (the theme's bold font)."
+function title_font()
+    try
+        Makie.to_font(Makie.to_value(Makie.theme(:fonts).bold))
+    catch
+        Makie.to_font("TeX Gyre Heros Makie")
+    end
+end
+
+"Measured pixel width of `s` at the given fontsize, in the given font."
+measure_text(s::String, fontsize::Real = Constants.LABELSIZE,
+             font = animlabel_font())::Float64 =
     isempty(s) ? 0.0 : Float64(Makie.widths(
-        Makie.text_bb(s, animlabel_font(), Float64(fontsize)))[1])
+        Makie.text_bb(s, font, Float64(fontsize)))[1])
 
 "Measured pixel height of `s` at the given fontsize."
 measure_height(s::String, fontsize::Real = Constants.LABELSIZE)::Float64 =
@@ -827,6 +867,34 @@ function clear_header!(fd::FigureData)::Nothing
 end
 
 """
+    fit_title_size(available, text, size)
+
+The size the title is actually drawn at: the configured one, shrunk just
+enough to leave the animated-axis label its share of the header line, and
+never past `TITLESIZE_MIN`. The two share one line, so without this a
+title long enough to reach across the plot box is simply drawn over the
+label -- which a vector plot, naming both its components, easily is. Text
+width is linear in the font size, so one division lands it. Measured in
+the bold face the title is actually drawn in: the regular one is narrow
+enough here to under-shrink by a good 15%.
+"""
+function fit_title_size(available::Real, text::AbstractString,
+                        size::Real)::Float64
+    width = measure_text(String(text), size, title_font())
+    (width <= available || width <= 0) && return Float64(size)
+    max(Float64(size) * Float64(available) / width,
+        Float64(Constants.TITLESIZE_MIN))
+end
+
+"Width the animated-axis label claims of the header line, gap included."
+function header_label_width(fd::FigureData)::Float64
+    fd.settings.animlabelpos[] === :title || return 0.0
+    segments = fd.anim_segments[]
+    isempty(segments) && return 0.0
+    sum(seg.width for seg in segments) + Float64(Constants.HEADER_GAP)
+end
+
+"""
     rebuild_header!(fd)
 
 Draw the header -- the title on the left, the animated-axis label on the
@@ -845,9 +913,15 @@ function rebuild_header!(fd::FigureData)::Nothing
     gap = Float64(Constants.HEADER_GAP)
     titlepos = @lift(Point2f($vp.origin[1],
                              $vp.origin[2] + $vp.widths[2] + gap))
+    # the drawn size, not the configured one: it gives way to the label
+    # rather than being drawn across it. Only ever shrinks, so the header
+    # band (sized from the configured size) never has to grow for it.
+    claimed = header_label_width(fd)
+    titlesize = @lift(fit_title_size($vp.widths[1] - claimed, $(fd.title_text),
+                                     $(fd.settings.titlesize)))
     plt = text!(scene, titlepos; text = fd.title_text,
                 align = (:left, :bottom), font = :bold,
-                fontsize = fd.settings.titlesize, space = :pixel,
+                fontsize = titlesize, space = :pixel,
                 inspectable = false)
     push!(fd.anim_header[], (scene, plt))
     fd.settings.animlabelpos[] === :title || return nothing
@@ -1403,12 +1477,18 @@ end
 #  machinery (see set_rotate!).
 # ------------------------------------------------------------
 
+# only the arrows sample the grid; streamlines follow the field, so the
+# density settings mean nothing to them and re-laying one would just
+# integrate every streamline again for no visible change
+is_arrow_type(fd::FigureData)::Bool =
+    fd.plot_data.plot_type[].type == "quiver"
+
 "Re-lay the arrows of the current vector plot, without rebuilding it."
 function refresh_vector_density!(fd::FigureData)::Nothing
-    plot_type = fd.plot_data.plot_type[]
-    plot_type.nfields < 2 && return nothing
-    plot_type.ndims in eachindex(fd.plot_data.d[1]) || return nothing
-    notify(fd.plot_data.d[1][plot_type.ndims])
+    is_arrow_type(fd) || return nothing
+    ndims = fd.plot_data.plot_type[].ndims
+    ndims in eachindex(fd.plot_data.d[1]) || return nothing
+    notify(fd.plot_data.d[1][ndims])
     nothing
 end
 
@@ -2491,11 +2571,28 @@ const EMPTY_VECTOR_FIELD = VectorField([0.0, 1.0], [0.0], zeros(2, 1),
                                        zeros(2, 1), [0.0, 1.0], 1.0)
 
 """
+    wraps_globally(x)
+
+Whether a longitude axis closes on itself, so that its two edges are the
+same meridian and there is a seam for an arrow to cross. A global grid
+stops one cell short of a full turn -- its last point is not a repeat of
+its first -- so what has to close the circle is the span *plus one cell*,
+which is what keeps a coarse 30-degree global grid global.
+"""
+function wraps_globally(x)::Bool
+    n = length(x)
+    n >= 2 || return false
+    span = Float64(maximum(x)) - Float64(minimum(x))
+    span + span / (n - 1) >= Constants.GLOBAL_LONGITUDE_SPAN
+end
+
+"""
     mask_outside_domain!(x, y, u, v, lengthscale, xlim, ylim)
 
 Blank every arrow whose tip leaves the drawn domain. Past the ±180 seam
 the projection throws the tip onto the opposite map edge, which draws a
 streak clean across the figure; a NaN direction drops the arrow instead.
+Only worth doing on a domain that has such a seam -- see `wraps_globally`.
 """
 function mask_outside_domain!(x::Vector{Float64}, y::Vector{Float64},
                               u::Matrix{Float64}, v::Matrix{Float64},
@@ -2556,8 +2653,11 @@ function decimate_vector_field(
         for j in eachindex(dy), i in eachindex(dx)
             du[i, j] /= max(cosd(dy[j]), Constants.COS_LATITUDE_FLOOR)
         end
-        mask_outside_domain!(dx, dy, du, dv, lengthscale,
-                             extrema(Float64, x), extrema(Float64, y))
+        # a regional cut-out has no seam to cross, and masking it would
+        # only punch holes along its own borders
+        wraps_globally(x) && mask_outside_domain!(
+            dx, dy, du, dv, lengthscale,
+            extrema(Float64, x), extrema(Float64, y))
     end
     VectorField(dx, dy, du, dv, magnitude, lengthscale)
 end

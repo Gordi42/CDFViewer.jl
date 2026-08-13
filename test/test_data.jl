@@ -851,4 +851,45 @@ using GLMakie
         close(dataset.ds)
     end
 
+    @testset "Vector labels" begin
+        dataset = make_vector_temp_dataset()
+
+        # both names, and the unit they share written once
+        @test Data.get_vector_label(dataset, "u", "v") ==
+            "Eastward wind / Northward wind [m s-1]"
+        @test Data.get_magnitude_label(dataset, "u", "v") == "|(u, v)| [m s-1]"
+
+        # a component without a long_name falls back to its own name, and
+        # units that disagree are dropped rather than misreported
+        @test Data.get_vector_label(dataset, "u", "temp") ==
+            "Eastward wind / temp"
+        @test Data.get_magnitude_label(dataset, "u", "temp") == "|(u, temp)|"
+        @test Data.shared_unit(dataset, "u", "v") == "m s-1"
+        @test Data.shared_unit(dataset, "u", "temp") == ""
+
+        # a dimensionless unit prints nothing, as everywhere else
+        @test Data.get_vector_label(dataset, "ufrac", "vfrac") ==
+            "Zonal fraction / Meridional fraction"
+        @test Data.get_magnitude_label(dataset, "ufrac", "vfrac") ==
+            "|(ufrac, vfrac)|"
+        @test Data.shared_unit(dataset, "ufrac", "vfrac") == ""
+
+        # without a usable partner both fall back to the plain label
+        for partner in (Constants.NOT_SELECTED_LABEL, "vmix", "u")
+            @test Data.get_vector_label(dataset, "u", partner) ==
+                Data.get_label(dataset, "u")
+            @test Data.get_magnitude_label(dataset, "u", partner) ==
+                Data.get_label(dataset, "u")
+        end
+
+        # the pieces get_label is now built from
+        @test Data.get_display_name(dataset, "u") == "Eastward wind"
+        @test Data.get_display_name(dataset, "temp") == "temp"
+        @test Data.get_display_name(dataset, "not_in_file") == "not_in_file"
+        @test Data.with_unit("Speed", "m s-1") == "Speed [m s-1]"
+        @test Data.with_unit("Speed", "") == "Speed"
+
+        close(dataset.ds)
+    end
+
 end

@@ -85,6 +85,13 @@ The colors are the magnitude of the vector, which is why both types carry a
 colorbar and why they use a sequential colormap rather than the diverging
 default.
 
+The labels follow. The title names both components, with the unit they
+share written once (`Eastward wind / Northward wind [m s-1]`), while
+`cbarlabel="auto"` names what the colors actually stand for
+(`|(u, v)| [m s-1]`). Components with different units get no unit at all
+rather than a misleading one, and an explicit `title=` or `cbarlabel=`
+overrides either.
+
 How many arrows are drawn is a target count per axis, not a grid stride, so
 it stays put when the grid underneath changes.
 
@@ -111,8 +118,9 @@ plot_figure(session) # hide
 On a map both types are drawn in longitude/latitude and projected
 afterwards, which needs two corrections you do not have to ask for. Arrows
 are stretched by `1/cos(latitude)` so a steady eastward wind keeps its
-drawn length toward the poles, and an arrow whose tip would cross the
-±180° seam is dropped rather than smeared across the map.
+drawn length toward the poles, and on a *global* domain an arrow whose tip
+would cross the ±180° seam is dropped rather than smeared across the map.
+A regional cut-out has no seam, so nothing is dropped there.
 
 ```@example pt
 run!(session, "del density", "p quiver", "proj=\"+proj=moll\"") # hide
