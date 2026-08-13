@@ -373,18 +373,21 @@ function get_vector_label(dataset::CDFDataset, variable::String,
 end
 
 """
-    get_magnitude_label(dataset, variable, partner)
+    get_magnitude_label(dataset, variable, partner; unit = true)
 
 The label of the magnitude a vector plot colors by, for the colorbar. It
 names the scalar rather than the field, so it stays short: the raw
-variable names inside magnitude bars, plus the shared unit.
+variable names inside magnitude bars, plus the shared unit. `unit = false`
+drops the bracket, for a title that has several layers to name.
 """
 function get_magnitude_label(dataset::CDFDataset, variable::String,
-                             partner::String)::String
-    is_vector_partner(dataset, variable, partner) ||
-        return get_label(dataset, variable)
+                             partner::String; unit::Bool = true)::String
+    if !is_vector_partner(dataset, variable, partner)
+        return unit ? get_label(dataset, variable) :
+            get_display_name(dataset, variable)
+    end
     with_unit("|($variable, $partner)|",
-              shared_unit(dataset, variable, partner))
+              unit ? shared_unit(dataset, variable, partner) : "")
 end
 
 "Render a number with a runtime printf spec, falling back to \"%g\"."

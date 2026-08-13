@@ -49,6 +49,16 @@ function get_arg_parser()::ArgParseSettings
             help = "Type of plot to generate (e.g., contour, surface, scatter)"
             arg_type = String
             default = ""
+        "--over"
+            help = "Variable to overlay on the same axis (repeatable; 'u,v' names both components of a vector plot)"
+            arg_type = String
+            action = :append_arg
+            default = String[]
+        "--over-plot"
+            help = "Plot type of the overlay, matched by position to --over (repeatable)"
+            arg_type = String
+            action = :append_arg
+            default = String[]
         "--kwargs"
             help = "Additional keyword arguments for the plot (as a Julia expression)"
             arg_type = String

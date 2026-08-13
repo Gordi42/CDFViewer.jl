@@ -27,6 +27,8 @@ cdfviewer demo.nc -v temperature -x lon -y lat -p heatmap --dims="time=5" -a tim
 | `--y-axis` | `-y` | Y-axis variable |
 | `--z-axis` | `-z` | Z-axis variable (for 3D plots) |
 | `--plot_type` | `-p` | Type of plot to generate (e.g., contour, surface, scatter) |
+| `--over` | | Variable to overlay on the same axis; repeatable, once per layer (`--over='u,v'` names both components of a vector layer) |
+| `--over-plot` | | Plot type of the overlay, matched by position to `--over`; repeatable |
 | `--kwargs` | | Additional keyword arguments for the plot (as a Julia expression) |
 | `--dims` | | Dimension indices as key=index pairs, e.g., `--dims="time=5,lat=10"` |
 | `--ani-dim` | `-a` | Dimension to use for animation |
@@ -49,6 +51,11 @@ cdfviewer demo.nc -v temperature -x lon -y lat -p heatmap --dims="time=5" -a tim
 - `--kwargs` and `--saveoptions` take the same `key=value` expressions as
   the corresponding REPL input. Quote them in the shell, e.g.
   `--kwargs='colormap=:viridis, title="My Plot"'`.
+- `--over` may be given several times, once per overlaid layer, and each
+  one is drawn with the `--over-plot` in the same position. A keyword aimed
+  at a single layer carries its prefix, e.g.
+  `--kwargs='over.levels=10, over2.arrows=(20, 14)'` (see
+  [Overlaying Fields](../usage/overlays.md)).
 - `--savefig` and `--record` run headlessly. No window is opened, the file
   is written, and the program exits (see
   [Saving and Recording](../usage/saving.md)).

@@ -62,7 +62,7 @@ NS = Constants.NOT_SELECTED_LABEL
         # Test variable selection
         @test controller.ui.state.variable[] == variable
         # Test the plot object type
-        @test controller.fd.plot_obj[] isa plot_class
+        @test Plotting.primary(controller.fd) isa plot_class
         # Test the dimension options
         coord_menus = controller.ui.main_menu.coord_menu.menus
         for menu in coord_menus
@@ -306,7 +306,7 @@ NS = Constants.NOT_SELECTED_LABEL
 
             # Assert
             assert_controller_state(controller, "string_var", Nothing, String[], "string_dim")
-            @test controller.fd.plot_obj[] === nothing
+            @test Plotting.primary(controller.fd) === nothing
             @test controller.ui.state.plot_type_name[] == Constants.NOT_SELECTED_LABEL
 
             # Cleanup
@@ -538,7 +538,7 @@ NS = Constants.NOT_SELECTED_LABEL
             dim_names[2][] = "lon"
             dim_names[1][] = "lat"
             @test all(Point2f(xi, yi) in controller.fd.ax[].finallimits[]
-                            for xi in controller.fd.plot_data.x[], yi in controller.fd.plot_data.d[1][1][])
+                            for xi in controller.fd.plot_data.x[], yi in controller.fd.plot_data.d[1][1][1][])
 
             # Cleanup
             cleanup(controller)
@@ -577,8 +577,8 @@ NS = Constants.NOT_SELECTED_LABEL
             [wait(t) for t in controller.fd.tasks[]]
 
             # Assert
-            @test controller.fd.plot_obj[].levels[] == 10
-            @test controller.fd.plot_obj[].labels[] == true
+            @test Plotting.primary(controller.fd).levels[] == 10
+            @test Plotting.primary(controller.fd).labels[] == true
             exp_str = Controller.get_export_string(controller)
             @test occursin(r"--kwargs='levels=10, labels=true", exp_str)
 
@@ -618,7 +618,7 @@ NS = Constants.NOT_SELECTED_LABEL
             end
 
             # Assert: should apply only the valid keyword
-            @test controller.fd.plot_obj[].levels[] == 5
+            @test Plotting.primary(controller.fd).levels[] == 5
 
             # Act & Assert: should issue a warning about the invalid value
             # that names every keyword the all-or-nothing revert takes back
@@ -629,8 +629,8 @@ NS = Constants.NOT_SELECTED_LABEL
             end
 
             # Assert: should revert to original settings
-            @test controller.fd.plot_obj[].levels[] == 5
-            @test controller.fd.plot_obj[].colormap[] == :balance
+            @test Plotting.primary(controller.fd).levels[] == 5
+            @test Plotting.primary(controller.fd).colormap[] == :balance
 
             # Cleanup
             cleanup(controller)
@@ -667,7 +667,7 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert: should update the interpolation ranges
             @test rc.lon == -2:0.5:2
             @test controller.fd.plot_data.x[] == collect(-2:0.5:2)
-            @test size(controller.fd.plot_data.d[1][2][]) == (length(rc.lon), length(rc.lat))
+            @test size(controller.fd.plot_data.d[1][1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to Range
             kwarg_text[] = "lon=0:4"
@@ -676,7 +676,7 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert: should update the interpolation ranges
             @test rc.lon == 0:4
             @test controller.fd.plot_data.x[] == collect(0:4)
-            @test size(controller.fd.plot_data.d[1][2][]) == (length(rc.lon), length(rc.lat))
+            @test size(controller.fd.plot_data.d[1][1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to Vector
             kwarg_text[] = "lon=[-1, 0, 1]"
@@ -685,7 +685,7 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert: should update the interpolation ranges
             @test rc.lon == [-1, 0, 1]
             @test controller.fd.plot_data.x[] == [-1, 0, 1]
-            @test size(controller.fd.plot_data.d[1][2][]) == (length(rc.lon), length(rc.lat))
+            @test size(controller.fd.plot_data.d[1][1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to Tuple
             kwarg_text[] = "lon=(-1, 0, 10)"
@@ -694,7 +694,7 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert: should update the interpolation ranges
             @test rc.lon == LinRange(-1, 0, 10)
             @test controller.fd.plot_data.x[] == collect(LinRange(-1, 0, 10))
-            @test size(controller.fd.plot_data.d[1][2][]) == (length(rc.lon), length(rc.lat))
+            @test size(controller.fd.plot_data.d[1][1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Act: set the interpolation ranges to nothing
             kwarg_text[] = "lon=nothing"
@@ -703,7 +703,7 @@ NS = Constants.NOT_SELECTED_LABEL
             # Assert: should update the interpolation ranges
             @test rc.lon ≈ rc.interp.ds["lon"][:]
             @test controller.fd.plot_data.x[] == rc.interp.ds["lon"][:]
-            @test size(controller.fd.plot_data.d[1][2][]) == (length(rc.lon), length(rc.lat))
+            @test size(controller.fd.plot_data.d[1][1][2][]) == (length(rc.lon), length(rc.lat))
 
             # Cleanup
             cleanup(controller)
@@ -782,7 +782,7 @@ NS = Constants.NOT_SELECTED_LABEL
             @test state.variable[] == "u"
             @test state.variable2[] == "v"
             @test state.plot_type_name[] == "quiver"
-            @test controller.fd.plot_obj[] isa Makie.Arrows2D
+            @test Plotting.primary(controller.fd) isa Makie.Arrows2D
             # ... and it round-trips through the export string
             @test occursin(r"-vu,v", Controller.get_export_string(controller))
             @test occursin(r"-pquiver", Controller.get_export_string(controller))
@@ -798,7 +798,7 @@ NS = Constants.NOT_SELECTED_LABEL
                 make_vector_temp_dataset(); headless = true,
                 parsed_args = parsed)
             @test controller.ui.state.variable2[] == "temp"
-            @test controller.fd.plot_obj[] isa Makie.StreamPlot
+            @test Plotting.primary(controller.fd) isa Makie.StreamPlot
             cleanup(controller)
         end
 
@@ -882,5 +882,89 @@ NS = Constants.NOT_SELECTED_LABEL
 
         # Cleanup
         cleanup(controller)
+    end
+
+    @testset "Overlaid layers" begin
+
+        "A 2D heatmap of `2d_float` on lon/lat, ready to be overlaid."
+        function init_overlay_controller()
+            controller = Controller.ViewerController(
+                make_temp_dataset(), headless = true)
+            UI.select_variable!(controller.ui, "2d_float")
+            UI.select_x_axis!(controller.ui, "lon")
+            UI.select_y_axis!(controller.ui, "lat")
+            UI.select_plot_type!(controller.ui, "heatmap")
+            controller
+        end
+
+        @testset "Playback follows the union of the layers' dimensions" begin
+            controller = init_overlay_controller()
+            playback = controller.ui.main_menu.playback_menu.var
+            # `2d_float` has nothing left over to animate
+            @test controller.ui.state.pdim[] == Constants.NOT_SELECTED_LABEL
+
+            # a layer over lon/lat/time brings `time` with it
+            @test Controller.set_layer_variables!(controller, 2, ["3d_float"]) != ""
+            @test "time" ∈ playback.options[]
+            @test Controller.drawn_dims(controller) ⊇ ["lon", "lat", "time"]
+
+            # ... and takes it away again when it goes
+            Controller.remove_layer!(controller, 2)
+            @test "time" ∉ playback.options[]
+            @test Controller.drawn_dims(controller) == ["lon", "lat"]
+            cleanup(controller)
+        end
+
+        @testset "A new base variable drops what no longer fits" begin
+            controller = init_overlay_controller()
+            Controller.set_layer_variables!(controller, 2, ["int_var"])
+            @test Plotting.layer_count(controller.fd) == 2
+
+            # `2d_gap` is lon/float_dim, so the axes move and `int_var`
+            # (lon/lat) stops fitting them
+            @test_logs (:warn,) match_mode = :any begin
+                UI.select_variable!(controller.ui, "2d_gap")
+            end
+            @test Plotting.layer_count(controller.fd) == 1
+            @test Plotting.primary(controller.fd) !== nothing
+            cleanup(controller)
+        end
+
+        @testset "A new base plot type drops what cannot share the axis" begin
+            controller = init_overlay_controller()
+            Controller.set_layer_variables!(controller, 2, ["int_var"])
+            @test Plotting.layer_count(controller.fd) == 2
+
+            # heatmap -> contourf keeps the layer (same axis kind) ...
+            UI.select_plot_type!(controller.ui, "contourf")
+            @test Plotting.layer_count(controller.fd) == 2
+
+            # ... surface does not
+            @test_logs (:warn,) match_mode = :any begin
+                UI.select_plot_type!(controller.ui, "surface")
+            end
+            @test Plotting.layer_count(controller.fd) == 1
+            @test Plotting.primary(controller.fd) isa Surface
+            cleanup(controller)
+        end
+
+        @testset "A layer may lack a sliced dimension" begin
+            controller = Controller.ViewerController(
+                make_temp_dataset(), headless = true)
+            UI.select_variable!(controller.ui, "3d_float")
+            UI.select_x_axis!(controller.ui, "lon")
+            UI.select_y_axis!(controller.ui, "lat")
+            UI.select_plot_type!(controller.ui, "heatmap")
+            # `2d_float` has no time axis at all; it sits under a field
+            # that does and simply does not move with it
+            @test Controller.set_layer_variables!(controller, 2, ["2d_float"]) != ""
+            @test Plotting.layer_count(controller.fd) == 2
+            @test controller.fd.layers[2].plot_obj[] !== nothing
+            slider = controller.ui.main_menu.coord_sliders.sliders["time"]
+            before = controller.fd.plot_data.d[2][1][2][]
+            set_close_to!(slider, 3)
+            @test controller.fd.plot_data.d[2][1][2][] == before
+            cleanup(controller)
+        end
     end
 end

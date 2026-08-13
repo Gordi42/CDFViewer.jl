@@ -28,16 +28,20 @@ struct Plot
     # how many data components the type draws: one for a scalar field,
     # two for the vector types, which take a zonal and a meridional one
     nfields::Int
+    # which kind of axis the type needs (:none for "nothing selected").
+    # Overlaid layers share one axis, so only types agreeing on this *and*
+    # on `ndims` can be drawn on top of one another.
+    axis_kind::Symbol
 
     Plot(type::String, ndims::Int, colorbar::Bool, func::Function,
-         make_axis::Function; nfields::Int = 1) =
-        new(type, ndims, colorbar, func, make_axis, nfields)
+         make_axis::Function; nfields::Int = 1, axis_kind::Symbol = :ax2d) =
+        new(type, ndims, colorbar, func, make_axis, nfields, axis_kind)
 end
 
 const PLOT_TYPES = OrderedDict(plot.type => plot for plot in [
     Plot(Constants.NOT_SELECTED_LABEL, 0, false,
-        (fd, ax, x, y, z, d) -> nothing,
-        (fd) -> nothing),
+        (fd, ax, i, x, y, z, d) -> nothing,
+        (fd) -> nothing; axis_kind = :none),
 ])
 
 function get_plot_options(ndims::Int)::Vector{String}
@@ -72,6 +76,71 @@ function get_dimension_plot(ndims::Int)::String
     else
         Constants.NOT_SELECTED_LABEL
     end
+end
+
+# ------------------------------------------------------------
+#  Overlaid layers: naming and compatibility
+# ------------------------------------------------------------
+#
+# A figure draws one or more layers on a single axis. Layer 1 is the base
+# and is authoritative: it fixes the dimensions, the axis, the labels and
+# the title, and it owns the colorbar. Every further layer has to agree
+# with it on both the number of drawn dimensions and the kind of axis, and
+# sits at the same index of every sliced dimension.
+
+"Whether `plot` can be drawn on the same axis as the base type `base`."
+fits_layer(base::Plot, plot::Plot)::Bool =
+    base.axis_kind !== :none && base.ndims == plot.ndims &&
+    base.axis_kind === plot.axis_kind
+
+"The plot types an overlay of `base` may be drawn with."
+overlay_plot_options(base::Plot)::Vector{String} =
+    [name for (name, plot) in PLOT_TYPES if fits_layer(base, plot)]
+
+"""
+    default_overlay_plot(base, nvars)
+
+The type a new overlay starts out with: a vector type when two variables
+were named, `contour` over a flat 2D base -- a second heatmap would simply
+hide the first -- and the base's own type otherwise.
+"""
+function default_overlay_plot(base::Plot, nvars::Int)::String
+    options = overlay_plot_options(base)
+    nvars >= 2 && "quiver" ∈ options && return "quiver"
+    "contour" ∈ options && return "contour"
+    base.type
+end
+
+"The word naming layer `i` in a command and in a keyword prefix."
+layer_prefix(i::Int)::String =
+    i == 1 ? "base" : i == 2 ? "over" : "over$(i - 1)"
+
+"The layer a word names, or nothing when it names no layer at all."
+function layer_index(name::AbstractString)::Union{Nothing, Int}
+    name == "base" && return 1
+    name == "over" && return 2
+    m = match(r"^over([0-9]+)$", name)
+    m === nothing && return nothing
+    n = parse(Int, m.captures[1])
+    n < 1 ? nothing : n + 1
+end
+
+"""
+    split_layer_key(key)
+
+A keyword written as `over.levels` or `base.colormap`, split into the
+layer it addresses and the property left over -- nothing when it carries
+no such prefix.
+"""
+function split_layer_key(key::Symbol)::Union{Nothing, Tuple{Int, Symbol}}
+    s = String(key)
+    dot = findfirst('.', s)
+    dot === nothing && return nothing
+    i = layer_index(SubString(s, 1, dot - 1))
+    i === nothing && return nothing
+    rest = SubString(s, dot + 1)
+    isempty(rest) && return nothing
+    (i, Symbol(rest))
 end
 
 # ============================================================
@@ -204,11 +273,26 @@ auto_cbarlabel(dataset::Data.CDFDataset, variable::String, partner::String,
     nfields < 2 ? Data.get_label(dataset, variable) :
         Data.get_magnitude_label(dataset, variable, partner)
 
+"""
+    layer_title(dataset, variable, partner, nfields)
+
+One layer's share of a title that names several of them: the variable's
+display name, or -- for a vector layer -- the magnitude its colors stand
+for. The units are left off. Several of them on one line drive
+`fit_title_size` straight into its floor, and the colorbar still names the
+base layer's own unit.
+"""
+layer_title(dataset::Data.CDFDataset, variable::String, partner::String,
+            nfields::Int)::String =
+    nfields < 2 ? Data.get_display_name(dataset, variable) :
+        Data.get_magnitude_label(dataset, variable, partner; unit = false)
+
 function FigureLabels(ui_state::UI.State, dataset::Data.CDFDataset,
                       settings::FigureSettings)::FigureLabels
     nfields = @lift(PLOT_TYPES[$(ui_state.plot_type_name)].nfields)
-    title = @lift(auto_title(dataset, $(ui_state.variable),
-                             $(ui_state.variable2), $nfields))
+    # the title is composed from every layer, so it is written by
+    # `refresh_title!` instead of being lifted off the base layer alone
+    title = Observable("")
     cbar = @lift(auto_cbarlabel(dataset, $(ui_state.variable),
                                 $(ui_state.variable2), $nfields))
     xlabel = @lift(Data.get_label(dataset, $(ui_state.x_name);
@@ -538,30 +622,47 @@ end
 # ============================================================
 
 """
-    partner_data(dataset, ui_state, sel_dims)
+    partner_data(dataset, variable, partner, sel_dims, selection)
 
 The second component's data, or nothing when no usable partner is
 selected. A partner that does not span the same dimensions cannot be
 sliced by the same indexing, so it yields nothing and the vector plot
 simply draws nothing until a fitting one is picked.
 """
-function partner_data(dataset::Data.CDFDataset, ui_state::UI.State,
-                      sel_dims::Vector{String})::Union{Array, Nothing}
-    partner = ui_state.variable2[]
-    Data.is_vector_partner(dataset, ui_state.variable[], partner) ||
-        return nothing
-    Data.get_data(dataset, partner, sel_dims, ui_state.dim_obs[])
+function partner_data(dataset::Data.CDFDataset, variable::String,
+                      partner::String, sel_dims::Vector{String},
+                      selection::Dict{String, Int})::Union{Array, Nothing}
+    Data.is_vector_partner(dataset, variable, partner) || return nothing
+    Data.get_data(dataset, partner, sel_dims, selection)
+end
+
+"""
+One layer's own state: the variable(s) it draws and the type it draws them
+with. Layer 1's observables are the menu's own, so the GUI keeps driving
+the base field; every further layer carries its own.
+"""
+struct DataLayer
+    variable::Observable{String}
+    variable2::Observable{String}
+    plot_type::Observable{Plot}
 end
 
 struct PlotData
+    # layer 1's plot type -- the menu-driven one, which fixes the axis and
+    # the dimensions every layer shares
     plot_type::Observable{Plot}
     sel_dims::Observable{Vector{String}}
+    # the index every layer sits at, per sliced dimension (figure-level:
+    # layers share the slice as well as the axes)
+    dim_obs::Observable{Dict{String, Int}}
     x::Observable{Union{Array, Nothing}}
     y::Observable{Union{Array, Nothing}}
     z::Observable{Union{Array, Nothing}}
-    # data arrays indexed [component][ndims]: component 1 is the selected
-    # variable, component 2 the partner a vector plot draws next to it
-    d::Vector{Vector{Observable{Union{Array, Nothing}}}}
+    # data arrays indexed [layer][component][ndims]: component 1 is the
+    # layer's variable, component 2 the partner a vector plot draws next
+    # to it. Grown and shrunk together with `layers`.
+    d::Vector{Vector{Vector{Observable{Union{Array, Nothing}}}}}
+    layers::Vector{DataLayer}
     update_data_switch::Observable{Bool}
     labels::FigureLabels
     dataset::Data.CDFDataset
@@ -588,32 +689,137 @@ function PlotData(
     x = Data.get_dim_array(dataset, ui_state.x_name, update_switch)
     y = Data.get_dim_array(dataset, ui_state.y_name, update_switch)
     z = Data.get_dim_array(dataset, ui_state.z_name, update_switch)
-    # Observables for the data arrays, one set per component (max 3D data)
-    d = [[Observable{Union{Array, Nothing}}(nothing) for _ in 1:3]
-         for _ in 1:Constants.MAX_PLOT_COMPONENTS]
-
-    # Set up listeners to update the data array when relevant observables change
-    for trigger in (ui_state.variable, ui_state.variable2, sel_dims,
-                    ui_state.dim_obs, update_switch)
-        on(trigger) do _
-            !(update_switch[]) && return
-            ndims = length(sel_dims[])
-            ndims == 0 && return
-            d[1][ndims][] = Data.get_data(
-                dataset, ui_state.variable[], sel_dims[], ui_state.dim_obs[])
-            # the partner is only read when a plot type asks for it: a
-            # scalar type must never pay for a second hyperslab read
-            plot_type[].nfields < 2 && return
-            d[2][ndims][] = partner_data(dataset, ui_state, sel_dims[])
-        end
-    end
 
     # Figure labels
     labels = FigureLabels(ui_state, dataset, settings)
 
-    # Construct and return the PlotData
-    PlotData(plot_type, sel_dims, x, y, z, d, update_switch, labels, dataset,
-             settings)
+    plot_data = PlotData(
+        plot_type, sel_dims, ui_state.dim_obs, x, y, z,
+        Vector{Vector{Observable{Union{Array, Nothing}}}}[], DataLayer[],
+        update_switch, labels, dataset, settings)
+
+    # Layer 1 draws the menu's own variable with the menu's own plot type
+    push_layer!(plot_data, ui_state.variable, ui_state.variable2, plot_type)
+
+    # Everything that moves every layer at once: the drawn axes, the slice,
+    # and the switch that suspends reading while the menus reconcile
+    for trigger in (sel_dims, ui_state.dim_obs, update_switch)
+        on(trigger) do _
+            refresh_layers_data!(plot_data)
+        end
+    end
+
+    plot_data
+end
+
+"""
+    push_layer!(plot_data, variable, variable2, plot_type)
+
+Append one layer -- its state observables and its data observables -- and
+wire up the listeners keeping its data and the figure title in step.
+Returns the new layer's index.
+"""
+function push_layer!(plot_data::PlotData, variable::Observable{String},
+                     variable2::Observable{String},
+                     plot_type::Observable{Plot})::Int
+    layer = DataLayer(variable, variable2, plot_type)
+    push!(plot_data.layers, layer)
+    push!(plot_data.d,
+          [[Observable{Union{Array, Nothing}}(nothing) for _ in 1:3]
+           for _ in 1:Constants.MAX_PLOT_COMPONENTS])
+    index = length(plot_data.layers)
+    # the listeners look the layer up by identity rather than closing over
+    # its index: dropping a layer renumbers the ones above it, and a stale
+    # listener of a dropped layer must go quiet instead of writing into
+    # somebody else's slot
+    locate() = findfirst(l -> l === layer, plot_data.layers)
+    # layer 1's own plot type needs no trigger of its own: `sel_dims` lifts
+    # off it and fires for it. An overlay's does not reach `sel_dims`.
+    triggers = index == 1 ? (variable, variable2) :
+        (variable, variable2, plot_type)
+    for trigger in triggers
+        on(trigger) do _
+            i = locate()
+            i === nothing || refresh_layer_data!(plot_data, i)
+        end
+    end
+    for trigger in (variable, variable2, plot_type)
+        on(trigger) do _
+            refresh_title!(plot_data)
+        end
+    end
+    refresh_title!(plot_data)
+    index
+end
+
+"""
+    compose_title(plot_data)
+
+The name the figure gives itself: with a single layer the layer's own
+label, exactly as before overlays existed, and with several the layers'
+names joined by " / ".
+"""
+function compose_title(plot_data::PlotData)::String
+    dataset = plot_data.dataset
+    layers = plot_data.layers
+    isempty(layers) && return ""
+    length(layers) == 1 && return auto_title(
+        dataset, layers[1].variable[], layers[1].variable2[],
+        layers[1].plot_type[].nfields)
+    join((layer_title(dataset, l.variable[], l.variable2[],
+                      l.plot_type[].nfields) for l in layers), " / ")
+end
+
+"Recompute the figure title from the layers currently drawn."
+function refresh_title!(plot_data::PlotData)::Nothing
+    plot_data.labels.title[] = compose_title(plot_data)
+    nothing
+end
+
+"""
+    layer_fits_axes(plot_data, variable)
+
+Whether a layer drawing `variable` can be sliced onto the drawn axes.
+Every plot dimension has to be one of the variable's own; the sliced ones
+need not be, since `Data.get_indexing` walks the variable's dimensions and
+ignores the rest of the selection.
+"""
+function layer_fits_axes(plot_data::PlotData, variable::String)::Bool
+    haskey(plot_data.dataset.var_coords, variable) || return false
+    dims = Data.get_var_dims(plot_data.dataset, variable)
+    all(dim -> dim ∈ dims, plot_data.sel_dims[])
+end
+
+"Re-read one layer's data for the current axes and slice."
+function refresh_layer_data!(plot_data::PlotData, i::Int)::Nothing
+    plot_data.update_data_switch[] || return nothing
+    sel_dims = plot_data.sel_dims[]
+    ndims = length(sel_dims)
+    ndims == 0 && return nothing
+    layer = plot_data.layers[i]
+    variable = layer.variable[]
+    # a layer whose variable does not span the drawn axes cannot be sliced
+    # by them; the menus are mid-reconcile, or the layer is about to be
+    # dropped, so leave what it holds alone
+    layer_fits_axes(plot_data, variable) || return nothing
+    dataset = plot_data.dataset
+    selection = plot_data.dim_obs[]
+    plot_data.d[i][1][ndims][] =
+        Data.get_data(dataset, variable, sel_dims, selection)
+    # the partner is only read when a plot type asks for it: a scalar type
+    # must never pay for a second hyperslab read
+    layer.plot_type[].nfields < 2 && return nothing
+    plot_data.d[i][2][ndims][] = partner_data(
+        dataset, variable, layer.variable2[], sel_dims, selection)
+    nothing
+end
+
+"Re-read every layer's data."
+function refresh_layers_data!(plot_data::PlotData)::Nothing
+    for i in eachindex(plot_data.layers)
+        refresh_layer_data!(plot_data, i)
+    end
+    nothing
 end
 
 # ============================================================
@@ -633,7 +839,12 @@ end
 
 const CRANGE_MODES = ("cycle", "frame", "data")
 
-"Mutable scan state: what is pinned, what is in flight, and past results."
+"""
+Mutable scan state: what is pinned, what is in flight, and past results.
+One per layer -- each draws its own field and pins its own range. The
+size-gate hint is not here but on the figure: it is shown once, not once
+per layer.
+"""
 mutable struct ColorRangeScan
     generation::Int                   # bumped to abort superseded scans
     pending_key::Any                  # key of the scan in flight
@@ -641,22 +852,48 @@ mutable struct ColorRangeScan
     task::Union{Nothing, Task}
     cache::Dict{Any, NTuple{2, Float64}}
     base_levels::Union{Nothing, Int}  # the plot's own Int `levels`
-    hinted::Bool                      # size-gate hint already shown
 end
 
 ColorRangeScan() = ColorRangeScan(0, nothing, nothing, nothing,
-                                  Dict{Any, NTuple{2, Float64}}(), nothing,
-                                  false)
+                                  Dict{Any, NTuple{2, Float64}}(), nothing)
 
 # ============================================================
 #  Figure data structure
 # ============================================================
 
+"""
+The figure settings one layer may differ in. Only the vector-plot density
+so far: two quiver layers on one axis at the same arrow count are
+unreadable, so `over2.arrows` has to reach that layer's arrows rather than
+every set of arrows on the figure. `nothing` means "whatever the figure
+says", which is what a plain `arrows=` sets.
+"""
+mutable struct LayerSettings
+    arrows::Union{Nothing, Tuple{Int, Int}}
+    every::Union{Nothing, Int}
+end
+
+LayerSettings() = LayerSettings(nothing, nothing)
+
+"""
+One drawn layer: the plot object sitting on the axis, the settings it
+differs from the figure in, and the color-range scan pinning its colors.
+Runs parallel to `PlotData.layers`, which holds the same layer's data.
+"""
+struct Layer
+    plot_obj::Observable{Union{Makie.AbstractPlot, Nothing}}
+    settings::LayerSettings
+    crange_scan::ColorRangeScan
+end
+
+Layer() = Layer(Observable{Union{Makie.AbstractPlot, Nothing}}(nothing),
+                LayerSettings(), ColorRangeScan())
+
 struct FigureData
     fig::Figure
     plot_data::PlotData
     ax::Observable{Union{Makie.AbstractAxis, Nothing}}
-    plot_obj::Observable{Union{Makie.AbstractPlot, Nothing}}
+    layers::Vector{Layer}
     cbar::Observable{Union{Colorbar, Nothing}}
     land::Observable{Union{Makie.AbstractPlot, Nothing}}
     coastlines::Observable{Union{Makie.AbstractPlot, Nothing}}
@@ -674,7 +911,8 @@ struct FigureData
     anim_overlay::Base.RefValue{Vector{Any}}
     # the label's resolved rendering state (numfmt/unit/duration shape)
     anim_config::Base.RefValue{AnimLabelConfig}
-    crange_scan::ColorRangeScan
+    # the color-range size gate has already explained itself once
+    crange_hinted::Base.RefValue{Bool}
     # +1/-1: which way the bouncing camera rotations are heading
     camera_vdir::Base.RefValue{Float64}
     camera_hdir::Base.RefValue{Float64}
@@ -706,7 +944,8 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
     Box(fig[1, 1]; visible = false, height = header_height,
         tellheight = true, tellwidth = false)
     ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
-    plot_obj = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
+    # one drawn layer per layer of the plot data; layer 1 is the base
+    layers = [Layer() for _ in plot_data.layers]
     cbar = Observable{Union{Colorbar, Nothing}}(nothing)
     land = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
     coastlines = Observable{Union{Makie.AbstractPlot, Nothing}}(nothing)
@@ -718,12 +957,12 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         fig,
         plot_data,
         ax,
-        plot_obj,
+        layers,
         cbar,
-        data_inspector,
         land,
         coastlines,
         earth,
+        data_inspector,
         Observable(Task[]),
         settings,
         ui_state.range_control,
@@ -734,7 +973,7 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         Ref(AnimSegment[]),
         Ref(Any[]),
         Ref(AnimLabelConfig(Constants.NUMBER_FORMAT, Constants.DATETIME_FORMAT)),
-        ColorRangeScan(),
+        Ref(false),
         Ref(1.0),
         Ref(1.0),
         ColorbarLabel(settings, plot_data.labels, theme(fig.scene).fonts),
@@ -765,21 +1004,26 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         end
     end
 
-    # Setup a listener to create the plot if the axis changes
+    # Setup a listener to create the plots if the axis changes.
+    #
+    # Every layer is built from here, and only from here. `redraw!` swaps
+    # the axis identity, and a layer built anywhere else would stay
+    # parented to the axis that has just been deleted -- it would simply
+    # vanish from the figure with nothing to show for it.
     on(ax) do a
         a === nothing && return
-        # first we clear the previous plot
+        # first we clear the previous plots (a fresh axis carries none; a
+        # notify() to rebuild in place does)
+        clear_layer_plots!(fd)
         cbar[] !== nothing && delete!(cbar[])
         cbar[] = nothing
         plot_data.plot_type[].type == Constants.NOT_SELECTED_LABEL && return  # TODO
 
-        # then we create the new plot, handing it one data observable per
-        # component the type draws
-        plot = plot_data.plot_type[]
-        components = Tuple(plot_data.d[c][plot.ndims] for c in 1:plot.nfields)
-        plot_obj[] = plot.func(
-            fd, a, plot_data.x, plot_data.y, plot_data.z, components...)
-        # and add a colorbar if needed
+        # then we create the new plots, one per layer, handing each one
+        # data observable per component its type draws
+        build_layer_plots!(fd, a)
+        # and add a colorbar if needed -- one for the whole figure, the
+        # base layer's
         add_colorbar!(fd)
         add_earth!(fd)
         add_land!(fd)
@@ -787,9 +1031,6 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         rebuild_header!(fd)
         rebuild_overlay!(fd)
         refresh_anim_values!(fd)
-        # a fresh plot carries no pin and owns its levels again
-        fd.crange_scan.applied_key = nothing
-        fd.crange_scan.base_levels = nothing
         apply_kwargs!(fd, ui_state.kwargs[])
         update_colorrange!(fd)
     end
@@ -798,9 +1039,368 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
     on(ui.main_menu.plot_menu.plot_kw.stored_string) do kw_str
         on_kwarg_string_update(fd, kw_str)
     end
-    
+
     # return the FigureData
     fd
+end
+
+# ============================================================
+#  Overlaid layers
+# ============================================================
+#
+# The layers are two parallel vectors: `PlotData.layers` holds what a
+# layer draws, `FigureData.layers` what it has drawn. They are only ever
+# grown and shrunk together, from here.
+
+"The base layer's plot object -- the one the colorbar and the labels follow."
+primary(fd::FigureData)::Union{Makie.AbstractPlot, Nothing} =
+    fd.layers[1].plot_obj[]
+
+"How many fields the figure draws on top of each other."
+layer_count(fd::FigureData)::Int = length(fd.layers)
+
+"The type layer `i` draws with."
+layer_plot(fd::FigureData, i::Int)::Plot = fd.plot_data.layers[i].plot_type[]
+
+"Every variable layer `i` names, in component order."
+function layer_variables(fd::FigureData, i::Int)::Vector{String}
+    layer = fd.plot_data.layers[i]
+    variables = [layer.variable[]]
+    layer.plot_type[].nfields < 2 && return variables
+    partner = layer.variable2[]
+    Data.is_vector_partner(fd.plot_data.dataset, variables[1], partner) &&
+        push!(variables, partner)
+    variables
+end
+
+"Wait for every layer's color-range scan to finish."
+function wait_for_scans(fd::FigureData)::Nothing
+    for layer in fd.layers
+        task = layer.crange_scan.task
+        task === nothing || wait(task)
+    end
+    nothing
+end
+
+"""
+    clear_layer_plots!(fd)
+
+Take every layer's plot off the axis. Rebuilding in place (a `notify` on
+the axis, after a layer was added or dropped) would otherwise leave the
+previous plots drawn underneath the new ones.
+"""
+function clear_layer_plots!(fd::FigureData)::Nothing
+    ax = fd.ax[]
+    for layer in fd.layers
+        plot = layer.plot_obj[]
+        plot === nothing && continue
+        # a plot of an axis that has already been deleted is gone with it;
+        # only the bookkeeping is left to do
+        ax === nothing || try
+            delete!(ax, plot)
+        catch
+        end
+        layer.plot_obj[] = nothing
+    end
+    nothing
+end
+
+"""
+    lift_overlay!(obj, i)
+
+Put overlay `i` in front of the layers below it. Two mechanisms, because
+one is not enough: a step in z orders flat plots that all sit at z = 0,
+and a depth shift -- which works in clip space, not data space -- handles
+the case that has no scale to reason about. On a map a "heatmap" is
+really a `surface!` whose z *is* the field, so it towers over any fixed
+offset an overlay could be given.
+"""
+function lift_overlay!(obj, i::Int)::Nothing
+    Makie.translate!(obj, 0, 0, Float32(i - 1))
+    :depth_shift ∈ propertynames(obj) &&
+        (obj.depth_shift[] = -0.01f0 * (i - 1))
+    nothing
+end
+
+"""
+    build_layer_plots!(fd, ax)
+
+Draw every layer onto `ax`, base first, each in front of the one below.
+The overlays are only lifted on a flat axis: on an Axis3 both the z and
+the depth are the data's own.
+"""
+function build_layer_plots!(fd::FigureData, ax::Makie.AbstractAxis)::Nothing
+    plot_data = fd.plot_data
+    for (i, layer) in enumerate(fd.layers)
+        plot = plot_data.layers[i].plot_type[]
+        plot.type == Constants.NOT_SELECTED_LABEL && continue
+        components = Tuple(plot_data.d[i][c][plot.ndims] for c in 1:plot.nfields)
+        obj = plot.func(fd, ax, i, plot_data.x, plot_data.y, plot_data.z,
+                        components...)
+        i > 1 && plot.axis_kind === :ax2d && lift_overlay!(obj, i)
+        layer.plot_obj[] = obj
+        # a fresh plot carries no pin and owns its levels again
+        layer.crange_scan.applied_key = nothing
+        layer.crange_scan.base_levels = nothing
+    end
+    nothing
+end
+
+"Redraw every layer on the axis that is already there."
+function rebuild_layers!(fd::FigureData)::Nothing
+    fd.ax[] === nothing && return nothing
+    notify(fd.ax)
+    nothing
+end
+
+"""
+    add_layer!(fd, variable, variable2, plot_type)
+
+Append a layer to both halves of the state and return its index. The plot
+itself is not drawn here -- `rebuild_layers!` does that once the caller
+has finished configuring the layer.
+"""
+function add_layer!(fd::FigureData, variable::String, variable2::String,
+                    plot_type::Plot)::Int
+    plot_data = fd.plot_data
+    index = push_layer!(plot_data, Observable(variable),
+                        Observable(variable2), Observable(plot_type))
+    push!(fd.layers, Layer())
+    refresh_layer_data!(plot_data, index)
+    layer = plot_data.layers[index]
+    for trigger in (layer.variable, layer.variable2, layer.plot_type)
+        on(trigger) do _
+            update_colorrange!(fd)
+        end
+    end
+    index
+end
+
+"""
+    drop_layers!(fd, indices)
+
+Remove the named layers. Removing one renumbers the layers above it, so
+their keywords are renamed to follow (`over2.levels` becomes
+`over.levels`) and the removed layer's own are dropped.
+"""
+function drop_layers!(fd::FigureData, indices::Vector{Int})::Nothing
+    isempty(indices) && return nothing
+    ax = fd.ax[]
+    for i in sort(indices; rev = true)
+        plot = fd.layers[i].plot_obj[]
+        if plot !== nothing && ax !== nothing
+            try
+                delete!(ax, plot)
+            catch
+            end
+        end
+        deleteat!(fd.layers, i)
+        deleteat!(fd.plot_data.layers, i)
+        deleteat!(fd.plot_data.d, i)
+    end
+    rename_layer_kwargs!(fd, indices)
+    refresh_title!(fd.plot_data)
+    nothing
+end
+
+"""
+    rename_layer_kwargs!(fd, dropped)
+
+Follow a layer removal through the stored keywords: what the dropped
+layers owned goes, what the layers above them owned moves down with them.
+The store is rewritten rather than re-applied -- the layers it named are
+gone, so there is nothing left to un-apply.
+"""
+function rename_layer_kwargs!(fd::FigureData, dropped::Vector{Int})::Nothing
+    kwargs = fd.ui.state.kwargs[]
+    any(key -> split_layer_key(key) !== nothing, keys(kwargs)) || return nothing
+    # where each surviving layer ended up after the removal
+    moved = Dict{Int, Int}()
+    new_index = 0
+    for old in 1:(length(fd.layers) + length(dropped))
+        old ∈ dropped && continue
+        new_index += 1
+        moved[old] = new_index
+    end
+    renamed = OrderedDict{Symbol, Any}()
+    for (key, value) in kwargs
+        split = split_layer_key(key)
+        if split === nothing
+            renamed[key] = value
+            continue
+        end
+        layer, property = split
+        haskey(moved, layer) || continue  # the layer it named is gone
+        renamed[Symbol(layer_prefix(moved[layer]), '.', property)] = value
+    end
+    keys(renamed) == keys(kwargs) && return nothing
+    rewrite_kwargs!(fd, renamed)
+    nothing
+end
+
+"""
+    prune_layers!(fd)
+
+Drop the overlays the base no longer supports, with a warning: the base
+variable may have moved the plot onto axes an overlay's variable does not
+span, or onto a different kind of axis altogether. Returns whether any
+layer went.
+"""
+function prune_layers!(fd::FigureData)::Bool
+    plot_data = fd.plot_data
+    base = plot_data.plot_type[]
+    # "nothing selected" is not a base a layer could disagree with; a
+    # closed figure window must not cost the user their overlays
+    base.type == Constants.NOT_SELECTED_LABEL && return false
+    dropped = Int[]
+    for i in 2:length(plot_data.layers)
+        layer = plot_data.layers[i]
+        name = layer_prefix(i)
+        if !fits_layer(base, layer.plot_type[])
+            @warn ("Dropping layer $name ($(layer.plot_type[].type)): it " *
+                   "cannot be drawn on the same axis as $(base.type)")
+            push!(dropped, i)
+        elseif !layer_fits_axes(plot_data, layer.variable[])
+            @warn ("Dropping layer $name ($(layer.variable[])): it does not " *
+                   "span " * join(plot_data.sel_dims[], ", "))
+            push!(dropped, i)
+        end
+    end
+    isempty(dropped) && return false
+    drop_layers!(fd, dropped)
+    # the survivors moved: their plots close over the index they were
+    # built at, so they have to be built again
+    rebuild_layers!(fd)
+    true
+end
+
+"What a layer currently draws, for a status line."
+function layer_status(fd::FigureData, i::Int)::String
+    i > layer_count(fd) && return "$(layer_prefix(i)) is not set."
+    "$(layer_prefix(i)): " * join(layer_variables(fd, i), ", ") *
+        " ($(layer_plot(fd, i).type))"
+end
+
+"""
+    set_layer_variables!(fd, i, names)
+
+Point layer `i` at the named variable(s), creating the layer when `i` is
+the next one up. Returns a status line; an empty one means nothing changed
+and a warning has already been issued.
+"""
+function set_layer_variables!(fd::FigureData, i::Int,
+                              names::Vector{String})::String
+    plot_data = fd.plot_data
+    dataset = plot_data.dataset
+    base = plot_data.plot_type[]
+    if i < 2
+        @warn "Layer 1 is the base field; select its variable with `v`"
+        return ""
+    end
+    if base.type == Constants.NOT_SELECTED_LABEL
+        @warn "Select a plot type before overlaying a second field"
+        return ""
+    end
+    if i > layer_count(fd) + 1
+        @warn ("Layer $(layer_prefix(i)) does not exist yet; add " *
+               "$(layer_prefix(layer_count(fd) + 1)) first")
+        return ""
+    end
+    names = filter(!isempty, names)
+    if isempty(names)
+        @warn "Usage: $(layer_prefix(i)) <variable>[,<partner>]"
+        return ""
+    end
+    variable = names[1]
+    if !haskey(dataset.var_coords, variable)
+        @warn "Variable '$variable' not found in dataset"
+        return ""
+    end
+    if !layer_fits_axes(plot_data, variable)
+        @warn ("Variable '$variable' does not span " *
+               join(plot_data.sel_dims[], ", ") *
+               " and cannot be overlaid on this plot")
+        return ""
+    end
+    existing = i <= layer_count(fd)
+    current = existing ? plot_data.layers[i].plot_type[] : base
+    # keep the type the layer already had, unless it no longer fits the
+    # base or a second component was named that it cannot draw
+    plot_type = existing && fits_layer(base, current) &&
+                !(length(names) >= 2 && current.nfields < 2) ? current :
+        PLOT_TYPES[default_overlay_plot(base, length(names))]
+    partner = if length(names) >= 2
+        names[2]
+    elseif plot_type.nfields >= 2
+        guess = Data.guess_vector_partner(dataset, variable)
+        guess === nothing ? Constants.NOT_SELECTED_LABEL : guess
+    else
+        Constants.NOT_SELECTED_LABEL
+    end
+    if plot_type.nfields >= 2 && partner != Constants.NOT_SELECTED_LABEL &&
+       !Data.is_vector_partner(dataset, variable, partner)
+        @warn "Variable '$partner' cannot be a second component of '$variable'"
+        return ""
+    end
+    if existing
+        layer = plot_data.layers[i]
+        # the variable last: the other two are read while it is re-sliced
+        layer.variable2[] = partner
+        layer.plot_type[] = plot_type
+        layer.variable[] = variable
+    else
+        add_layer!(fd, variable, partner, plot_type)
+    end
+    rebuild_layers!(fd)
+    layer_status(fd, i)
+end
+
+"Draw layer `i` with another plot type, if the base allows that type."
+function set_layer_plot_type!(fd::FigureData, i::Int, name::String)::String
+    plot_data = fd.plot_data
+    if i < 2
+        @warn "Layer 1 is the base field; select its plot type with `p`"
+        return ""
+    end
+    if i > layer_count(fd)
+        @warn "Layer $(layer_prefix(i)) is not set"
+        return ""
+    end
+    options = overlay_plot_options(plot_data.plot_type[])
+    if name ∉ options
+        @warn ("Plot type '$name' cannot be overlaid on " *
+               "$(plot_data.plot_type[].type). Available: " *
+               join(options, ", "))
+        return ""
+    end
+    layer = plot_data.layers[i]
+    plot_type = PLOT_TYPES[name]
+    # a vector type needs a second component; guess one from the name
+    if plot_type.nfields >= 2 && !Data.is_vector_partner(
+            plot_data.dataset, layer.variable[], layer.variable2[])
+        guess = Data.guess_vector_partner(plot_data.dataset, layer.variable[])
+        layer.variable2[] = guess === nothing ?
+            Constants.NOT_SELECTED_LABEL : guess
+    end
+    layer.plot_type[] = plot_type
+    rebuild_layers!(fd)
+    layer_status(fd, i)
+end
+
+"Take layer `i` off the figure."
+function remove_layer!(fd::FigureData, i::Int)::String
+    if i < 2
+        @warn "The base field cannot be removed"
+        return ""
+    end
+    if i > layer_count(fd)
+        @warn "Layer $(layer_prefix(i)) is not set"
+        return ""
+    end
+    name = layer_prefix(i)
+    drop_layers!(fd, [i])
+    rebuild_layers!(fd)
+    "Removed layer $name."
 end
 
 # ============================================================
@@ -1059,7 +1659,13 @@ function create_figure(figsize::Tuple{Int, Int})::Figure
 end
 
 function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
-    fig_data.ax[] !== nothing && delete!(fig_data.ax[])
+    if fig_data.ax[] !== nothing
+        delete!(fig_data.ax[])
+        # the layers went with it, so nothing is left to take off the axis
+        for layer in fig_data.layers
+            layer.plot_obj[] = nothing
+        end
+    end
     fig_data.ax[] = fig_data.plot_data.plot_type[].make_axis(fig_data)
     if !isnothing(fig_data.ax[])
         apply_kwargs!(fig_data, ui_state.kwargs[])
@@ -1121,7 +1727,9 @@ function add_colorbar!(fd::FigureData)::Nothing
         delete!(fd.cbar[])
         fd.cbar[] = nothing
     end
-    if fd.plot_data.plot_type[].colorbar && fd.plot_obj[] !== nothing && fd.settings.cbar[]
+    # one bar per figure, and it is the base layer's: an overlay carries
+    # its own colors, but a second bar would need a second layout column
+    if fd.plot_data.plot_type[].colorbar && primary(fd) !== nothing && fd.settings.cbar[]
         # A 2D axis with a constrained aspect letterboxes: it shrinks
         # inside its layout cell, while a cell-filling colorbar keeps the
         # full height and overshoots the plot. Tying the colorbar height
@@ -1135,7 +1743,7 @@ function add_colorbar!(fd::FigureData)::Nothing
         # the label settings go in as observables, so changing one takes
         # effect on the spot; an empty label costs no space at all, which
         # keeps the unlabelled bar exactly as it was
-        fd.cbar[] = Colorbar(fd.fig[2, 2], fd.plot_obj[];
+        fd.cbar[] = Colorbar(fd.fig[2, 2], primary(fd);
             width = 30, tellwidth = false, tellheight = false,
             label = fd.cbar_label.text,
             labelrotation = fd.cbar_label.rotation,
@@ -1158,7 +1766,10 @@ function clear_axis!(fd::FigureData)::Nothing
         delete!(fd.ax[])
         fd.ax[] = nothing
     end
-    fd.plot_obj[] = nothing
+    # the plots went with the axis; only the bookkeeping is left
+    for layer in fd.layers
+        layer.plot_obj[] = nothing
+    end
     fd.earth[] = nothing
     fd.land[] = nothing
     fd.coastlines[] = nothing
@@ -1480,36 +2091,82 @@ end
 # only the arrows sample the grid; streamlines follow the field, so the
 # density settings mean nothing to them and re-laying one would just
 # integrate every streamline again for no visible change
-is_arrow_type(fd::FigureData)::Bool =
-    fd.plot_data.plot_type[].type == "quiver"
+is_arrow_type(fd::FigureData, i::Int = 1)::Bool =
+    layer_plot(fd, i).type == "quiver"
 
-"Re-lay the arrows of the current vector plot, without rebuilding it."
+"How many arrows layer `i` aims for: its own setting, else the figure's."
+function layer_arrows(fd::FigureData, i::Int)::Tuple{Int, Int}
+    i <= length(fd.layers) || return fd.settings.arrows[]
+    own = fd.layers[i].settings.arrows
+    own === nothing ? fd.settings.arrows[] : own
+end
+
+"The exact grid stride layer `i` samples at, or nothing (a target count)."
+function layer_every(fd::FigureData, i::Int)::Union{Nothing, Int}
+    i <= length(fd.layers) || return fd.settings.every[]
+    own = fd.layers[i].settings.every
+    own === nothing ? fd.settings.every[] : own
+end
+
+"Re-lay the arrows of every vector layer, without rebuilding them."
 function refresh_vector_density!(fd::FigureData)::Nothing
-    is_arrow_type(fd) || return nothing
-    ndims = fd.plot_data.plot_type[].ndims
-    ndims in eachindex(fd.plot_data.d[1]) || return nothing
-    notify(fd.plot_data.d[1][ndims])
+    plot_data = fd.plot_data
+    for i in eachindex(plot_data.layers)
+        is_arrow_type(fd, i) || continue
+        ndims = layer_plot(fd, i).ndims
+        ndims in eachindex(plot_data.d[i][1]) || continue
+        notify(plot_data.d[i][1][ndims])
+    end
     nothing
 end
 
-function set_arrows!(fd::FigureData, value::Tuple)::Bool
+"""
+    checked_arrows(value)
+
+`value` as an `(nx, ny)` pair of counts, or `nothing` after saying what is
+wrong with it. The figure-level setting and the per-layer `over.arrows`
+share it, so both refuse the same values in the same words.
+"""
+function checked_arrows(value::Tuple)::Union{Nothing, Tuple{Int, Int}}
     ok = length(value) == 2 && all(v -> v isa Integer && v > 0, value)
     if !ok
         @error ("arrows must be an (nx, ny) tuple of positive integers, " *
                 "got $value")
-        return false
+        return nothing
     end
-    fd.settings.arrows[] = (Int(value[1]), Int(value[2]))
+    (Int(value[1]), Int(value[2]))
+end
+
+function set_arrows!(fd::FigureData, value::Tuple)::Bool
+    arrows = checked_arrows(value)
+    arrows === nothing && return false
+    fd.settings.arrows[] = arrows
     refresh_vector_density!(fd)
     false
 end
 
-function set_every!(fd::FigureData, value::Union{Nothing, Integer})::Bool
-    if value !== nothing && value < 1
+"""
+    checked_every(value)
+
+`value` as a grid stride, or `nothing` after saying what is wrong with
+it. The figure-level setting and the per-layer `over.every` share it, so
+both refuse the same values in the same words.
+"""
+function checked_every(value::Integer)::Union{Nothing, Int}
+    if value < 1
         @error "every must be a positive integer, got $value"
-        return false
+        return nothing
     end
-    fd.settings.every[] = value === nothing ? nothing : Int(value)
+    Int(value)
+end
+
+function set_every!(fd::FigureData, value::Union{Nothing, Integer})::Bool
+    every = value
+    if value !== nothing
+        every = checked_every(value)
+        every === nothing && return false
+    end
+    fd.settings.every[] = every
     refresh_vector_density!(fd)
     false
 end
@@ -1578,29 +2235,57 @@ const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
 )
     
 
+"""
+    checked_setting_type(property, value)
+
+Whether `value` has the type `property`'s handler declares, naming the
+type it wanted otherwise. A per-layer setting shadows the figure setting
+of the same name, so both read the declaration from here and complain in
+the same words.
+"""
+function checked_setting_type(property::Symbol, value::Any)::Bool
+    handler = FIGURE_SETTINGS_HANDLERS[property]
+    isa(value, handler.type) && return true
+    @error "Value for $property must be of type $(handler.type), got $(typeof(value))"
+    false
+end
+
 function apply_figure_settings!(fd::FigureData, property::Symbol, value::Any)::Bool
-    redraw = false
-    if haskey(FIGURE_SETTINGS_HANDLERS, property)
-        handler = FIGURE_SETTINGS_HANDLERS[property]
-        if isa(value, handler.type)
-            res = handler.handler(fd, value)
-            redraw = res ? true : redraw
-        else
-            @error "Value for $property must be of type $(handler.type), got $(typeof(value))"
-        end
-    else
+    if !haskey(FIGURE_SETTINGS_HANDLERS, property)
         @error "Property $property not recognized in FigureData"
+        return false
     end
-    redraw
+    checked_setting_type(property, value) || return false
+    FIGURE_SETTINGS_HANDLERS[property].handler(fd, value)
 end
 
 # ============================================================
 #  Pinned color range: reconciliation
 # ============================================================
 
-"The colorrange mode of the current kwargs: :manual, or a mode symbol."
-function colorrange_mode(fd::FigureData)::Symbol
-    value = get(fd.ui.state.kwargs[], :colorrange, nothing)
+"""
+    layer_kwarg(fd, i, key)
+
+One layer's value of a keyword: the prefixed form (`over.levels`) when it
+is set, and the unprefixed one otherwise. With a single layer this is
+exactly `kwargs[key]`.
+"""
+function layer_kwarg(fd::FigureData, i::Int, key::Symbol)::Any
+    kwargs = fd.ui.state.kwargs[]
+    prefixed = Symbol(layer_prefix(i), '.', key)
+    haskey(kwargs, prefixed) && return kwargs[prefixed]
+    get(kwargs, key, nothing)
+end
+
+"Whether either form of a keyword is set for layer `i`."
+function layer_kwarg_set(fd::FigureData, i::Int, key::Symbol)::Bool
+    kwargs = fd.ui.state.kwargs[]
+    haskey(kwargs, Symbol(layer_prefix(i), '.', key)) || haskey(kwargs, key)
+end
+
+"The colorrange mode of layer `i`: :manual, or a mode symbol."
+function colorrange_mode(fd::FigureData, i::Int = 1)::Symbol
+    value = layer_kwarg(fd, i, :colorrange)
     value === nothing && return :cycle
     if value isa AbstractString || value isa Symbol
         s = String(value)
@@ -1611,8 +2296,8 @@ function colorrange_mode(fd::FigureData)::Symbol
 end
 
 "Whether the user chose the mode (an explicit choice bypasses the gate)."
-colorrange_explicit(fd::FigureData)::Bool =
-    haskey(fd.ui.state.kwargs[], :colorrange)
+colorrange_explicit(fd::FigureData, i::Int = 1)::Bool =
+    layer_kwarg_set(fd, i, :colorrange)
 
 "The playback dimension when it is actually animatable, else nothing."
 function scan_pdim(fd::FigureData, variable::String)::Union{Nothing, String}
@@ -1623,28 +2308,9 @@ function scan_pdim(fd::FigureData, variable::String)::Union{Nothing, String}
     pdim
 end
 
-"""
-    active_variables(fd)
-
-Every variable the current plot draws, in component order. A vector plot
-adds its partner, so the color range is scanned over both components and
-pins |V| rather than the signed first one.
-"""
-function active_variables(fd::FigureData)::Vector{String}
-    state = fd.ui.state
-    variable = state.variable[]
-    variables = [variable]
-    fd.plot_data.plot_type[].nfields < 2 && return variables
-    partner = state.variable2[]
-    Data.is_vector_partner(fd.plot_data.dataset, variable, partner) &&
-        push!(variables, partner)
-    variables
-end
-
 "The hyperslab key the active mode wants pinned, or nothing (autoscale)."
-function colorrange_key(fd::FigureData, mode::Symbol)::Any
-    state = fd.ui.state
-    variables = active_variables(fd)
+function colorrange_key(fd::FigureData, mode::Symbol, i::Int = 1)::Any
+    variables = layer_variables(fd, i)
     variable = variables[1]
     dataset = fd.plot_data.dataset
     haskey(dataset.var_coords, variable) || return nothing
@@ -1657,7 +2323,8 @@ function colorrange_key(fd::FigureData, mode::Symbol)::Any
         vcat(fd.plot_data.sel_dims[], [pdim])
     end
     indexing = try
-        DataLimits.scan_indexing(dataset, variable, keep, state.dim_obs[])
+        DataLimits.scan_indexing(dataset, variable, keep,
+                                 fd.plot_data.dim_obs[])
     catch
         return nothing
     end
@@ -1666,26 +2333,33 @@ end
 
 # contour plots re-bin an Int `levels` from each frame's extrema, so the
 # pin must hand them concrete boundaries; a colorrange alone won't hold
-is_contour_type(fd::FigureData)::Bool =
-    fd.plot_data.plot_type[].type in ("contour", "contourf", "contour3d")
+is_contour_type(fd::FigureData, i::Int = 1)::Bool =
+    layer_plot(fd, i).type in ("contour", "contourf", "contour3d")
 
-"The user's `levels` kwarg (an explicit vector always wins over the pin)."
-user_levels(fd::FigureData)::Any = get(fd.ui.state.kwargs[], :levels, nothing)
+"""
+    user_levels(fd, i)
 
-function pin_levels!(fd::FigureData, lo::Float64, hi::Float64)::Nothing
-    is_contour_type(fd) || return nothing
-    user_levels(fd) isa AbstractVector && return nothing
-    plot = fd.plot_obj[]
+The `levels` keyword layer `i` is drawn with (an explicit vector always
+wins over the pin). Per layer, not per figure: two contour layers each
+count their own lines.
+"""
+user_levels(fd::FigureData, i::Int = 1)::Any = layer_kwarg(fd, i, :levels)
+
+function pin_levels!(fd::FigureData, i::Int, lo::Float64, hi::Float64)::Nothing
+    is_contour_type(fd, i) || return nothing
+    levels = user_levels(fd, i)
+    levels isa AbstractVector && return nothing
+    plot = fd.layers[i].plot_obj[]
     (plot === nothing || :levels ∉ propertynames(plot)) && return nothing
-    scan = fd.crange_scan
+    scan = fd.layers[i].crange_scan
     if scan.base_levels === nothing
         current = plot.levels[]
         current isa Int || return nothing  # someone else owns the levels
         scan.base_levels = current
     end
-    count = user_levels(fd) isa Int ? user_levels(fd) : scan.base_levels
+    count = levels isa Int ? levels : scan.base_levels
     # an Int means band boundaries for contourf, line values for contour
-    edges = fd.plot_data.plot_type[].type == "contourf" ? count + 1 : count
+    edges = layer_plot(fd, i).type == "contourf" ? count + 1 : count
     # a range, not a vector: Makie's compute graph types the levels edge
     # from its first render, and Base converts between range types where
     # a vector would not convert into a frozen range-typed edge
@@ -1694,13 +2368,13 @@ function pin_levels!(fd::FigureData, lo::Float64, hi::Float64)::Nothing
 end
 
 "Hand a pinned Int `levels` back to the plot."
-function restore_levels!(fd::FigureData)::Nothing
-    scan = fd.crange_scan
+function restore_levels!(fd::FigureData, i::Int)::Nothing
+    scan = fd.layers[i].crange_scan
     scan.base_levels === nothing && return nothing
-    plot = fd.plot_obj[]
+    plot = fd.layers[i].plot_obj[]
     if plot !== nothing && :levels ∈ propertynames(plot)
-        count = user_levels(fd) isa Int ? user_levels(fd) : scan.base_levels
-        plot.levels[] = count
+        levels = user_levels(fd, i)
+        plot.levels[] = levels isa Int ? levels : scan.base_levels
     end
     scan.base_levels = nothing
     nothing
@@ -1708,89 +2382,131 @@ end
 
 "Apply a computed range to the plot, remembering what is pinned."
 function apply_colorrange_pin!(fd::FigureData, key::Any,
-                               range::NTuple{2, Float64})::Nothing
-    plot = fd.plot_obj[]
+                               range::NTuple{2, Float64}, i::Int = 1)::Nothing
+    plot = fd.layers[i].plot_obj[]
     plot === nothing && return nothing
     lo, hi = range
     lo == hi && ((lo, hi) = (lo - 0.5, hi + 0.5))  # degenerate data
-    fd.crange_scan.applied_key = key
+    fd.layers[i].crange_scan.applied_key = key
     :colorrange ∈ propertynames(plot) && (plot.colorrange[] = (lo, hi))
-    pin_levels!(fd, lo, hi)
+    pin_levels!(fd, i, lo, hi)
     nothing
 end
 
 "Return the plot to Makie's own autoscaling and its own levels."
-function unpin_colorrange!(fd::FigureData)::Nothing
-    fd.crange_scan.applied_key = nothing
-    plot = fd.plot_obj[]
+function unpin_colorrange!(fd::FigureData, i::Int)::Nothing
+    fd.layers[i].crange_scan.applied_key = nothing
+    plot = fd.layers[i].plot_obj[]
     plot === nothing && return nothing
     :colorrange ∈ propertynames(plot) && (plot.colorrange[] = Makie.automatic)
-    restore_levels!(fd)
+    restore_levels!(fd, i)
     nothing
+end
+
+"""
+    gate_colorrange_keys!(fd, targets)
+
+Blank the keys whose scans the automatic budget will not pay for, and say
+so once. The budget is figure-wide on purpose: the scans do not run in
+parallel (`@async` here is cooperative on the one thread the UI lives on),
+so a second layer doubles both the wall time and the time the interface is
+blocked. Gating each scan on its own would let exactly that through
+unnoticed.
+"""
+function gate_colorrange_keys!(fd::FigureData,
+                               targets::Vector{Tuple{Symbol, Any}},
+                               )::Vector{Tuple{Symbol, Any}}
+    total = 0
+    gated = Int[]
+    for (i, (_, key)) in enumerate(targets)
+        key === nothing && continue
+        haskey(fd.layers[i].crange_scan.cache, key) && continue
+        # an explicit choice bypasses the gate: the user asked for it
+        colorrange_explicit(fd, i) && continue
+        total += DataLimits.hyperslab_elements(
+            fd.plot_data.dataset, collect(String, key[1]),
+            collect(Union{Colon, Int}, key[2]))
+        push!(gated, i)
+    end
+    (isempty(gated) || total <= DataLimits.AUTO_SCAN_ELEMENTS[]) && return targets
+    if !fd.crange_hinted[]
+        fd.crange_hinted[] = true
+        @info ("Automatic color-range pinning skipped: this view " *
+               "spans $total values. Set colorrange=\"cycle\" " *
+               "to scan anyway, or pin a manual colorrange=(lo, hi).")
+    end
+    [i ∈ gated ? (mode, nothing) : (mode, key)
+     for (i, (mode, key)) in enumerate(targets)]
 end
 
 """
     update_colorrange!(fd; sync = false)
 
-Reconcile the plot's color range with the active mode. Cheap when
-nothing changed (the per-frame path during playback): the target key is
+Reconcile every layer's color range with the mode it is under. Cheap when
+nothing changed (the per-frame path during playback): the target keys are
 recomputed and compared before any work happens. A cache miss starts a
 background scan -- or runs it inline with `sync = true`, which record
 uses so a video never rescales mid-file. The previous pin stays applied
 until its replacement is ready.
 """
 function update_colorrange!(fd::FigureData; sync::Bool = false)::Nothing
-    plot = fd.plot_obj[]
+    targets = Tuple{Symbol, Any}[]
+    for i in eachindex(fd.layers)
+        # nothing drawn yet: skip before the key is even derived, so the
+        # per-frame path stays as cheap as it was
+        if fd.layers[i].plot_obj[] === nothing
+            push!(targets, (:frame, nothing))
+            continue
+        end
+        mode = colorrange_mode(fd, i)
+        key = mode === :manual || mode === :frame ? nothing :
+            colorrange_key(fd, mode, i)
+        push!(targets, (mode, key))
+    end
+    # the size gate spends one budget across all of them
+    targets = gate_colorrange_keys!(fd, targets)
+    for (i, (mode, key)) in enumerate(targets)
+        update_layer_colorrange!(fd, i, mode, key; sync = sync)
+    end
+    nothing
+end
+
+"Reconcile one layer, given the mode and the key the gate left it with."
+function update_layer_colorrange!(fd::FigureData, i::Int, mode::Symbol,
+                                  key::Any; sync::Bool = false)::Nothing
+    plot = fd.layers[i].plot_obj[]
     plot === nothing && return nothing
-    scan = fd.crange_scan
-    mode = colorrange_mode(fd)
+    scan = fd.layers[i].crange_scan
     if mode === :manual
-        value = fd.ui.state.kwargs[][:colorrange]
-        key = (:manual, value)
-        key == scan.applied_key && return nothing
+        value = layer_kwarg(fd, i, :colorrange)
+        manual_key = (:manual, value)
+        manual_key == scan.applied_key && return nothing
         scan.generation += 1
         scan.pending_key = nothing
-        restore_levels!(fd)
+        restore_levels!(fd, i)
         # write the range, do not just record it: the kwargs path set it
         # already, but apply_kwargs! yields while it waits for its render
         # cycles, and a scan started before the manual range can land in
         # that window and overwrite it. Reconciling last has to win.
         if value isa Tuple && length(value) == 2 && all(x -> x isa Real, value)
             :colorrange ∈ propertynames(plot) && (plot.colorrange[] = value)
-            pin_levels!(fd, Float64(value[1]), Float64(value[2]))
+            pin_levels!(fd, i, Float64(value[1]), Float64(value[2]))
         end
-        scan.applied_key = key
+        scan.applied_key = manual_key
         return nothing
     end
-    key = mode === :frame ? nothing : colorrange_key(fd, mode)
     key !== nothing && key == scan.applied_key && return nothing
-    # The default pin never starts an expensive scan uninvited: past the
-    # gate the range stays per-frame until the user explicitly asks.
-    if key !== nothing && !haskey(scan.cache, key) && !colorrange_explicit(fd)
-        elements = DataLimits.hyperslab_elements(
-            fd.plot_data.dataset, collect(String, key[1]),
-            collect(Union{Colon, Int}, key[2]))
-        if elements > DataLimits.AUTO_SCAN_ELEMENTS[]
-            if !scan.hinted
-                scan.hinted = true
-                @info ("Automatic color-range pinning skipped: this view " *
-                       "spans $elements values. Set colorrange=\"cycle\" " *
-                       "to scan anyway, or pin a manual colorrange=(lo, hi).")
-            end
-            key = nothing
-        end
-    end
     if key === nothing
         scan.applied_key === nothing && return nothing
         scan.generation += 1
         scan.pending_key = nothing
-        unpin_colorrange!(fd)
+        unpin_colorrange!(fd, i)
         return nothing
     end
     if haskey(scan.cache, key)
         scan.generation += 1
         scan.pending_key = nothing
-        apply_colorrange_pin!(fd, key, scan.cache[key])
+        apply_colorrange_pin!(fd, key, scan.cache[key], i)
         return nothing
     end
     !sync && key == scan.pending_key && return nothing  # already scanning
@@ -1809,8 +2525,8 @@ function update_colorrange!(fd::FigureData; sync::Bool = false)::Nothing
         scan.cache[key] = result
         # a manual range applied while this scan ran owns the plot now:
         # keep the result cached, but never paint over the user's range
-        colorrange_mode(fd) === :manual && return
-        apply_colorrange_pin!(fd, key, result)
+        colorrange_mode(fd, i) === :manual && return
+        apply_colorrange_pin!(fd, key, result, i)
     end
     sync ? runner() : (scan.task = @async runner())
     nothing
@@ -1884,7 +2600,15 @@ end
 #  Apply keyword arguments to plot objects
 # ============================================================
 
+"""
+One keyword aimed at one target. `key` is the keyword exactly as the user
+wrote it, layer prefix and all, and `property` the name it resolved to on
+the target. The two differ for a prefixed keyword, and the store is keyed
+by `key`: strip the prefix there and `over.colormap` and `colormap` would
+collapse onto one entry and overwrite each other's remembered value.
+"""
 struct PropertyMapping
+    key::Symbol
     property::Symbol
     target_object::Any
     current_value::Any
@@ -1892,6 +2616,8 @@ struct PropertyMapping
 end
 
 function get_default_value(fd::FigureData, target_object::Any, property::Symbol)::Any
+    # a layer setting falls back to the figure's own
+    isa(target_object, LayerSettings) && return nothing
     if isa(target_object, Interpolate.RangeControl)
         interp = fd.ui.state.range_control[].interp
         try
@@ -1955,9 +2681,61 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
 end
     
 
+"""
+    kwarg_targets(fig_data)
+
+Everything a keyword can name, in the order `get` reports them: the axis,
+then the layers base first, then the colorbar, the figure settings and the
+coordinate ranges. A keyword reaches *every* target owning it, so
+`colorrange=(-20, 30)` still pins both a heatmap and its colorbar.
+"""
+function kwarg_targets(fig_data::FigureData)::Vector{Any}
+    targets = Any[fig_data.ax[]]
+    for layer in fig_data.layers
+        push!(targets, layer.plot_obj[])
+    end
+    push!(targets, fig_data.cbar[], fig_data.settings,
+          fig_data.range_control[])
+    targets
+end
+
+"""
+    resolve_kwarg(fig_data, key)
+
+Where a keyword goes: the property it names and every object owning it.
+
+The whole key is tried first, against the flat namespace of every target
+there is. Only when nothing owns it is it read as `over2.levels` -- a
+layer prefix and a property -- and resolved against that one layer: its
+own settings, and failing those its plot. That order is what keeps the
+meaning of every keyword that worked before overlays existed, coordinate
+names with a dot in them included.
+"""
+function resolve_kwarg(fig_data::FigureData,
+                       key::Symbol)::Tuple{Symbol, Vector{Any}}
+    owners(property, targets) = Any[
+        t for t in targets
+        if t !== nothing && property ∈ propertynames(t) &&
+        # the figure title lives in a layout Label; never touch the axis'
+        # native (empty) title
+        !(property in (:title, :titlesize) && t isa Makie.AbstractAxis)]
+    targets = owners(key, kwarg_targets(fig_data))
+    isempty(targets) || return (key, targets)
+    split = split_layer_key(key)
+    split === nothing && return (key, targets)
+    layer, property = split
+    layer <= length(fig_data.layers) || return (key, Any[])
+    # the layer's own settings win over an attribute of the same name on
+    # its plot: `over.arrows` is the overlay's arrow count, full stop
+    settings = owners(property, Any[fig_data.layers[layer].settings])
+    isempty(settings) || return (property, settings)
+    (property, owners(property, Any[fig_data.layers[layer].plot_obj[]]))
+end
+
 function get_property_mappings(kwargs::OrderedDict{Symbol, Any}, fig_data::FigureData)::Vector{PropertyMapping}
     mappings = Vector{PropertyMapping}()
-    for (property, intended_value) in kwargs
+    for (key, intended_value) in kwargs
+        property, targets = resolve_kwarg(fig_data, key)
         # colorrange mode strings configure the range scanner; Makie only
         # ever sees tuples
         if property === :colorrange && intended_value !== :delete &&
@@ -1968,15 +2746,7 @@ function get_property_mappings(kwargs::OrderedDict{Symbol, Any}, fig_data::Figur
                         "), got \"$intended_value\"")
             continue
         end
-        found_targets = 0
-        for target_obj in (fig_data.ax[], fig_data.plot_obj[], fig_data.cbar[], fig_data.settings, fig_data.range_control[])
-            target_obj === nothing && continue
-            # the figure title lives in a layout Label; never touch
-            # the axis' native (empty) title
-            property in (:title, :titlesize) &&
-                target_obj isa Makie.AbstractAxis && continue
-            property ∉ propertynames(target_obj) && continue
-            
+        for target_obj in targets
             # Get the current value of the property
             current_value = getproperty(target_obj, property)
             # If it's an Observable, get its value
@@ -1991,12 +2761,41 @@ function get_property_mappings(kwargs::OrderedDict{Symbol, Any}, fig_data::Figur
             target_value = intended_value === :delete ?
                 get_default_value(fig_data, target_obj, property) : intended_value
 
-            push!(mappings, PropertyMapping(property, target_obj, current_value, target_value))
-            found_targets += 1
+            push!(mappings, PropertyMapping(key, property, target_obj,
+                                            current_value, target_value))
         end
-        found_targets == 0 && @warn "Property $property not found in any plot object"
+        isempty(targets) && @warn "Property $key not found in any plot object"
     end
     return mappings
+end
+
+"The check each per-layer setting shares with its figure-level twin."
+const LAYER_SETTING_CHECKS = Dict{Symbol, Function}(
+    :arrows => checked_arrows,
+    :every => checked_every,
+)
+
+"""
+    set_layer_setting!(fd, settings, property, value)
+
+Store one setting on a single layer. `over.arrows` and `over.every`
+shadow the figure settings of the same name, so they are checked the way
+those are and refused with the same words -- a bare `setproperty!` would
+surface an `InexactError` out of `convert` instead. `nothing` always
+passes: that is the layer handing the setting back to the figure.
+"""
+function set_layer_setting!(fd::FigureData, settings::LayerSettings,
+                            property::Symbol, value::Any)::Nothing
+    stored = value
+    if value !== nothing && haskey(LAYER_SETTING_CHECKS, property)
+        checked_setting_type(property, value) || return nothing
+        stored = LAYER_SETTING_CHECKS[property](value)
+        stored === nothing && return nothing
+    end
+    setproperty!(settings, property, stored)
+    # a plain struct notifies nobody, so re-lay the arrows by hand
+    refresh_vector_density!(fd)
+    nothing
 end
 
 function set_property_mapping(fd::FigureData, target_object::Any, property::Symbol, value::Any)::Bool
@@ -2013,6 +2812,8 @@ function set_property_mapping(fd::FigureData, target_object::Any, property::Symb
             )
         elseif isa(target_object, FigureSettings)
             redraw = apply_figure_settings!(fd, property, value)
+        elseif isa(target_object, LayerSettings)
+            set_layer_setting!(fd, target_object, property, value)
         else
             setproperty!(target_object, property, value)
         end
@@ -2071,6 +2872,28 @@ function kwarg_dict_to_string(kwargs::OrderedDict{Symbol, Any})::String
     join(parts, ", ")
 end
 
+"""
+    rewrite_kwargs!(fd, kwargs)
+
+Replace the stored keywords without applying anything. The store is
+updated first, so the textbox's own diffing finds nothing to do -- which
+is what layer removal needs: the layer the dropped keywords named is gone,
+so there is nothing left to revert them on.
+"""
+function rewrite_kwargs!(fd::FigureData,
+                         kwargs::OrderedDict{Symbol, Any})::Nothing
+    fd.ui.state.kwargs[] = kwargs
+    textbox = fd.ui.main_menu.plot_menu.plot_kw
+    text = kwarg_dict_to_string(kwargs)
+    try
+        textbox.displayed_string = isempty(text) ? " " : text
+        textbox.stored_string = text
+    catch e
+        @warn "Error parsing additional arguments: $e"
+    end
+    nothing
+end
+
 function update_kwargs!(fd::FigureData, new_kwargs::OrderedDict{Symbol, Any})::Nothing
     old_kwargs = fd.ui.state.kwargs[]
 
@@ -2126,7 +2949,9 @@ function apply_kwargs!(fig_data::FigureData, kwargs::OrderedDict{Symbol, Any})::
             # render time cannot be blamed on a single keyword. Name
             # everything that goes back, so a setting rolled back
             # because a neighbor failed is never silent.
-            reverted = unique(mapping.property for mapping in mappings)
+            # the keys as written, prefixes included: that is what the
+            # store is keyed by, and what the user has to retype
+            reverted = unique(mapping.key for mapping in mappings)
             @warn ("An error occurred while applying keyword arguments, " *
                    "reverting: " * join(reverted, ", "))
             # Only show the first 5 lines of the error
@@ -2137,7 +2962,7 @@ function apply_kwargs!(fig_data::FigureData, kwargs::OrderedDict{Symbol, Any})::
             end
             # revert to original properties
             for mapping in mappings
-                fig_data.ui.state.kwargs[][mapping.property] = mapping.current_value
+                fig_data.ui.state.kwargs[][mapping.key] = mapping.current_value
             end
 
             redraw = apply_original_property_mappings!(fig_data, mappings)
@@ -2663,22 +3488,22 @@ function decimate_vector_field(
 end
 
 """
-    vector_field_observable(fd, ax, x, y, u, v)
+    vector_field_observable(fd, ax, i, x, y, u, v)
 
-The drawn field, kept in step with the grid and both data components.
-Reads the density settings without subscribing to them, so changing one
-costs a `notify` on the data (see `refresh_vector_density!`) instead of a
-listener that outlives the plot.
+The drawn field of layer `i`, kept in step with the grid and both data
+components. Reads the density settings without subscribing to them, so
+changing one costs a `notify` on the data (see `refresh_vector_density!`)
+instead of a listener that outlives the plot.
 """
 function vector_field_observable(fd::FigureData, ax::Makie.AbstractAxis,
-                                 x::Observable, y::Observable,
+                                 i::Int, x::Observable, y::Observable,
                                  u::Observable, v::Observable,
                                  )::Observable{VectorField}
     geographic = ax isa GeoAxis
     field = Observable(EMPTY_VECTOR_FIELD)
     update = (xs, ys, us, vs) -> begin
         field[] = decimate_vector_field(
-            xs, ys, us, vs, fd.settings.arrows[], fd.settings.every[],
+            xs, ys, us, vs, layer_arrows(fd, i), layer_every(fd, i),
             geographic)
     end
     update(x[], y[], u[], v[])
@@ -2686,10 +3511,10 @@ function vector_field_observable(fd::FigureData, ax::Makie.AbstractAxis,
     field
 end
 
-function quiver_plot!(fd::FigureData, ax::Makie.AbstractAxis,
+function quiver_plot!(fd::FigureData, ax::Makie.AbstractAxis, i::Int,
                       x::Observable, y::Observable,
                       u::Observable, v::Observable)
-    field = vector_field_observable(fd, ax, x, y, u, v)
+    field = vector_field_observable(fd, ax, i, x, y, u, v)
     # arrows2d!, not the deprecated arrows!: the shim warns, and a stray
     # write to stderr trips the kwargs path's revert machinery
     arrows2d!(ax,
@@ -2816,51 +3641,73 @@ function streamplot_plot!(fd::FigureData, ax::Makie.AbstractAxis,
 end
 
 
+"""
+    contour_colormap(i)
+
+The colormap the contour of layer `i` starts out with: the usual
+diverging one on the base, and a colormap that is black at every level on
+an overlay.
+
+The base layer owns the color dimension and the colorbar, so an overlay
+only has to add structure -- a second colormap fights the first, and the
+pale end of a diverging one vanishes into the field underneath. Flat
+lines over a filled field is the atlas convention as well, and it is what
+`wireframe`, `line` and `scatter` already do.
+
+The flatness is a colormap rather than a flat `color`, which would look
+the same, so that colors keep coming from the colormap on every layer:
+Makie reads a set `color` in preference to any colormap, so a later
+`over.colormap=` would have been swallowed without a word.
+"""
+contour_colormap(i::Int)::Union{Symbol, Vector{Symbol}} =
+    i == 1 ? :balance : [:black, :black]
+
 for plot in [
     # 2D plots
     Plot("heatmap", 2, true,
-        (fd, ax, x, y, z, d) -> custom_heatmap!(ax, x, y, z, d),
+        (fd, ax, i, x, y, z, d) -> custom_heatmap!(ax, x, y, z, d),
         create_2d_axis),
     Plot("contour", 2, false,
-        (fd, ax, x, y, z, d) -> contour!(ax, x, y, d, colormap = :balance, inspectable=false),
+        (fd, ax, i, x, y, z, d) -> contour!(ax, x, y, d,
+            colormap = contour_colormap(i), inspectable=false),
         create_2d_axis),
     Plot("contourf", 2, true,
-        (fd, ax, x, y, z, d) -> contourf!(ax, x, y, d, colormap = :balance, inspectable=false),
+        (fd, ax, i, x, y, z, d) -> contourf!(ax, x, y, d, colormap = :balance, inspectable=false),
         create_2d_axis),
     Plot("surface", 2, true,
-        (fd, ax, x, y, z, d) -> surface!(ax, x, y, d, colormap = :balance, inspectable=false),
-        create_3d_axis),
+        (fd, ax, i, x, y, z, d) -> surface!(ax, x, y, d, colormap = :balance, inspectable=false),
+        create_3d_axis; axis_kind = :ax3d),
     Plot("wireframe", 2, false,
-        (fd, ax, x, y, z, d) -> wireframe!(ax, x, y, d, color = :royalblue3, inspectable=false),
-        create_3d_axis),
+        (fd, ax, i, x, y, z, d) -> wireframe!(ax, x, y, d, color = :royalblue3, inspectable=false),
+        create_3d_axis; axis_kind = :ax3d),
 
     # 2D vector plots (two components)
     Plot("quiver", 2, true,
-        (fd, ax, x, y, z, u, v) -> quiver_plot!(fd, ax, x, y, u, v),
+        (fd, ax, i, x, y, z, u, v) -> quiver_plot!(fd, ax, i, x, y, u, v),
         create_2d_axis; nfields = 2),
     Plot("streamplot", 2, true,
-        (fd, ax, x, y, z, u, v) -> streamplot_plot!(fd, ax, x, y, u, v),
+        (fd, ax, i, x, y, z, u, v) -> streamplot_plot!(fd, ax, x, y, u, v),
         create_2d_axis; nfields = 2),
 
     # 1D plots
     Plot("line", 1, false,
-        (fd, ax, x, y, z, d) -> lines!(ax, x, d, color = :royalblue3, inspectable=false, linestyle = :solid),
+        (fd, ax, i, x, y, z, d) -> lines!(ax, x, d, color = :royalblue3, inspectable=false, linestyle = :solid),
         create_2d_axis),
     Plot("scatter", 1, false,
-        (fd, ax, x, y, z, d) -> scatter!(ax, x, d, color = :royalblue3, inspectable=false),
+        (fd, ax, i, x, y, z, d) -> scatter!(ax, x, d, color = :royalblue3, inspectable=false),
         create_2d_axis),
 
     # 3D plots
     Plot("volume", 3, true,
-        (fd, ax, x, y, z, d) -> volume!(
+        (fd, ax, i, x, y, z, d) -> volume!(
             ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
             d, colormap = :balance),
-        create_3d_axis),
+        create_3d_axis; axis_kind = :ax3d),
     Plot("contour3d", 3, true,
-        (fd, ax, x, y, z, d) -> contour!(
+        (fd, ax, i, x, y, z, d) -> contour!(
             ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
             d, colormap = :balance),
-        create_3d_axis),
+        create_3d_axis; axis_kind = :ax3d),
 ]
     PLOT_TYPES[plot.type] = plot
 end

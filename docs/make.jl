@@ -36,6 +36,7 @@ makedocs(
             "Selecting Data" => "usage/selecting_data.md",
             "Plot Types" => "usage/plot_types.md",
             "Customizing Plots" => "usage/customization.md",
+            "Overlaying Fields" => "usage/overlays.md",
             "Animation and Playback" => "usage/animation.md",
             "Saving and Recording" => "usage/saving.md",
             "Unstructured Grids" => "usage/unstructured.md",

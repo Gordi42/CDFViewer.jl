@@ -396,11 +396,11 @@ using CDFViewer.Plotting
 
     @testset "Pinned color range" begin
         kwc(pairs...) = OrderedDict{Symbol, Any}(pairs...)
-        wait_scan(fd) = let t = fd.crange_scan.task
+        wait_scan(fd) = let t = fd.layers[1].crange_scan.task
             t === nothing || wait(t)
         end
         # Makie stores the attribute as a Vec2f; compare in Float32
-        crange(fd) = Tuple(fd.plot_obj[].colorrange[])
+        crange(fd) = Tuple(Plotting.primary(fd).colorrange[])
         function init_anim_figure(plot_type::String, var::String = "3d_float")
             (fd, state, dataset) = arrange_and_create_axis(
                 var, ["lon", "lat"], plot_type)
@@ -428,7 +428,7 @@ using CDFViewer.Plotting
 
             # "frame" restores Makie's per-frame autoscaling
             Plotting.update_kwargs!(fd, kwc(:colorrange => "frame"))
-            @test fd.plot_obj[].colorrange[] == Makie.automatic
+            @test Plotting.primary(fd).colorrange[] == Makie.automatic
 
             # deleting the keyword returns to the cycle pin (cached)
             Plotting.update_kwargs!(fd, kwc())
@@ -505,7 +505,7 @@ using CDFViewer.Plotting
             fd.ui.main_menu.playback_menu.var.selection[] = "time"
             wait_scan(fd)
             vals = dataset.ds["3d_float"][:, :, :]
-            levels = fd.plot_obj[].levels[]
+            levels = Plotting.primary(fd).levels[]
             @test levels isa AbstractVector
             @test first(levels) == minimum(vals)
             @test last(levels) == maximum(vals)
@@ -513,7 +513,7 @@ using CDFViewer.Plotting
 
             # frame mode hands the plot its own Int levels back
             Plotting.update_kwargs!(fd, kwc(:colorrange => "frame"))
-            @test fd.plot_obj[].levels[] isa Int
+            @test Plotting.primary(fd).levels[] isa Int
             Makie.colorbuffer(fd.fig)   # and that must render as well
             cleanup(dataset)
         end
@@ -521,8 +521,8 @@ using CDFViewer.Plotting
         @testset "No playback dimension" begin
             (fd, state, dataset) = arrange_and_create_axis(
                 "2d_float", ["lon", "lat"], "heatmap")
-            @test fd.crange_scan.applied_key === nothing
-            @test fd.plot_obj[].colorrange[] == Makie.automatic
+            @test fd.layers[1].crange_scan.applied_key === nothing
+            @test Plotting.primary(fd).colorrange[] == Makie.automatic
             cleanup(dataset)
         end
 
@@ -617,8 +617,8 @@ using CDFViewer.Plotting
                 @test_logs (:info,) match_mode = :any begin
                     fd.ui.main_menu.playback_menu.var.selection[] = "time"
                 end
-                @test fd.crange_scan.applied_key === nothing
-                @test fd.plot_obj[].colorrange[] == Makie.automatic
+                @test fd.layers[1].crange_scan.applied_key === nothing
+                @test Plotting.primary(fd).colorrange[] == Makie.automatic
 
                 # an explicit request bypasses the gate
                 Plotting.update_kwargs!(fd, kwc(:colorrange => "cycle"))
@@ -868,7 +868,7 @@ using CDFViewer.Plotting
                 ax = plot.make_axis(fd)
                 # a vector type draws two components, so it gets two
                 components = Tuple(d for _ in 1:plot.nfields)
-                plotobj = plot.func(fd, ax, x, y, z, components...)
+                plotobj = plot.func(fd, ax, 1, x, y, z, components...)
 
                 # Assert
                 plot.type === Constants.NOT_SELECTED_LABEL && continue  # Skip the Info plot as it does nothing
@@ -1090,8 +1090,8 @@ using CDFViewer.Plotting
             @test plot_data.y[] == collect(Float64, 1:1)
             @test plot_data.z[] == collect(Float64, 1:1)
             for i in 1:3
-                @test plot_data.d[1][i] isa Observable
-                @test plot_data.d[1][i][] === nothing
+                @test plot_data.d[1][1][i] isa Observable
+                @test plot_data.d[1][1][i][] === nothing
             end
 
             # cleanup
@@ -1134,9 +1134,9 @@ using CDFViewer.Plotting
             # Assert
             @test plot_data.plot_type[] == Plotting.PLOT_TYPES["line"]
             @test plot_data.sel_dims[] == ["lon"]
-            @test plot_data.d[1][1][].size == (5,)
-            @test plot_data.d[1][2][] === nothing
-            @test plot_data.d[1][3][] === nothing
+            @test plot_data.d[1][1][1][].size == (5,)
+            @test plot_data.d[1][1][2][] === nothing
+            @test plot_data.d[1][1][3][] === nothing
 
             # cleanup
             cleanup(dataset)
@@ -1153,9 +1153,9 @@ using CDFViewer.Plotting
             # Assert
             @test plot_data.plot_type[] == Plotting.PLOT_TYPES["heatmap"]
             @test plot_data.sel_dims[] == ["lon", "lat"]
-            @test plot_data.d[1][1][] === nothing
-            @test plot_data.d[1][2][].size == (5, 7)
-            @test plot_data.d[1][3][] === nothing
+            @test plot_data.d[1][1][1][] === nothing
+            @test plot_data.d[1][1][2][].size == (5, 7)
+            @test plot_data.d[1][1][3][] === nothing
 
             # cleanup
             cleanup(dataset)
@@ -1173,9 +1173,9 @@ using CDFViewer.Plotting
             # Assert
             @test plot_data.plot_type[] == Plotting.PLOT_TYPES["volume"]
             @test plot_data.sel_dims[] == ["lon", "lat", "only_long"]
-            @test plot_data.d[1][1][] === nothing
-            @test plot_data.d[1][2][] === nothing
-            @test plot_data.d[1][3][].size == (5, 7, 4)
+            @test plot_data.d[1][1][1][] === nothing
+            @test plot_data.d[1][1][2][] === nothing
+            @test plot_data.d[1][1][3][].size == (5, 7, 4)
 
             # cleanup
             cleanup(dataset)
@@ -1194,7 +1194,7 @@ using CDFViewer.Plotting
 
             # Assert
             @test plot_data.sel_dims[] == ["only_unit", "lat"]
-            @test plot_data.d[1][2][].size == (3, 7)
+            @test plot_data.d[1][1][2][].size == (3, 7)
 
             # cleanup
             cleanup(dataset)
@@ -1211,21 +1211,21 @@ using CDFViewer.Plotting
             # Act: disable updates
             plot_data.update_data_switch[] = false
             x_ori = plot_data.x[]
-            d_ori = plot_data.d[1][1][]
+            d_ori = plot_data.d[1][1][1][]
             state.x_name[] = "lat"  # change x dimension
             state.variable[] = "2d_float"  # change variable
             state.plot_type_name[] = "line"  # change plot type
 
             # Assert: data should not have changed
             @test plot_data.x[] == x_ori
-            @test plot_data.d[1][1][] == d_ori
+            @test plot_data.d[1][1][1][] == d_ori
 
             # Act: enable updates
             plot_data.update_data_switch[] = true
 
             # Assert: data should now reflect the changes
             @test length(plot_data.x[]) == 7
-            @test plot_data.d[1][1][].size == (7,)
+            @test plot_data.d[1][1][1][].size == (7,)
 
             # cleanup
             cleanup(dataset)
@@ -1249,7 +1249,7 @@ using CDFViewer.Plotting
             @test fig_data.fig isa Figure
             @test fig_data.plot_data isa Plotting.PlotData
             @test fig_data.ax isa Observable{Union{Makie.AbstractAxis, Nothing}}
-            @test fig_data.plot_obj isa Observable{Union{Makie.AbstractPlot, Nothing}}
+            @test fig_data.layers[1].plot_obj isa Observable{Union{Makie.AbstractPlot, Nothing}}
             @test fig_data.cbar isa Observable{Union{Colorbar, Nothing}}
             @test fig_data.settings isa Plotting.FigureSettings
 
@@ -1273,7 +1273,7 @@ using CDFViewer.Plotting
             @test fig_data.ax[].ylabel[] == ""
             # the title lives in the layout Label, not on the axis
             @test fig_data.title_text[] == "5d_float"
-            @test fig_data.plot_obj[] isa Lines
+            @test Plotting.primary(fig_data) isa Lines
             @test fig_data.cbar[] === nothing
 
             # Act - change observables
@@ -1305,7 +1305,7 @@ using CDFViewer.Plotting
             @test fig_data.ax[].ylabel[] == "lat"
             # the title lives in the layout Label, not on the axis
             @test fig_data.title_text[] == "5d_float"
-            @test fig_data.plot_obj[] isa Heatmap
+            @test Plotting.primary(fig_data) isa Heatmap
             @test fig_data.cbar[] isa Colorbar
 
             # Act - change observables
@@ -1339,7 +1339,7 @@ using CDFViewer.Plotting
             @test fig_data.ax[].ylabel[] == "float_dim"
             @test fig_data.ax[].zlabel[] == ""
             @test fig_data.title_text[] == "2d_gap"
-            @test fig_data.plot_obj[] isa Surface
+            @test Plotting.primary(fig_data) isa Surface
             @test fig_data.cbar[] isa Colorbar
 
             # Cleanup
@@ -1365,7 +1365,7 @@ using CDFViewer.Plotting
             @test fig_data.ax[].zlabel[] == "Long"
             # the title lives in the layout Label, not on the axis
             @test fig_data.title_text[] == "5d_float"
-            @test fig_data.plot_obj[] isa Volume
+            @test Plotting.primary(fig_data) isa Volume
             @test fig_data.cbar[] isa Colorbar
 
             # Act - change observables
@@ -1393,7 +1393,7 @@ using CDFViewer.Plotting
 
             # Assert
             @test fig_data.ax[] isa Axis3
-            @test fig_data.plot_obj[] isa Surface
+            @test Plotting.primary(fig_data) isa Surface
             @test fig_data.cbar[] isa Colorbar
 
             # Cleanup
@@ -1416,7 +1416,7 @@ using CDFViewer.Plotting
 
             # Assert
             @test fig_data.ax[] isa Axis3
-            @test fig_data.plot_obj[] isa Volume
+            @test Plotting.primary(fig_data) isa Volume
             @test fig_data.cbar[] isa Colorbar
 
             # Act - change to a 1D plot type
@@ -1425,7 +1425,7 @@ using CDFViewer.Plotting
 
             # Assert
             @test fig_data.ax[] isa Axis
-            @test fig_data.plot_obj[] isa Lines
+            @test Plotting.primary(fig_data) isa Lines
             @test fig_data.cbar[] === nothing
 
             # Cleanup
@@ -1449,8 +1449,8 @@ using CDFViewer.Plotting
             [wait(t) for t in fig_data.tasks[]]
 
             # Assert
-            @test fig_data.plot_obj[].colorrange.parent.value == (0.2, 0.8)
-            @test fig_data.plot_obj[].colormap.parent.value == :ice
+            @test Plotting.primary(fig_data).colorrange.parent.value == (0.2, 0.8)
+            @test Plotting.primary(fig_data).colormap.parent.value == :ice
             @test fig_data.ax[].titlevisible[] == false
             @test fig_data.cbar[].label[] == "My Label"
 
@@ -1463,8 +1463,8 @@ using CDFViewer.Plotting
             [wait(t) for t in fig_data.tasks[]]
 
             # Assert - the kwargs should still apply
-            @test fig_data.plot_obj[].colorrange.parent.value == (0.2, 0.8)
-            @test fig_data.plot_obj[].colormap.parent.value == :ice
+            @test Plotting.primary(fig_data).colorrange.parent.value == (0.2, 0.8)
+            @test Plotting.primary(fig_data).colormap.parent.value == :ice
             @test fig_data.ax[].titlevisible[] == false
             @test fig_data.cbar[].label[] == "My Label"
 
@@ -1757,7 +1757,7 @@ using CDFViewer.Plotting
 
                 # Assert Check that the axis is not geographic by default
                 @test fd.ax[] isa Axis
-                @test fd.plot_obj[] isa Heatmap
+                @test Plotting.primary(fd) isa Heatmap
                 @test fd.cbar[] isa Colorbar
                 @test fd.earth[] === nothing
                 @test fd.land[] === nothing
@@ -1768,7 +1768,7 @@ using CDFViewer.Plotting
 
                 # Assert
                 @test fd.ax[] isa GeoAxis
-                @test fd.plot_obj[] isa Surface
+                @test Plotting.primary(fd) isa Surface
                 @test fd.cbar[] isa Colorbar
                 @test fd.earth[] === nothing
                 @test fd.land[] === nothing
@@ -1780,7 +1780,7 @@ using CDFViewer.Plotting
 
                 # Assert
                 @test fd.ax[] isa Axis
-                @test fd.plot_obj[] isa Heatmap
+                @test Plotting.primary(fd) isa Heatmap
                 @test fd.cbar[] isa Colorbar
                 @test fd.earth[] === nothing
                 @test fd.land[] === nothing
@@ -1797,7 +1797,7 @@ using CDFViewer.Plotting
 
                 # Assert Check that the axis is not geographic by default
                 @test fd.ax[] isa Axis
-                @test fd.plot_obj[] isa Heatmap
+                @test Plotting.primary(fd) isa Heatmap
                 @test fd.cbar[] isa Colorbar
                 @test fd.earth[] === nothing
                 @test fd.land[] === nothing
@@ -1808,7 +1808,7 @@ using CDFViewer.Plotting
 
                 # Assert
                 @test fd.ax[] isa Axis
-                @test fd.plot_obj[] isa Heatmap
+                @test Plotting.primary(fd) isa Heatmap
                 @test fd.cbar[] isa Colorbar
                 @test fd.earth[] === nothing
                 @test fd.land[] === nothing
@@ -1820,7 +1820,7 @@ using CDFViewer.Plotting
 
                 # Assert
                 @test fd.ax[] isa Axis
-                @test fd.plot_obj[] isa Heatmap
+                @test Plotting.primary(fd) isa Heatmap
                 @test fd.cbar[] isa Colorbar
                 @test fd.earth[] === nothing
                 @test fd.land[] === nothing
@@ -1854,7 +1854,7 @@ using CDFViewer.Plotting
                         # Assert: Axis should now be a GeoAxis with the specified projection
                         @test fd.settings.proj[] == proj
                         @test fd.ax[] isa GeoAxis
-                        @test fd.plot_obj[] isa Surface
+                        @test Plotting.primary(fd) isa Surface
                         @test fd.cbar[] isa Colorbar
                         @test fd.earth[] === nothing
                         @test fd.land[] === nothing
@@ -1882,7 +1882,7 @@ using CDFViewer.Plotting
                 # Assert: Axis should still be a regular Axis
                 @test fd.settings.proj[] == "+proj=ortho"
                 @test fd.ax[] isa Axis
-                @test fd.plot_obj[] isa Heatmap
+                @test Plotting.primary(fd) isa Heatmap
                 @test fd.cbar[] isa Colorbar
                 @test fd.earth[] === nothing
                 @test fd.land[] === nothing
@@ -2035,7 +2035,7 @@ using CDFViewer.Plotting
 
         # arrows keep the range in Float64, a heatmap converts it to a
         # Vec2f, so compare the numbers rather than their storage type
-        crange(fd) = Float64.(Tuple(fd.plot_obj[].colorrange[]))
+        crange(fd) = Float64.(Tuple(Plotting.primary(fd).colorrange[]))
         approx(a, b) = all(isapprox.(a, b; rtol = 1e-6))
 
         function init_vector_figure(plot_type::String = "quiver";
@@ -2302,21 +2302,21 @@ using CDFViewer.Plotting
             # a scalar type never reads a second component
             state.plot_type_name[] = "heatmap"
             state.variable2[] = "v"
-            @test plot_data.d[1][2][] !== nothing
-            @test plot_data.d[2][2][] === nothing
+            @test plot_data.d[1][1][2][] !== nothing
+            @test plot_data.d[1][2][2][] === nothing
 
             # a vector type does
             state.plot_type_name[] = "quiver"
-            @test size(plot_data.d[2][2][]) == size(plot_data.d[1][2][])
-            @test plot_data.d[2][2][] == dataset.ds["v"][:, :, 1]
+            @test size(plot_data.d[1][2][2][]) == size(plot_data.d[1][1][2][])
+            @test plot_data.d[1][2][2][] == dataset.ds["v"][:, :, 1]
 
             # a partner over the wrong dimensions yields nothing
             state.variable2[] = "vmix"
-            @test plot_data.d[2][2][] === nothing
+            @test plot_data.d[1][2][2][] === nothing
 
             # and so does no partner at all
             state.variable2[] = Constants.NOT_SELECTED_LABEL
-            @test plot_data.d[2][2][] === nothing
+            @test plot_data.d[1][2][2][] === nothing
 
             cleanup(dataset)
         end
@@ -2324,18 +2324,18 @@ using CDFViewer.Plotting
         @testset "Plot objects" begin
             (fd, state, dataset) = init_vector_figure("quiver")
             @test fd.ax[] isa Axis
-            @test fd.plot_obj[] isa Makie.Arrows2D
+            @test Plotting.primary(fd) isa Makie.Arrows2D
             @test fd.cbar[] isa Colorbar
             # 12x8 grid thinned to the default (24, 16) target: nothing
             # to thin, so every grid point is drawn
-            @test length(fd.plot_obj[].points[]) == 12 * 8
+            @test length(Plotting.primary(fd).points[]) == 12 * 8
             cleanup(dataset)
 
             (fd, state, dataset) = init_vector_figure("streamplot")
-            @test fd.plot_obj[] isa Makie.StreamPlot
+            @test Plotting.primary(fd) isa Makie.StreamPlot
             @test fd.cbar[] isa Colorbar
             # the step is derived from the domain, not Makie's 0.01
-            @test fd.plot_obj[].stepsize[] ≈ 140.0 / Constants.STREAMPLOT_STEPS
+            @test Plotting.primary(fd).stepsize[] ≈ 140.0 / Constants.STREAMPLOT_STEPS
             cleanup(dataset)
 
             # both types survive a geographic axis
@@ -2343,7 +2343,7 @@ using CDFViewer.Plotting
                 (fd, state, dataset) = init_vector_figure(
                     name, geographic = true)
                 @test fd.ax[] isa GeoAxis
-                @test fd.plot_obj[] !== nothing
+                @test Plotting.primary(fd) !== nothing
                 cleanup(dataset)
             end
         end
@@ -2359,19 +2359,19 @@ using CDFViewer.Plotting
             axis = fd.ax[]
             kwarg_text[] = "arrows=(6, 4)"
             @test fd.settings.arrows[] == (6, 4)
-            @test length(fd.plot_obj[].points[]) == 6 * 4
+            @test length(Plotting.primary(fd).points[]) == 6 * 4
             @test fd.ax[] === axis
 
             # `every` picks exact grid points
             kwarg_text[] = "every=3"
             @test fd.settings.every[] == 3
-            @test length(fd.plot_obj[].points[]) == 4 * 3
+            @test length(Plotting.primary(fd).points[]) == 4 * 3
 
             # and deleting both restores the defaults
             kwarg_text[] = ""
             @test fd.settings.arrows[] == Constants.VECTOR_ARROWS
             @test fd.settings.every[] === nothing
-            @test length(fd.plot_obj[].points[]) == 12 * 8
+            @test length(Plotting.primary(fd).points[]) == 12 * 8
 
             # bad values are rejected and change nothing
             @test_logs (:error,) match_mode = :any begin
@@ -2390,14 +2390,14 @@ using CDFViewer.Plotting
             # density settings are stored but must not cost an integration
             (fd, state, dataset) = init_vector_figure("streamplot")
             @test !Plotting.is_arrow_type(fd)
-            before = fd.plot_obj[].line_points[]
+            before = Plotting.primary(fd).line_points[]
 
             kwarg_text = fd.ui.main_menu.plot_menu.plot_kw.stored_string
             kwarg_text[] = "arrows=(6, 4), every=3"
 
             @test fd.settings.arrows[] == (6, 4)
             @test fd.settings.every[] == 3
-            @test fd.plot_obj[].line_points[] === before
+            @test Plotting.primary(fd).line_points[] === before
             cleanup(dataset)
         end
 
@@ -2417,7 +2417,7 @@ using CDFViewer.Plotting
         end
 
         @testset "Magnitude color range" begin
-            wait_scan(fd) = let t = fd.crange_scan.task
+            wait_scan(fd) = let t = fd.layers[1].crange_scan.task
                 t === nothing || wait(t)
             end
             (fd, state, dataset) = init_vector_figure("quiver")
@@ -2444,19 +2444,19 @@ using CDFViewer.Plotting
             end
 
             # every drawn magnitude fits inside the pin
-            drawn = fd.plot_obj[].color[]
+            drawn = Plotting.primary(fd).color[]
             @test minimum(drawn) >= expected[1] - 1e-9
             @test maximum(drawn) <= expected[2] + 1e-9
 
             # arrows carry no levels, so the contour pin stays inert
             @test !Plotting.is_contour_type(fd)
-            @test :levels ∉ propertynames(fd.plot_obj[])
-            @test fd.crange_scan.base_levels === nothing
+            @test :levels ∉ propertynames(Plotting.primary(fd))
+            @test fd.layers[1].crange_scan.base_levels === nothing
             cleanup(dataset)
         end
 
         @testset "Single-variable types are unaffected" begin
-            wait_scan(fd) = let t = fd.crange_scan.task
+            wait_scan(fd) = let t = fd.layers[1].crange_scan.task
                 t === nothing || wait(t)
             end
             # the same dataset drawn as a heatmap still pins the signed
@@ -2468,6 +2468,460 @@ using CDFViewer.Plotting
             @test key[1] == ("u",)
             urange = extrema(dataset.ds["u"][:, :, :])
             @test approx(crange(fd), urange)
+            cleanup(dataset)
+        end
+    end
+
+    # ============================================
+    #  Overlaid layers
+    # ============================================
+
+    @testset "Overlaid layers" begin
+
+        "A two-layer figure on the vector fixture: `u` under, `temp` over."
+        function init_overlay_figure(; base::String = "heatmap",
+                                     over::String = "temp",
+                                     over_type::String = "contour",
+                                     geographic::Bool = false)
+            dataset = make_vector_temp_dataset()
+            ui = UI.UIElements(dataset)
+            plot_data = Plotting.PlotData(ui.state, dataset)
+            fd = Plotting.FigureData(plot_data, ui)
+            state = ui.state
+            state.variable[] = "u"
+            state.x_name[] = "lon"
+            state.y_name[] = "lat"
+            state.z_name[] = Constants.NOT_SELECTED_LABEL
+            fd.settings.geographic[] = geographic
+            state.plot_type_name[] = base
+            Plotting.create_axis!(fd, state)
+            Plotting.set_layer_variables!(fd, 2, [over])
+            Plotting.set_layer_plot_type!(fd, 2, over_type)
+            (fd, state, dataset)
+        end
+
+        @testset "Layer naming" begin
+            @test Plotting.layer_prefix.(1:4) == ["base", "over", "over2", "over3"]
+            @test Plotting.layer_index("base") == 1
+            @test Plotting.layer_index("over") == 2
+            @test Plotting.layer_index("over2") == 3
+            @test Plotting.layer_index("over17") == 18
+            # names that address no layer at all
+            @test Plotting.layer_index("over0") === nothing
+            @test Plotting.layer_index("overs") === nothing
+            @test Plotting.layer_index("lon") === nothing
+            @test Plotting.layer_index("") === nothing
+        end
+
+        @testset "Splitting a prefixed keyword" begin
+            split = Plotting.split_layer_key
+            @test split(Symbol("over.levels")) == (2, :levels)
+            @test split(Symbol("base.colormap")) == (1, :colormap)
+            @test split(Symbol("over3.color")) == (4, :color)
+            # a dot the prefix does not claim keeps the key whole
+            @test split(:colormap) === nothing
+            @test split(Symbol("lon.min")) === nothing
+            @test split(Symbol("over.")) === nothing
+            @test split(Symbol(".levels")) === nothing
+        end
+
+        @testset "Compatible plot types" begin
+            fits(a, b) = Plotting.fits_layer(
+                Plotting.PLOT_TYPES[a], Plotting.PLOT_TYPES[b])
+            # the four groups: a layer may only join the base's own
+            @test fits("heatmap", "contour")
+            @test fits("contourf", "quiver")
+            @test fits("surface", "wireframe")
+            @test fits("line", "scatter")
+            @test fits("volume", "contour3d")
+            # ... across groups it may not, even at equal ndims
+            @test !fits("heatmap", "surface")
+            @test !fits("surface", "contour")
+            @test !fits("heatmap", "line")
+            @test !fits("volume", "heatmap")
+            # and nothing at all overlays "no plot selected"
+            @test !fits(Constants.NOT_SELECTED_LABEL, "heatmap")
+
+            options = Plotting.overlay_plot_options(Plotting.PLOT_TYPES["heatmap"])
+            @test Set(options) == Set(["heatmap", "contour", "contourf",
+                                       "quiver", "streamplot"])
+            # over a flat base a second heatmap would hide the first
+            @test Plotting.default_overlay_plot(
+                Plotting.PLOT_TYPES["heatmap"], 1) == "contour"
+            # two variables name a vector layer
+            @test Plotting.default_overlay_plot(
+                Plotting.PLOT_TYPES["heatmap"], 2) == "quiver"
+            # elsewhere the base's own type is the only sensible start
+            @test Plotting.default_overlay_plot(
+                Plotting.PLOT_TYPES["surface"], 1) == "surface"
+            @test Plotting.default_overlay_plot(
+                Plotting.PLOT_TYPES["line"], 1) == "line"
+        end
+
+        @testset "Adding and removing" begin
+            (fd, state, dataset) = init_overlay_figure()
+            @test Plotting.layer_count(fd) == 2
+            @test Plotting.primary(fd) isa Heatmap
+            @test fd.layers[2].plot_obj[] isa Contour
+            @test Plotting.layer_variables(fd, 2) == ["temp"]
+            # both plots sit on the same axis, and only the base gets a bar
+            @test Plotting.primary(fd) ∈ fd.ax[].scene.plots
+            @test fd.layers[2].plot_obj[] ∈ fd.ax[].scene.plots
+            @test fd.cbar[] isa Colorbar
+
+            # a third layer, and a vector layer at that
+            Plotting.set_layer_variables!(fd, 3, ["u", "v"])
+            Plotting.set_layer_plot_type!(fd, 3, "quiver")
+            @test Plotting.layer_count(fd) == 3
+            @test fd.layers[3].plot_obj[] isa Makie.Arrows2D
+            @test Plotting.layer_variables(fd, 3) == ["u", "v"]
+
+            # removing the middle one renumbers the rest
+            Plotting.remove_layer!(fd, 2)
+            @test Plotting.layer_count(fd) == 2
+            @test Plotting.layer_variables(fd, 2) == ["u", "v"]
+            @test fd.layers[2].plot_obj[] isa Makie.Arrows2D
+
+            Plotting.remove_layer!(fd, 2)
+            @test Plotting.layer_count(fd) == 1
+            @test Plotting.primary(fd) isa Heatmap
+            cleanup(dataset)
+        end
+
+        @testset "Refusing what cannot be drawn" begin
+            (fd, state, dataset) = init_overlay_figure()
+            # the base is never addressed through the layer commands
+            @test_logs (:warn,) match_mode = :any begin
+                @test Plotting.set_layer_variables!(fd, 1, ["temp"]) == ""
+            end
+            @test_logs (:warn,) match_mode = :any begin
+                @test Plotting.remove_layer!(fd, 1) == ""
+            end
+            # a variable that is not there
+            @test_logs (:warn,) match_mode = :any begin
+                @test Plotting.set_layer_variables!(fd, 3, ["nope"]) == ""
+            end
+            # a layer beyond the next one up
+            @test_logs (:warn,) match_mode = :any begin
+                @test Plotting.set_layer_variables!(fd, 4, ["temp"]) == ""
+            end
+            # a plot type the base cannot share an axis with
+            @test_logs (:warn,) match_mode = :any begin
+                @test Plotting.set_layer_plot_type!(fd, 2, "surface") == ""
+            end
+            @test Plotting.layer_count(fd) == 2
+            @test Plotting.layer_plot(fd, 2).type == "contour"
+            cleanup(dataset)
+        end
+
+        @testset "A variable must span the drawn axes" begin
+            (fd, state, dataset) = init_overlay_figure()
+            # `uodd` is lon/lat only, so it fits these axes ...
+            @test Plotting.layer_fits_axes(fd.plot_data, "uodd")
+            @test Plotting.set_layer_variables!(fd, 3, ["uodd"]) != ""
+            @test Plotting.layer_count(fd) == 3
+
+            # ... and stops fitting once the axes move to lon/time
+            state.y_name[] = "time"
+            @test !Plotting.layer_fits_axes(fd.plot_data, "uodd")
+            @test_logs (:warn,) match_mode = :any begin
+                @test Plotting.prune_layers!(fd)
+            end
+            @test Plotting.layer_count(fd) == 2
+            @test Plotting.layer_variables(fd, 2) == ["temp"]
+            cleanup(dataset)
+        end
+
+        @testset "A changed base drops what no longer fits" begin
+            (fd, state, dataset) = init_overlay_figure()
+            # a one-dimensional base leaves the contour nothing to sit on
+            state.plot_type_name[] = "line"
+            @test_logs (:warn,) match_mode = :any begin
+                @test Plotting.prune_layers!(fd)
+            end
+            @test Plotting.layer_count(fd) == 1
+            @test !Plotting.prune_layers!(fd)  # nothing left to drop
+            cleanup(dataset)
+        end
+
+        @testset "Layers survive a redraw" begin
+            # a redraw swaps the axis identity; a layer rebuilt anywhere but
+            # in the axis listener would stay on the deleted one and vanish
+            (fd, state, dataset) = init_overlay_figure()
+            old_axis = fd.ax[]
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                :geographic => true))
+            @test fd.ax[] !== old_axis
+            @test fd.ax[] isa GeoAxis
+            @test Plotting.layer_count(fd) == 2
+            for layer in fd.layers
+                @test layer.plot_obj[] !== nothing
+                @test layer.plot_obj[] ∈ fd.ax[].scene.plots
+            end
+            cleanup(dataset)
+        end
+
+        @testset "Title" begin
+            (fd, state, dataset) = init_overlay_figure()
+            # several layers: names joined, units left off
+            @test fd.plot_data.labels.title[] == "Eastward wind / temp"
+            # a vector layer contributes the magnitude it colors by
+            Plotting.set_layer_variables!(fd, 3, ["u", "v"])
+            Plotting.set_layer_plot_type!(fd, 3, "quiver")
+            @test fd.plot_data.labels.title[] ==
+                "Eastward wind / temp / |(u, v)|"
+            # and with a single layer the title is the old one, byte for byte
+            Plotting.remove_layer!(fd, 3)
+            Plotting.remove_layer!(fd, 2)
+            @test fd.plot_data.labels.title[] == Data.get_label(dataset, "u")
+            @test fd.plot_data.labels.title[] == "Eastward wind [m s-1]"
+            cleanup(dataset)
+        end
+
+        @testset "Keyword routing" begin
+            (fd, state, dataset) = init_overlay_figure()
+            resolve(key) = Plotting.resolve_kwarg(fd, Symbol(key))
+
+            # an unprefixed key still reaches every target owning it
+            property, targets = resolve("colormap")
+            @test property === :colormap
+            @test Plotting.primary(fd) ∈ targets
+            @test fd.layers[2].plot_obj[] ∈ targets
+            @test fd.cbar[] ∈ targets
+            # ... and `get` reports the first, which is the base layer
+            mappings = Plotting.get_property_mappings(
+                OrderedDict{Symbol, Any}(:colormap => nothing), fd)
+            @test mappings[1].target_object === Plotting.primary(fd)
+
+            # only the contour has levels
+            property, targets = resolve("levels")
+            @test fd.layers[2].plot_obj[] ∈ targets
+            @test Plotting.primary(fd) ∉ targets
+
+            # a prefix picks one layer out
+            property, targets = resolve("over.colormap")
+            @test property === :colormap
+            @test targets == Any[fd.layers[2].plot_obj[]]
+            property, targets = resolve("base.colormap")
+            @test targets == Any[Plotting.primary(fd)]
+
+            # the whole key wins over the prefix reading: a coordinate
+            # named with a dot must keep working
+            @test resolve("lon")[2] == Any[fd.range_control[]]
+
+            # a prefix naming a layer that is not there resolves to nothing
+            @test resolve("over3.colormap")[2] == Any[]
+            cleanup(dataset)
+        end
+
+        @testset "Applying prefixed keywords" begin
+            (fd, state, dataset) = init_overlay_figure()
+            # a color other than the overlay's own default, so the
+            # assignment is not skipped as a no-op
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                Symbol("base.colormap") => :thermal,
+                Symbol("over.color") => :red,
+                Symbol("over.levels") => 4))
+            @test Plotting.primary(fd).colormap[] == :thermal
+            @test fd.layers[2].plot_obj[].color[] == :red
+            @test fd.layers[2].plot_obj[].levels[] == 4
+            # the overlay's colormap is untouched by the base's
+            @test fd.layers[2].plot_obj[].colormap[] != :thermal
+            cleanup(dataset)
+        end
+
+        @testset "An overlay contour draws in black" begin
+            # the base layer owns the color dimension and the colorbar, so
+            # a second colormap only fights the first
+            black = Makie.to_color(:black)
+            (fd, state, dataset) = init_overlay_figure(base = "contour")
+            # the colors a layer actually draws its lines with
+            levels(i) = fd.layers[i].plot_obj[].level_colors[]
+            # the base keeps its colormap, byte for byte as before
+            @test Plotting.primary(fd).colormap[] == :balance
+            @test !all(==(black), levels(1))
+            # the overlay is black at every level, and it is the colormap
+            # saying so: a flat `color` would swallow a later colormap
+            @test fd.layers[2].plot_obj[].color[] === nothing
+            @test all(==(black), levels(2))
+            # every overlay, not only the second
+            Plotting.set_layer_variables!(fd, 3, ["temp"])
+            Plotting.set_layer_plot_type!(fd, 3, "contour")
+            @test all(==(black), levels(3))
+            # a colormap keyword colors the lines by level again, with no
+            # reset step in between
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                Symbol("over.colormap") => :thermal))
+            @test fd.layers[2].plot_obj[].colormap[] == :thermal
+            @test !all(==(black), levels(2))
+            # ... and a flat color still wins over the colormap
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                Symbol("over.colormap") => :thermal,
+                Symbol("over.color") => :red))
+            @test all(==(Makie.to_color(:red)), levels(2))
+            cleanup(dataset)
+
+            # the types that already draw in a flat color keep theirs
+            (fd, state, dataset) = init_overlay_figure(
+                base = "wireframe", over_type = "wireframe")
+            @test Plotting.primary(fd).color[] == :royalblue3
+            @test fd.layers[2].plot_obj[].color[] == :royalblue3
+            cleanup(dataset)
+        end
+
+        @testset "The store keeps the key as written" begin
+            # stripping the prefix would collapse `over.colormap` and
+            # `colormap` onto one entry, and the revert path would write
+            # one layer's value into the other's slot
+            (fd, state, dataset) = init_overlay_figure()
+            mappings = Plotting.get_property_mappings(
+                OrderedDict{Symbol, Any}(
+                    :colormap => :thermal,
+                    Symbol("over.colormap") => :viridis), fd)
+            keys_ = [(m.key, m.property) for m in mappings]
+            @test (:colormap, :colormap) ∈ keys_
+            @test (Symbol("over.colormap"), :colormap) ∈ keys_
+            @test length(unique(m.key for m in mappings)) == 2
+            cleanup(dataset)
+        end
+
+        @testset "Levels are counted per layer" begin
+            (fd, state, dataset) = init_overlay_figure(base = "contourf")
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                :levels => 7, Symbol("over.levels") => 3))
+            @test Plotting.user_levels(fd, 1) == 7
+            @test Plotting.user_levels(fd, 2) == 3
+            # an unprefixed one is shared, as it always was
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(:levels => 7))
+            @test Plotting.user_levels(fd, 1) == 7
+            @test Plotting.user_levels(fd, 2) == 7
+            cleanup(dataset)
+        end
+
+        @testset "Vector density per layer" begin
+            (fd, state, dataset) = init_overlay_figure(over_type = "quiver",
+                                                       over = "u")
+            @test Plotting.layer_plot(fd, 2).type == "quiver"
+            # unset, a layer follows the figure
+            @test Plotting.layer_arrows(fd, 2) == Constants.VECTOR_ARROWS
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                :arrows => (10, 8), Symbol("over.arrows") => (6, 4)))
+            @test fd.settings.arrows[] == (10, 8)
+            @test Plotting.layer_arrows(fd, 1) == (10, 8)
+            @test Plotting.layer_arrows(fd, 2) == (6, 4)
+            @test length(fd.layers[2].plot_obj[].points[]) == 6 * 4
+            # deleting the override falls back to the figure's own
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                :arrows => (10, 8)))
+            @test Plotting.layer_arrows(fd, 2) == (10, 8)
+            cleanup(dataset)
+        end
+
+        @testset "A bad per-layer density value is refused" begin
+            # `over.arrows` and `over.every` used to reach `setproperty!`
+            # and surface a bare InexactError; they say what their
+            # figure-level twins say
+            (fd, state, dataset) = init_overlay_figure(over_type = "quiver",
+                                                       over = "u")
+            settings = fd.layers[2].settings
+            for (property, value) in [(:arrows, (6.5, 4)), (:arrows, (0, 4)),
+                                      (:arrows, (1, 2, 3)), (:arrows, 5),
+                                      (:every, 2.5), (:every, 0)]
+                # word for word, source location included: one complaint,
+                # made in one place
+                layer = @capture_err Plotting.set_property_mapping(
+                    fd, settings, property, value)
+                figure = @capture_err Plotting.apply_figure_settings!(
+                    fd, property, value)
+                @test !isempty(layer)
+                @test layer == figure
+                # and neither side stores anything
+                @test getproperty(settings, property) === nothing
+            end
+            @test fd.settings.arrows[] == Constants.VECTOR_ARROWS
+            @test fd.settings.every[] === nothing
+
+            # the wording is the figure-level setters' own
+            normalize(text) = replace(text, r"\s+" => " ")
+            arrows_msg = @capture_err Plotting.set_property_mapping(
+                fd, settings, :arrows, (6.5, 4))
+            every_msg = @capture_err Plotting.set_property_mapping(
+                fd, settings, :every, 0)
+            @test occursin("arrows must be an (nx, ny) tuple of positive " *
+                           "integers, got (6.5, 4)", normalize(arrows_msg))
+            @test occursin("every must be a positive integer, got 0",
+                           normalize(every_msg))
+
+            # values that pass are still stored, and still re-lay the
+            # arrows in place
+            axis = fd.ax[]
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                Symbol("over.arrows") => (6, 4)))
+            @test settings.arrows == (6, 4)
+            @test length(fd.layers[2].plot_obj[].points[]) == 6 * 4
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                Symbol("over.arrows") => (6, 4), Symbol("over.every") => 3))
+            @test settings.every == 3
+            @test length(fd.layers[2].plot_obj[].points[]) == 4 * 3
+            @test fd.ax[] === axis
+            cleanup(dataset)
+        end
+
+        @testset "Colour range per layer" begin
+            # a heatmap stores its range as a Vec2f: compare the numbers
+            close_enough(a, b) = all(isapprox.(a, b; rtol = 1e-6))
+            wait_scans(fd) = Plotting.wait_for_scans(fd)
+            (fd, state, dataset) = init_overlay_figure()
+            fd.ui.main_menu.playback_menu.var.selection[] = "time"
+            wait_scans(fd)
+            # each layer scans its own field
+            @test Plotting.colorrange_key(fd, :cycle, 1)[1] == ("u",)
+            @test Plotting.colorrange_key(fd, :cycle, 2)[1] == ("temp",)
+            Plotting.update_colorrange!(fd; sync = true)
+            @test close_enough(
+                Tuple(Float64.(Plotting.primary(fd).colorrange[])),
+                extrema(dataset.ds["u"][:, :, :]))
+            @test close_enough(
+                Tuple(Float64.(fd.layers[2].plot_obj[].colorrange[])),
+                extrema(dataset.ds["temp"][:, :, :]))
+            cleanup(dataset)
+        end
+
+        @testset "The scan budget is spent across layers" begin
+            (fd, state, dataset) = init_overlay_figure()
+            fd.ui.main_menu.playback_menu.var.selection[] = "time"
+            Plotting.wait_for_scans(fd)
+            elements(i) = let key = Plotting.colorrange_key(fd, :cycle, i)
+                Plotting.DataLimits.hyperslab_elements(
+                    dataset, collect(String, key[1]),
+                    collect(Union{Colon, Int}, key[2]))
+            end
+            total = elements(1) + elements(2)
+            @test total == 2 * elements(1)
+
+            # a budget that one layer fits into but two together do not
+            targets = Tuple{Symbol, Any}[
+                (:cycle, Plotting.colorrange_key(fd, :cycle, i)) for i in 1:2]
+            for layer in fd.layers
+                empty!(layer.crange_scan.cache)
+            end
+            old = Plotting.DataLimits.AUTO_SCAN_ELEMENTS[]
+            try
+                Plotting.DataLimits.AUTO_SCAN_ELEMENTS[] = total - 1
+                gated = @test_logs (:info,) match_mode = :any begin
+                    Plotting.gate_colorrange_keys!(fd, targets)
+                end
+                @test all(t -> t[2] === nothing, gated)
+                # ... and the hint is shown once for the figure, not per layer
+                @test fd.crange_hinted[]
+                Plotting.DataLimits.AUTO_SCAN_ELEMENTS[] = total
+                for layer in fd.layers
+                    empty!(layer.crange_scan.cache)
+                end
+                @test Plotting.gate_colorrange_keys!(fd, targets) == targets
+            finally
+                Plotting.DataLimits.AUTO_SCAN_ELEMENTS[] = old
+            end
             cleanup(dataset)
         end
     end
