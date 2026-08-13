@@ -1,7 +1,9 @@
 using Test
 using GLMakie
 using Makie
+using DataStructures
 using CDFViewer.Constants
+using CDFViewer.Themes
 using CDFViewer.Data
 using CDFViewer.UI
 using CDFViewer.Plotting
@@ -985,6 +987,222 @@ NS = Constants.NOT_SELECTED_LABEL
             set_close_to!(slider, 3)
             @test controller.fd.plot_data.d[2][1][2][] == before
             cleanup(controller)
+        end
+    end
+
+    @testset "Themes" begin
+        # every switch installs a theme globally; the files after this one
+        # expect the default back
+        function with_default_theme(f::Function)
+            try
+                f()
+            finally
+                Themes.activate!(Themes.DEFAULT_THEME)
+            end
+        end
+
+        "A session with something of everything in it to lose."
+        function furnished_controller()
+            controller = Controller.ViewerController(
+                make_temp_dataset(), headless = true)
+            UI.select_variable!(controller.ui, "4d_float")
+            UI.select_x_axis!(controller.ui, "lon")
+            UI.select_y_axis!(controller.ui, "lat")
+            UI.select_plot_type!(controller.ui, "heatmap")
+            Controller.set_layer_variables!(controller, 2, ["3d_float"])
+            Controller.set_layer_plot_type!(controller, 2, "contour")
+            set_close_to!(controller.ui.main_menu.coord_sliders.sliders["time"], 3)
+            playback = controller.ui.main_menu.playback_menu
+            playback.var.i_selected[] =
+                findfirst(==("float_dim"), playback.var.options[])
+            set_close_to!(playback.speed, 0.5)
+            Plotting.update_kwargs!(controller.fd, OrderedDict{Symbol, Any}(
+                :colormap => :viridis,
+                :title => "kept",
+                :colorscale => Makie.Symlog10(1e-2),
+                Symbol("over.levels") => 7,
+            ))
+            controller
+        end
+
+        @testset "Reporting and refusing" begin
+            with_default_theme() do
+                controller = init_default_controller()
+                @test Controller.get_theme(controller) == Themes.DEFAULT_THEME
+                # an unknown name is refused by name, and changes nothing
+                status = Controller.switch_theme!(controller, "solarized")
+                @test occursin("Unknown theme 'solarized'", status)
+                @test Controller.get_theme(controller) == Themes.DEFAULT_THEME
+                # asking for the theme already installed rebuilds nothing
+                figure = controller.fd.fig
+                @test occursin("already", Controller.switch_theme!(controller, "minimal"))
+                @test controller.fd.fig === figure
+                cleanup(controller)
+            end
+        end
+
+        @testset "A switch rebuilds both windows" begin
+            with_default_theme() do
+                controller = init_default_controller()
+                UI.select_variable!(controller.ui, "2d_float")
+                UI.select_plot_type!(controller.ui, "heatmap")
+                menu_fig, plot_fig = controller.ui.menu, controller.fd.fig
+                # the window itself, as opposed to the screen wrapped round it
+                menu_window = controller.menu_screen[].glscreen
+                fig_window = controller.fig_screen[].glscreen
+
+                @test Controller.switch_theme!(controller, "dark") == "Theme: dark"
+
+                # both figures are new -- neither can be re-themed in place
+                @test controller.ui.menu !== menu_fig
+                @test controller.fd.fig !== plot_fig
+                # and both are on a screen, with nothing of the old one left
+                @test controller.menu_screen[].scene === controller.ui.menu.scene
+                @test controller.fig_screen[].scene === controller.fd.fig.scene
+                # the windows come straight back out of GLMakie's reuse pool,
+                # so they keep their place on screen
+                @test controller.menu_screen[].glscreen === menu_window
+                @test controller.fig_screen[].glscreen === fig_window
+                # taking a window down to swap the figure in is not the user
+                # closing the figure, so the plot type is still selected
+                @test controller.ui.state.plot_type_name[] == "heatmap"
+                @test controller.fig_screen[].window_open[]
+                cleanup(controller)
+            end
+        end
+
+        @testset "A switch keeps everything the session holds" begin
+            with_default_theme() do
+                controller = furnished_controller()
+                state = controller.ui.state
+                before = (
+                    variable = state.variable[],
+                    plot_type = state.plot_type_name[],
+                    axes = (state.x_name[], state.y_name[], state.z_name[]),
+                    dims = copy(state.dim_obs[]),
+                    pdim = state.pdim[],
+                    speed = controller.ui.main_menu.playback_menu.speed.value[],
+                    kwargs = copy(state.kwargs[]),
+                    layers = [(Plotting.layer_variables(controller.fd, i),
+                               Plotting.layer_plot(controller.fd, i).type)
+                              for i in 1:Plotting.layer_count(controller.fd)],
+                    output = state.output_settings[],
+                )
+                # zoom in, so the restored extent is not the automatic one
+                setproperty!(controller.fd.ax[], :limits, (1.5, 4.5, 2.0, 6.0))
+                limits = Plotting.get_limit_string(controller.fd.ax[])
+
+                Controller.switch_theme!(controller, "black")
+
+                state = controller.ui.state
+                @test state.variable[] == before.variable
+                @test state.plot_type_name[] == before.plot_type
+                @test (state.x_name[], state.y_name[], state.z_name[]) == before.axes
+                @test state.dim_obs[] == before.dims
+                @test state.pdim[] == before.pdim
+                @test controller.ui.main_menu.playback_menu.speed.value[] ==
+                    before.speed
+                # values, not text: an object-valued keyword survives, which
+                # a round trip through the export string could not manage
+                @test state.kwargs[] == before.kwargs
+                @test Plotting.primary(controller.fd).colorscale[] ==
+                    before.kwargs[:colorscale]
+                @test Plotting.layer_count(controller.fd) == 2
+                @test [(Plotting.layer_variables(controller.fd, i),
+                        Plotting.layer_plot(controller.fd, i).type)
+                       for i in 1:2] == before.layers
+                # a keyword prefixed with a layer still addresses that layer
+                @test Plotting.layer_kwarg(controller.fd, 2, :levels) == 7
+                # the save settings are the same object, not a fresh one
+                @test state.output_settings[] === before.output
+                # and the zoom is back
+                @test Plotting.get_limit_string(controller.fd.ax[]) == limits
+                cleanup(controller)
+            end
+        end
+
+        @testset "A switch moves the chrome onto the new ground" begin
+            with_default_theme() do
+                controller = init_default_controller()
+                UI.select_variable!(controller.ui, "2d_float")
+                UI.select_x_axis!(controller.ui, "lon")
+                UI.select_y_axis!(controller.ui, "lat")
+                UI.select_plot_type!(controller.ui, "heatmap")
+                Plotting.update_kwargs!(controller.fd, OrderedDict{Symbol, Any}(
+                    :geographic => true, :land => true))
+
+                @test controller.fd.coastlines[].color[] == Makie.to_color(:black)
+                @test controller.fd.land[].color[] ≈ Makie.to_color(:lightgray) atol = 1e-6
+
+                Controller.switch_theme!(controller, "black")
+
+                # nothing invisible on invisible: the coastlines are drawn
+                # in the color the theme writes text in
+                @test controller.fd.coastlines[].color[] == Makie.to_color(:white)
+                @test controller.fd.land[].color[].r < 0.5
+                @test controller.fd.settings.cbarlabelcolor[] ==
+                    Makie.to_color(:white)
+                cleanup(controller)
+            end
+        end
+
+        @testset "The menu labels follow the theme" begin
+            with_default_theme() do
+                controller = init_default_controller()
+                UI.select_variable!(controller.ui, "3d_float")
+                UI.select_x_axis!(controller.ui, "lon")
+                UI.select_y_axis!(controller.ui, "lat")
+                UI.select_plot_type!(controller.ui, "heatmap")
+                labels = controller.ui.main_menu.coord_sliders.labels
+                # "time" is not on an axis, so its slider is live
+                @test labels["time"].color[] == Makie.to_color(:black)
+
+                Controller.switch_theme!(controller, "black")
+
+                labels = controller.ui.main_menu.coord_sliders.labels
+                @test labels["time"].color[] == Makie.to_color(:white)
+                # a dimension that is on an axis is grayed out toward the
+                # ground, which is now the dark end
+                @test labels["lon"].color[].r < 0.5
+                cleanup(controller)
+            end
+        end
+
+        @testset "The theme is part of what an export reproduces" begin
+            with_default_theme() do
+                controller = init_default_controller()
+                UI.select_variable!(controller.ui, "1d_float")
+                # the default is what a restart picks anyway
+                @test !occursin("--theme", Controller.get_export_string(controller))
+                Controller.switch_theme!(controller, "ggplot2")
+                @test occursin("--theme=ggplot2",
+                               Controller.get_export_string(controller))
+                cleanup(controller)
+            end
+        end
+
+        @testset "A command line names the theme" begin
+            with_default_theme() do
+                controller = Controller.ViewerController(
+                    make_temp_dataset(), headless = true,
+                    parsed_args = Dict{String, Any}("theme" => "theme_dark"))
+                @test Controller.get_theme(controller) == "dark"
+                cleanup(controller)
+            end
+        end
+
+        @testset "A command line naming no theme is refused at the edge" begin
+            with_default_theme() do
+                controller = nothing
+                @test_warn "Unknown theme 'solarized'" begin
+                    controller = Controller.ViewerController(
+                        make_temp_dataset(), headless = true,
+                        parsed_args = Dict{String, Any}("theme" => "solarized"))
+                end
+                # refused, and the session opens under the default anyway
+                @test Controller.get_theme(controller) == Themes.DEFAULT_THEME
+                cleanup(controller)
+            end
         end
     end
 end

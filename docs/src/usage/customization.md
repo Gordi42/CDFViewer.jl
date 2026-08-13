@@ -223,6 +223,60 @@ close_viewer!(session) # hide
 nothing # hide
 ```
 
+## Themes
+
+The whole figure can be drawn in another look. Pass `--theme` on the
+command line to start in one, or use the `theme` command to change it
+while the viewer runs.
+
+```@example cstt
+using Main.DocHelpers # hide
+session = open_viewer(demo_file("demo.nc")) # hide
+run!(session, "v temperature", "x lon", "y lat", "p heatmap", "pdim time", # hide
+     "geographic=true, land=true, cbarlabel=\"auto\"", # hide
+     "animlabelpos=:overlay") # hide
+repl(session, "theme dark") # hide
+```
+
+```@example cstt
+plot_figure(session) # hide
+```
+
+Five themes are available, all of them Makie's own: `minimal` (the
+default), `light`, `dark`, `black`, and `ggplot2`. `theme` without a name
+reports the one in use. Makie's own spelling is accepted as well, so
+`theme theme_dark` and `theme dark` mean the same thing.
+
+```@example cstt
+run!(session, "theme light") # hide
+plot_figure(session) # hide
+```
+
+Everything CDFViewer draws itself follows the theme instead of assuming a
+white page: coastlines, the land fill, the colorbar label, the box behind
+the playback label, the contour lines of an overlay, and the labels in the
+menu window. All of them are derived from the two colors every theme
+fixes, its background and its text color, so black coastlines never end up
+on a black background. The data keeps its own colors -- the diverging
+colormap and the line color of a 1D plot read on any background and are
+left alone.
+
+A theme is not a keyword argument, because a figure takes its theme at the
+moment it is created and never looks at it again. Type `theme=dark` out of
+habit and the prompt hands you the command form back. `theme` therefore
+rebuilds both windows and puts the session back into them: the variable,
+the axes, the plot type, every slider position, the playback dimension,
+speed and state, all overlays, your keyword arguments, the save options,
+the figure size and the zoom. The windows keep their place on screen. The
+theme is also part of what `export` prints, so a session restarts in the
+look you left it in.
+
+```@example cstt
+run!(session, "theme minimal") # hide
+close_viewer!(session) # hide
+nothing # hide
+```
+
 ## Dimensionless quantities
 
 Some files mark a quantity as dimensionless rather than leaving the unit

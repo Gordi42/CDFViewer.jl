@@ -9,6 +9,7 @@ using CDFViewer.UI
 using CDFViewer.Plotting
 using CDFViewer.Controller
 using CDFViewer.Parsing
+using CDFViewer.Themes
 using CDFViewer.ViewerREPL
 
 @testset "ViewerREPL.jl" begin
@@ -681,6 +682,72 @@ using CDFViewer.ViewerREPL
             cleanup(state)
         end
 
+        @testset "Command Written as a Keyword" begin
+            # every other setting is a keyword, so `theme=dark` is the
+            # natural thing to type for one of the few that is not, and
+            # "Property theme not found" is the wrong answer to it
+            # Arrange
+            state = init_state()
+            ViewerREPL.select_variable(state, "v 2d_float")
+            ViewerREPL.select_x_axis(state, "x lon")
+            ViewerREPL.select_y_axis(state, "y lat")
+            ViewerREPL.select_plot_type(state, "p heatmap")
+            [wait(t) for t in state.controller.fd.tasks[]]
+            theme_before = Controller.get_theme(state.controller)
+
+            # Act & Assert: the command form is named, and nothing applied
+            @test ViewerREPL.evaluate_command(state, "theme=dark") ==
+                "theme is a command, not a keyword. Try: theme dark"
+            @test isempty(state.controller.ui.state.kwargs[])
+            @test Controller.get_theme(state.controller) == theme_before
+
+            # Act & Assert: the quoted form suggests the same line
+            @test ViewerREPL.evaluate_command(state, "theme=\"dark\"") ==
+                "theme is a command, not a keyword. Try: theme dark"
+            @test isempty(state.controller.ui.state.kwargs[])
+
+            # Act & Assert: the command table is what is asked, so every
+            # command answers the same way
+            @test ViewerREPL.evaluate_command(state, "p=heatmap") ==
+                "p is a command, not a keyword. Try: p heatmap"
+            @test isempty(state.controller.ui.state.kwargs[])
+
+            # Act & Assert: the layer words are commands as well, though
+            # they are too open-ended for the table -- but only as far as
+            # they really are ones, so an overlay's keyword still passes
+            @test ViewerREPL.evaluate_command(state, "over2=temp") ==
+                "over2 is a command, not a keyword. Try: over2 temp"
+            @test isempty(state.controller.ui.state.kwargs[])
+            @test ViewerREPL.command_keyword_hint(state, "over.colormap=:reds") == ""
+
+            # Act & Assert: the rest of the line goes with it -- the
+            # revert guarding a bad keyword is all-or-nothing anyway
+            @test occursin("theme is a command", ViewerREPL.evaluate_command(
+                state, "colormap=:plasma, theme=dark"))
+            @test isempty(state.controller.ui.state.kwargs[])
+
+            # Act & Assert: a target that owns the name wins, or a working
+            # keyword would break -- `x` and `y` are heatmap attributes
+            for key in ("x", "y")
+                @test key in String.(propertynames(Plotting.primary(state.controller.fd)))
+                @test ViewerREPL.command_keyword_hint(state, "$key=lon") == ""
+            end
+
+            # Act & Assert: a name nothing owns warns as it always did
+            @test_warn "Property foo not found in any plot object" begin
+                ViewerREPL.evaluate_command(state, "foo=1")
+            end
+
+            # Act & Assert: an ordinary keyword is untouched
+            output = ViewerREPL.evaluate_command(state, "colormap=:viridis")
+            [wait(t) for t in state.controller.fd.tasks[]]
+            @test occursin("colormap => :viridis", output)
+            @test Plotting.primary(state.controller.fd).colormap[] == :viridis
+
+            # Cleanup
+            cleanup(state)
+        end
+
         @testset "Apply Expression Kwargs" begin
             # a value like `Makie.Symlog10(1e-2)` has no text form that
             # reads back. It used to be serialised into the menu's keyword
@@ -1245,6 +1312,72 @@ using CDFViewer.ViewerREPL
             @test "over.levels=" in
                 ViewerREPL.completion_candidates(state, "over.l")[2]
             cleanup(state)
+        end
+    end
+
+    @testset "Theme" begin
+        # the switch installs a theme globally; put the default back
+        function with_default_theme(f::Function)
+            try
+                f()
+            finally
+                Themes.activate!(Themes.DEFAULT_THEME)
+            end
+        end
+
+        @testset "Reporting the current theme" begin
+            with_default_theme() do
+                state = init_state()
+                output = ViewerREPL.evaluate_command(state, "theme")
+                @test occursin("Theme: " * Themes.DEFAULT_THEME, output)
+                for name in Themes.theme_names()
+                    @test occursin(name, output)
+                end
+                cleanup(state)
+            end
+        end
+
+        @testset "Switching the theme" begin
+            with_default_theme() do
+                state = init_state()
+                ViewerREPL.evaluate_command(state, "v 2d_float")
+                ViewerREPL.evaluate_command(state, "p heatmap")
+                figure = state.controller.fd.fig
+
+                @test ViewerREPL.evaluate_command(state, "theme dark") ==
+                    "Theme: dark"
+
+                # the REPL holds the controller, and the controller is the
+                # thing that was rebuilt into -- so the prompt keeps working
+                @test state.controller.fd.fig !== figure
+                @test Controller.get_theme(state.controller) == "dark"
+                @test ViewerREPL.evaluate_command(state, "v 3d_float") ==
+                    "Selected: 3d_float"
+                cleanup(state)
+            end
+        end
+
+        @testset "Refusing a name at the prompt" begin
+            with_default_theme() do
+                state = init_state()
+                output = ViewerREPL.evaluate_command(state, "theme solarized")
+                @test occursin("Unknown theme 'solarized'", output)
+                @test Controller.get_theme(state.controller) ==
+                    Themes.DEFAULT_THEME
+                cleanup(state)
+            end
+        end
+
+        @testset "Completion offers the theme names" begin
+            with_default_theme() do
+                state = init_state()
+                word, cands = ViewerREPL.completion_candidates(state, "theme d")
+                @test word == "d"
+                @test "dark" in cands
+                _, cands = ViewerREPL.completion_candidates(state, "theme ")
+                @test sort(Themes.theme_names()) == cands
+                cleanup(state)
+            end
         end
     end
 

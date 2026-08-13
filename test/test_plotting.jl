@@ -2,8 +2,10 @@ using Test
 using DataStructures
 using GLMakie
 using GeoMakie
+using Makie
 using Suppressor
 using CDFViewer.Constants
+using CDFViewer.Themes
 using CDFViewer.Plotting
 
 @testset "Plotting.jl" begin
@@ -311,7 +313,9 @@ using CDFViewer.Plotting
             @test settings.animlabelsize[] == Float64(Constants.LABELSIZE)
             @test settings.cbarlabel[] === nothing
             @test settings.cbarlabelsize[] == Float64(Constants.LABELSIZE)
-            @test settings.cbarlabelcolor[] === Constants.CBARLABEL_COLOR
+            # the theme's own text color, which is black on the default
+            @test settings.cbarlabelcolor[] == Plotting.default_cbarlabel_color()
+            @test settings.cbarlabelcolor[] == Makie.to_color(:black)
             @test settings.cbarlabelfont[] == Constants.CBARLABEL_FONT
             @test settings.cbarlabelrotation[] === nothing
             @test settings.cbarlabelpadding[] ==
@@ -332,10 +336,16 @@ using CDFViewer.Plotting
             # the background box is transparent and unstroked when disabled
             @test Plotting.animlabel_background_color(false) == (:white, 0.0)
             @test Plotting.animlabel_background_stroke(false) == 0
+            # the translucent default is the theme's own ground -- white
+            # under the default theme, which is what it always was
             @test Plotting.animlabel_background_color(true) ==
-                Constants.ANIMLABEL_BACKGROUND_COLOR
+                Themes.with_alpha(Makie.to_color(:white),
+                                  Constants.ANIMLABEL_BACKGROUND_ALPHA)
             @test Plotting.animlabel_background_stroke(true) == 1
-            # an explicit colour overrides the translucent default
+            @test Plotting.animlabel_background_stroke_color() ==
+                Themes.with_alpha(Makie.to_color(:black),
+                                  Constants.ANIMLABEL_BACKGROUND_STROKE_ALPHA)
+            # an explicit color overrides the translucent default
             @test Plotting.animlabel_background_color((:black, 0.4)) == (:black, 0.4)
         end
 
@@ -1618,7 +1628,7 @@ using CDFViewer.Plotting
             @test settings.cbarlabel[] === nothing
             @test fd.cbar[].label[] == ""
             @test fd.cbar[].labelsize[] == Float64(Constants.LABELSIZE)
-            @test fd.cbar[].labelcolor[] == Constants.CBARLABEL_COLOR
+            @test fd.cbar[].labelcolor[] == Plotting.default_cbarlabel_color()
             @test fd.cbar[].labelfont[] == to_font(fonts, :regular)
             @test fd.cbar[].labelrotation[] === Makie.automatic
             @test fd.cbar[].labelpadding[] == Float64(Constants.CBARLABEL_PADDING)
@@ -1698,7 +1708,7 @@ using CDFViewer.Plotting
             @test settings.cbarlabel[] === nothing
             @test fd.cbar[].label[] == ""
             @test fd.cbar[].labelsize[] == Float64(Constants.LABELSIZE)
-            @test fd.cbar[].labelcolor[] == Constants.CBARLABEL_COLOR
+            @test fd.cbar[].labelcolor[] == Plotting.default_cbarlabel_color()
             @test fd.cbar[].labelfont[] == to_font(fonts, :regular)
             @test fd.cbar[].labelrotation[] === Makie.automatic
             @test fd.cbar[].labelpadding[] == Float64(Constants.CBARLABEL_PADDING)
@@ -1770,6 +1780,43 @@ using CDFViewer.Plotting
         end
 
         @testset "geographic" begin
+            @testset "Chrome follows the theme" begin
+                # Arrange
+                fd, state, dataset = arrange_and_create_axis(
+                    "5d_float", ["lon", "lat"], "heatmap")
+                set_kwargs!(fd, "geographic = true, land = true")
+
+                # Assert: the default theme draws exactly what was
+                # hardcoded before the colors were derived
+                @test fd.coastlines[].color[] == Makie.to_color(:black)
+                @test fd.land[].color[] ≈ Makie.to_color(:lightgray) atol = 1e-6
+
+                # Act - the same figure under a dark theme. A figure
+                # snapshots the theme, so this rebuilds the layers rather
+                # than re-reading the colors on the existing ones.
+                Themes.activate!("black")
+                try
+                    Plotting.clear_axis!(fd)
+                    Plotting.create_axis!(fd, state)
+
+                    # Assert: nothing invisible on invisible
+                    @test fd.coastlines[].color[] == Makie.to_color(:white)
+                    @test fd.land[].color[].r < 0.5
+                    # an overlay contour is drawn in the text color, so it
+                    # still reads against the field it sits on
+                    @test Plotting.contour_colormap(2) ==
+                        fill(Makie.to_color(:white), 2)
+                finally
+                    Themes.activate!(Themes.DEFAULT_THEME)
+                end
+                @test Plotting.contour_colormap(1) == :balance
+                @test Plotting.contour_colormap(2) ==
+                    fill(Makie.to_color(:black), 2)
+
+                # Cleanup
+                cleanup(dataset)
+            end
+
             @testset "Geographic available" begin
                 # Arrange
                 fd, state, dataset = arrange_and_create_axis("5d_float", ["lon", "lat"], "heatmap")
@@ -2944,7 +2991,7 @@ using CDFViewer.Plotting
             cleanup(dataset)
         end
 
-        @testset "Colour range per layer" begin
+        @testset "Color range per layer" begin
             # a heatmap stores its range as a Vec2f: compare the numbers
             close_enough(a, b) = all(isapprox.(a, b; rtol = 1e-6))
             wait_scans(fd) = Plotting.wait_for_scans(fd)

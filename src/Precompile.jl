@@ -194,6 +194,15 @@ function exercise_repl_commands!(state::ViewerREPL.REPLState)::Nothing
         ViewerREPL.completion_candidates(state, prefix)
     end
 
+    # Switching the theme: both windows are rebuilt and the whole session
+    # is put back into them, so this compiles the setup path a second
+    # time. It is the one command a user would otherwise watch stall.
+    ViewerREPL.evaluate_command(state, "theme dark")
+    wait_tasks()
+    ViewerREPL.evaluate_command(state, "theme")
+    ViewerREPL.evaluate_command(state, "theme minimal")
+    wait_tasks()
+
     # Export paths: figure, movie, command string
     ViewerREPL.evaluate_command(state, "savefig filename=$(tempname()).png")
     ViewerREPL.evaluate_command(state, "record filename=$(tempname()).mkv, framerate=10")

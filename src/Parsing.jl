@@ -29,10 +29,20 @@ module KwargSandbox
     using Dates
 end
 
-function parse_kwargs(kw_str::AbstractString)::OrderedDict{Symbol, Any}
-    kw_dict = OrderedDict{Symbol, Any}()
-    isempty(kw_str) && return kw_dict
-    
+"""
+    kwarg_entries(kw_str)
+
+What a `key=value` line names, as the text of each key and each value.
+
+The values come back unparsed, which is the point: reading one can
+evaluate an expression, and a caller that only wants to know *which*
+keywords a line mentions should not pay for that -- nor set off the
+errors a bad value reports when it is finally read for real.
+"""
+function kwarg_entries(kw_str::AbstractString)::Vector{Pair{String, String}}
+    entries = Pair{String, String}[]
+    isempty(kw_str) && return entries
+
     # Split by commas, but be careful not to split inside parentheses, brackets, or quotes
     pairs = String[]
     current_pair = ""
@@ -67,10 +77,15 @@ function parse_kwargs(kw_str::AbstractString)::OrderedDict{Symbol, Any}
     for pair in pairs
         parts = split(pair, '=', limit=2)
         length(parts) == 2 || continue
-        key = Symbol(strip(parts[1]))
-        val_str = strip(parts[2])
+        push!(entries, String(strip(parts[1])) => String(strip(parts[2])))
+    end
+    entries
+end
 
-        kw_dict[key] = parse_value(val_str)
+function parse_kwargs(kw_str::AbstractString)::OrderedDict{Symbol, Any}
+    kw_dict = OrderedDict{Symbol, Any}()
+    for (key, val_str) in kwarg_entries(kw_str)
+        kw_dict[Symbol(key)] = parse_value(val_str)
     end
     kw_dict
 end

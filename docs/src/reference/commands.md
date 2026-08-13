@@ -53,6 +53,7 @@ first layer explicitly. See [Overlaying Fields](../usage/overlays.md).
 | `del` | `del <kwarg_name>` | Delete keyword argument(s), restoring defaults |
 | `refresh` | `refresh` | Refresh the plot |
 | `reset` | `reset` | Reset plot settings to default |
+| `theme` | `theme [name]` | Draw in another Makie theme (`minimal`, `light`, `dark`, `black`, `ggplot2`); without a name it reports the current one |
 
 ## Output
 

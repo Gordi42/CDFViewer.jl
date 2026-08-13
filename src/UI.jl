@@ -4,6 +4,7 @@ using DataStructures
 using GLMakie
 
 import ..Constants
+import ..Themes
 import ..Interpolate
 import ..Data
 import ..Output
@@ -42,10 +43,16 @@ struct ExportMenu
 end
 
 function ExportMenu(fig::Figure)::ExportMenu
+    # a button's face stays light gray whatever the theme says, so its
+    # label cannot simply inherit the theme's text color -- that is white
+    # lettering on a white button as soon as the theme is a dark one
+    labelcolor = Themes.widget_label_color()
+    button(label) = Button(fig, label = label, labelcolor = labelcolor,
+                           tellwidth = false, width = Relative(1))
     ExportMenu(
-        Button(fig, label = "Save", tellwidth = false, width = Relative(1)),
-        Button(fig, label = "Record", tellwidth = false, width = Relative(1)),
-        Button(fig, label = "Export", tellwidth = false, width = Relative(1)),
+        button("Save"),
+        button("Record"),
+        button("Export"),
         fig,
     )
 end

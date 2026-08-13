@@ -1,8 +1,10 @@
 using Test
 using CDFViewer.Constants
 using CDFViewer.Data
+using CDFViewer.Themes
 using CDFViewer.UI
 using GLMakie
+using Makie
 
 @testset "UI.jl" begin
 
@@ -71,6 +73,30 @@ using GLMakie
             # Assert
             @test layout isa GridLayout
             @test layout.size == (1, 3)
+        end
+
+        @testset "Labels read against the button, not the window" begin
+            # Arange & Act: a button's face is light gray whatever the
+            # theme says, so its label has to stay dark on a dark theme --
+            # inheriting the theme's text color would paint it white on
+            # a white button
+            previous = Themes.active()
+            try
+                for name in Themes.theme_names()
+                    Themes.activate!(name)
+                    export_menu = UI.ExportMenu(Figure())
+                    for button in (export_menu.save_button,
+                                   export_menu.record_button,
+                                   export_menu.export_button)
+                        face = Makie.to_color(button.buttoncolor[])
+                        label = Makie.to_color(button.labelcolor[])
+                        @test abs(Themes.luminance(label) -
+                                  Themes.luminance(face)) > 0.4
+                    end
+                end
+            finally
+                Themes.activate!(previous)
+            end
         end
     end
 

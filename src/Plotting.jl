@@ -8,6 +8,7 @@ using GeoMakie
 using Suppressor
 
 import ..Constants
+import ..Themes
 import ..RescaleUnits
 import ..Interpolate
 import ..Data
@@ -146,6 +147,13 @@ end
 #  Figure Settings
 # ============================================================
 
+"""
+The color an untouched colorbar label is drawn in: the theme's own text
+color, the same one Makie gives every other label on the figure. It is a
+function rather than a constant because a theme switch has to move it.
+"""
+default_cbarlabel_color()::RGBAf = Themes.theme_colors().text
+
 struct FigureSettings
     figsize::Observable{Tuple{Int, Int}}
     cbar::Observable{Bool}
@@ -219,7 +227,7 @@ struct FigureSettings
         Observable(Float64(Constants.LABELSIZE)),         # animlabelsize
         Observable{Union{Nothing, Bool, String}}(nothing),  # cbarlabel
         Observable(Float64(Constants.LABELSIZE)),         # cbarlabelsize
-        Observable{Any}(Constants.CBARLABEL_COLOR),       # cbarlabelcolor
+        Observable{Any}(default_cbarlabel_color()),        # cbarlabelcolor
         Observable(Constants.CBARLABEL_FONT),             # cbarlabelfont
         Observable{Union{Nothing, Float64}}(nothing),     # cbarlabelrotation
         Observable(Float64(Constants.CBARLABEL_PADDING)),  # cbarlabelpadding
@@ -1598,7 +1606,7 @@ function rebuild_overlay!(fd::FigureData)::Nothing
         $(scene.viewport).widths, corner, boxw, boxh))
     box = poly!(scene, rect; space = :pixel,
                 color = animlabel_background_color(bg),
-                strokecolor = (:black, 0.8),
+                strokecolor = animlabel_background_stroke_color(),
                 strokewidth = animlabel_background_stroke(bg),
                 inspectable = false)
     push!(fd.anim_overlay[], (scene, box))
@@ -1630,27 +1638,12 @@ end
 
 function create_figure(figsize::Tuple{Int, Int})::Figure
     GLMakie.activate!()
-    # create a theme
-    cust_theme = Theme(
-        Axis = (
-            xlabelsize = Constants.LABELSIZE,
-            ylabelsize = Constants.LABELSIZE,
-            titlesize = Constants.TITLESIZE,
-        ),
-        Axis3 = (
-            xlabelsize = Constants.LABELSIZE,
-            ylabelsize = Constants.LABELSIZE,
-            zlabelsize = Constants.LABELSIZE,
-            titlesize = Constants.TITLESIZE,
-        ),
-        Lines = (inspectable = false,)
-    )
-    theme = merge(theme_latexfonts(), theme_minimal())
-    theme = merge(theme, cust_theme)
     # the theme must be active BEFORE the Figure is constructed: a figure
     # snapshots the global theme at creation, so setting it afterwards
-    # left the first figure of a session in the default (sans) fonts
-    set_theme!(theme)
+    # left the first figure of a session in the default (sans) fonts.
+    # A session installs its theme earlier still, before the menu window
+    # is built -- this only makes a figure built on its own carry it too.
+    Themes.apply!()
 
     Figure(size = figsize)
 end
@@ -1699,8 +1692,11 @@ function add_land!(fd::FigureData)::Nothing
     if fd.settings.land[] && support_geographic(fd)
         land = GeoMakie.land()
         # land mask should be above the data but below coastlines
+        # the ground shifted toward the text color: a fill that stays
+        # distinct from both the map behind it and the coastlines on top,
+        # whichever way round the theme paints them
         fd.land[] = poly!(
-            fd.ax[], land, color = :lightgray,
+            fd.ax[], land, color = Themes.theme_colors().land,
             transformation = (; translation = (0, 0, 40)),
             inspectable = false,
         )
@@ -1711,8 +1707,10 @@ end
 function add_coastlines!(fd::FigureData)::Nothing
     if fd.settings.coastlines[] && support_geographic(fd)
         c = GeoMakie.coastlines(fd.settings.scale[])
+        # the color the theme writes text in: whatever ground it paints
+        # on, that color is by construction the one that reads against it
         fd.coastlines[] = lines!(
-            fd.ax[], c, color = :black,
+            fd.ax[], c, color = Themes.theme_colors().text,
             transformation = (; translation = (0, 0, 50)),
         )
     end
@@ -1863,10 +1861,20 @@ struct FigureSettingsHandler
     handler::Function
 end
 
-"The background colour of the overlay label; fully transparent when off."
+"""
+The background color of the overlay label; fully transparent when off.
+The translucent default is the theme's own ground, so the label reads as
+a piece cut out of the figure rather than a white patch on a dark one.
+"""
 animlabel_background_color(bg) =
     bg === false ? (:white, 0.0) :
-    bg === true ? Constants.ANIMLABEL_BACKGROUND_COLOR : bg
+    bg === true ? Themes.with_alpha(Themes.theme_colors().background,
+                                    Constants.ANIMLABEL_BACKGROUND_ALPHA) : bg
+
+"The outline color of that background box."
+animlabel_background_stroke_color()::RGBAf =
+    Themes.with_alpha(Themes.theme_colors().text,
+                      Constants.ANIMLABEL_BACKGROUND_STROKE_ALPHA)
 
 "The background outline width; no outline when the background is off."
 animlabel_background_stroke(bg)::Int = bg === false ? 0 : 1
@@ -2645,7 +2653,7 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
             :animlabelsize => Float64(Constants.LABELSIZE),
             :cbarlabel => nothing,
             :cbarlabelsize => Float64(Constants.LABELSIZE),
-            :cbarlabelcolor => Constants.CBARLABEL_COLOR,
+            :cbarlabelcolor => default_cbarlabel_color(),
             :cbarlabelfont => Constants.CBARLABEL_FONT,
             :cbarlabelrotation => nothing,
             :cbarlabelpadding => Float64(Constants.CBARLABEL_PADDING),
@@ -3707,8 +3715,9 @@ end
     contour_colormap(i)
 
 The colormap the contour of layer `i` starts out with: the usual
-diverging one on the base, and a colormap that is black at every level on
-an overlay.
+diverging one on the base, and a colormap that is the theme's text color
+at every level on an overlay -- black on a white ground, white on a black
+one, so the lines read against the field underneath either way.
 
 The base layer owns the color dimension and the colorbar, so an overlay
 only has to add structure -- a second colormap fights the first, and the
@@ -3721,8 +3730,8 @@ the same, so that colors keep coming from the colormap on every layer:
 Makie reads a set `color` in preference to any colormap, so a later
 `over.colormap=` would have been swallowed without a word.
 """
-contour_colormap(i::Int)::Union{Symbol, Vector{Symbol}} =
-    i == 1 ? :balance : [:black, :black]
+contour_colormap(i::Int)::Union{Symbol, Vector{RGBAf}} =
+    i == 1 ? :balance : fill(Themes.theme_colors().text, 2)
 
 for plot in [
     # 2D plots
