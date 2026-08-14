@@ -54,6 +54,9 @@ const ANIMLABEL_PADDING = 10
 # Vertical gap between the plot box and the scene-anchored header text.
 const HEADER_GAP = 8
 
+# Leading between the two lines of a stacked header (title over label).
+const HEADER_LINE_GAP = 2
+
 # How many indices to sample when measuring the widest label a playback
 # dimension can produce. Labels are padded to that width so they do not
 # shift between frames; long axes are sampled rather than scanned in full.
@@ -75,8 +78,70 @@ const TITLESIZE = 24
 
 # The title and the animated-axis label share one header line. A title too
 # long for the space left over is drawn smaller rather than across the
-# label -- but never smaller than this.
+# label -- but never smaller than this. Once even this size no longer
+# fits, the two are stacked onto two lines instead of overlapping.
 const TITLESIZE_MIN = 12.0
+
+# The same floor for the animated-axis label, which only ever shrinks in
+# the residual case: a label wider than the whole header line by itself.
+const ANIMLABELSIZE_MIN = 12.0
+
+# The shortest side an aspect-constrained axis is drawn at, in pixels of
+# the figure. A data aspect letterboxes the axis inside its cell -- a
+# 2400 m by 120 m shelf section is 20:1 and comes out as a wide, short
+# band -- and past some point the short side stops being a plot at all.
+# The data ratio is honoured until the axis would fall under this, and
+# bounded from there on, so the geometry only ever gives way where it
+# would have become unreadable anyway. Measured against the whole figure,
+# which is a little larger than the cell the ticks and labels leave over,
+# and so the bound follows `figsize`: a wide figure honours a wider
+# domain.
+const AXIS_MIN_EXTENT = 24
+
+# Furniture around the plot box: the axis labels and their ticks, the
+# header band, and the colorbar column. Near enough constant in pixels,
+# so it comes off the figure before the data's shape is fitted into what
+# is left. Measured off the default figure, which leaves a 635 by 480
+# cell for the box.
+const FIGURE_CHROME = (165, 120)
+
+# Room for four stacked tick labels with air between them, which is what
+# a wide plot box needs to still be read. `FIGSIZE` is a guess made
+# before the file was ever opened; once a domain would come out shorter
+# than this inside it, a window shaped like the data is the better guess
+# -- and a plot recorded straight off the command line gets no second
+# chance at one.
+const AXIS_READABLE_HEIGHT = 60
+
+# What such a window may grow and shrink to. It never goes narrower than
+# the default: the colorbar sits in a column sized as a fraction of the
+# figure width, and a narrower figure squeezes the bar out of its column.
+# The shortest one is exactly a readable box plus its furniture, so the
+# window stops shrinking at the same place the ratio below stops giving.
+const FIGSIZE_MAX = (1600, 900)
+const FIGSIZE_MIN = (FIGSIZE[1], AXIS_READABLE_HEIGHT + FIGURE_CHROME[2])
+
+# The most elongated box the widest window can still show at that height.
+# Under it the data's shape is exact in every window, auto-sized or not.
+# Past it no window we would open could carry the geometry anyway -- a
+# 6000 km by 4 km section is a line at any size, and the eye cannot read
+# a slope off a hairline -- so the ratio is held here and the box fills
+# its window instead of floating in it. This bounds the *wide* direction
+# only: a tall box gives its width away, where the tick labels lie along
+# the axis rather than stacking, and no attainable width fits them. There
+# is nothing to aim for there beyond staying a plot at all, which is what
+# `AXIS_MIN_EXTENT` is for.
+const AXIS_MAX_RATIO = (FIGSIZE_MAX[1] - FIGURE_CHROME[1]) / AXIS_READABLE_HEIGHT
+
+# `Axis` picks how many ticks to draw from the data range alone, so a box
+# 67 pixels tall gets the seven labels a 500-pixel one gets and they lie
+# on top of each other. Below a budget of this many labels the count
+# follows the pixels instead, one label to this many of them. Only the y
+# ticks: those stack, so what one needs is its own height and nothing
+# else, while an x label lies along its axis and needs its own width --
+# which is the text, and a guess there would be wrong more than right.
+const TICKLABEL_HEIGHT = 30
+const TICKLABEL_BUDGET = 4
 
 # Colorbar label. The size follows the axis labels; color, font and
 # padding mirror Makie's own Colorbar defaults under the viewer's theme,
