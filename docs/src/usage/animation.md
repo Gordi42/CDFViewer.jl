@@ -40,6 +40,12 @@ the animation it is. The current value of the play dimension is therefore
 shown right of the title, with the title on the left of the same row, on
 every axis type, 3D included.
 
+The two share the row for as long as they both fit, the title giving way
+first: it is drawn smaller to leave the label its space. When even that is
+not enough, the title moves onto a line of its own above the label instead
+of being drawn across it. Nothing is shortened either way, so a long title
+and a long label can both still be read.
+
 Nothing shifts while the animation runs. The label is compiled into static
 text and value slots, and each slot is exactly as wide as the widest value
 its axis can produce, so the text around a changing number stays pinned

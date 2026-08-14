@@ -350,11 +350,15 @@ using CDFViewer.Plotting
         end
 
         @testset "Title gives way to the label" begin
-            fit = Plotting.fit_title_size
             bold = Plotting.title_font()
             text = "Eastward wind / Northward wind [m s-1]"
             full = Plotting.measure_text(text, 24, bold)
             @test full > 0
+            # the title is measured once, in the bold face it is drawn in,
+            # and shrunk from that measurement
+            fit(available, txt, size) = Plotting.fit_text_size(
+                available, Plotting.measure_text(txt, size, bold), size,
+                Constants.TITLESIZE_MIN)
 
             # room to spare: the configured size is kept untouched
             @test fit(full + 10, text, 24) == 24.0
@@ -373,6 +377,81 @@ using CDFViewer.Plotting
             # the bold face the title is drawn in is wider than the
             # regular one, which is why it has to be measured separately
             @test full > Plotting.measure_text(text, 24)
+
+            # a deliberately tiny configured size is not inflated to the
+            # floor -- the floor only ever stops the shrinking
+            @test fit(1.0, text, 8) == 8.0
+        end
+
+        @testset "Header stacks instead of overlapping" begin
+            bold = Plotting.title_font()
+            title = "Eastward velocity / Northward velocity [m s-1] on the shelf"
+            # both texts go in measured, at their configured sizes
+            full = Plotting.measure_text(title, 24, bold)
+            layout(width, labelwidth) =
+                Plotting.header_layout(width, full, 24, labelwidth, 20)
+
+            # room for both: one line, the configured sizes untouched
+            fit = layout(full + 200, 100.0)
+            @test !fit.stacked
+            @test fit.titlesize == 24.0
+            @test fit.labelsize == 20.0
+            @test fit.labelscale == 1.0
+
+            # tighter: the title gives way first, still on one line
+            fit = layout(full + 40, 100.0)
+            @test !fit.stacked
+            @test Constants.TITLESIZE_MIN < fit.titlesize < 24.0
+            @test fit.labelsize == 20.0
+
+            # both too wide for one line: they are stacked rather than
+            # drawn over each other, and both keep their configured size
+            fit = layout(full, full)
+            @test fit.stacked
+            @test fit.titlesize == 24.0
+            @test fit.labelsize == 20.0
+
+            # stacking beats sharing even where the title still has to
+            # shrink: on its own line there is more of it left
+            fit = layout(0.75 * full, 0.5 * full)
+            shared = Plotting.fit_text_size(0.25 * full - 8, full, 24,
+                                            Constants.TITLESIZE_MIN)
+            @test fit.stacked
+            @test shared == Constants.TITLESIZE_MIN
+            @test fit.titlesize > shared
+            @test fit.titlesize ≈ 0.75 * 24 rtol = 0.02
+            @test Plotting.measure_text(title, fit.titlesize, bold) <=
+                0.75 * full * 1.02
+
+            # the label alone wider than the line: it shrinks to fit, and
+            # the segment offsets scale with it
+            fit = layout(180.0, 240.0)
+            @test fit.stacked
+            @test fit.labelsize ≈ 20.0 * 180 / 240 atol = 0.01
+            @test fit.labelscale ≈ fit.labelsize / 20.0
+
+            # ... but never past its own floor
+            fit = layout(10.0, 2000.0)
+            @test fit.labelsize == Constants.ANIMLABELSIZE_MIN
+
+            # a title too wide for the line even at its floor holds the
+            # floor and runs on past the plot box -- it has a line of its
+            # own by then, so it runs over whitespace, not over the label
+            fit = layout(0.4 * full, 20.0)
+            @test fit.stacked
+            @test fit.titlesize == Constants.TITLESIZE_MIN
+            @test Plotting.measure_text(title, fit.titlesize, bold) >
+                0.4 * full
+
+            # no label at all: the title keeps the whole line, never stacked
+            fit = layout(10.0, 0.0)
+            @test !fit.stacked
+            @test fit.titlesize == Constants.TITLESIZE_MIN
+            @test fit.labelscale == 1.0
+            # nor does an empty title stack a label under a blank line
+            fit = Plotting.header_layout(180.0, 0.0, 24, 240.0, 20)
+            @test !fit.stacked
+            @test fit.labelsize ≈ 20.0 * 180 / 240 atol = 0.01
         end
 
         @testset "Colorbar height matches the axis" begin
@@ -400,6 +479,43 @@ using CDFViewer.Plotting
             # deselecting leaves only the title
             state.pdim[] = Constants.NOT_SELECTED_LABEL
             @test length(fig_data.anim_header[]) == 1
+            cleanup(dataset)
+        end
+
+        @testset "The reserved band follows the stacking" begin
+            # lat on x, lon on y: the plot box then fills the width of its
+            # cell, so the header line is the widest this fixture offers
+            (fd, state, dataset) = arrange_and_create_axis(
+                "3d_float", ["lat", "lon"], "heatmap")
+            spacer = first(c for c in fd.fig.content if c isa Box)
+            fd.settings.title[] = "u"
+            state.pdim[] = "time"
+
+            # an ordinary title shares the line: one band, as before
+            @test fd.header_lines[] == 1
+            one_line = spacer.height[]
+
+            # a title and a label that cannot both fit are stacked, and
+            # the band grows by the second line -- neither is drawn over
+            # the other and neither is elided
+            fd.settings.animlabel[] =
+                "time since release: {value} (frame {index})"
+            fd.settings.title[] = repeat("Eastward velocity on the shelf ", 4)
+            @test fd.header_lines[] == 2
+            @test spacer.height[] > one_line
+            @test length(fd.anim_header[]) > 1
+
+            # back to a short title: the band gives the line back
+            fd.settings.title[] = "u"
+            @test fd.header_lines[] == 1
+            @test spacer.height[] == one_line
+
+            # the watcher belongs to the drawn header: a rebuild replaces
+            # it rather than adding a second one fighting over the band
+            watch = fd.header_watch[]
+            Plotting.rebuild_header!(fd)
+            @test fd.header_watch[] !== watch
+            @test fd.header_lines[] == 1
             cleanup(dataset)
         end
     end
@@ -905,24 +1021,87 @@ using CDFViewer.Plotting
                 assert_aspect_2d(rand(1000), rand(1000), 1.0, atol=0.1)  # should fail 1 in ~10^500 times
                 assert_aspect_2d([0.2, -0.4, 0.4], [3.1, 0.1, 0.7], 0.8/3.0)
 
-                # Act & Assert: Extreme aspect ratios should fall back to figure aspect
-                assert_aspect_2d([0.1, 100.0, 32], [0.2, 0.3, 0.4], 800/600)
-                assert_aspect_2d([0.1, 0.2, 0.3], [0.1, 100.0, 32], 800/600)
+                # Act & Assert: an elongated domain keeps its true ratio.
+                # 2400 m wide by 120 m deep is an ordinary shelf section,
+                # and the physics is in the geometry
+                assert_aspect_2d(collect(0.0:10.0:2400.0), collect(-120.0:1.0:0.0), 20.0)
+                assert_aspect_2d(collect(0.0:1.0:120.0), collect(-2400.0:10.0:0.0), 1/20)
+
+                # Act & Assert: past a readable rendered extent the ratio
+                # is capped -- 6000 km by 4 km is a line whatever window
+                # it is given, and the cap keeps it filling that window
+                assert_aspect_2d([0.1, 100.0, 32], [0.2, 0.3, 0.4],
+                    Constants.AXIS_MAX_RATIO)
+                assert_aspect_2d([0.0, 6.0e6], [0.0, 4.0e3],
+                    Constants.AXIS_MAX_RATIO)
+
+                # Act & Assert: ... and the cap does not follow the
+                # figure. A `figsize` of the user's own is never quietly
+                # redrawn at a ratio the default would not have used
+                for fig in (Vec{2, Int}(800, 600), Vec{2, Int}(1200, 400),
+                            Vec{2, Int}(1600, 180))
+                    assert_aspect_2d(collect(0.0:10.0:2400.0),
+                        collect(-120.0:1.0:0.0), 20.0, fig_widths = fig)
+                    assert_aspect_2d([0.0, 6.0e6], [0.0, 4.0e3],
+                        Constants.AXIS_MAX_RATIO, fig_widths = fig)
+                end
+
+                # Act & Assert: the tall direction has no cap to aim for
+                # -- tick labels lie along that axis and no attainable
+                # width fits them -- only the non-degeneracy floor, and
+                # that one does follow the figure
+                assert_aspect_2d([0.1, 0.2, 0.3], [0.1, 100.0, 32],
+                    Constants.AXIS_MIN_EXTENT /
+                        (600 - Constants.FIGURE_CHROME[2]))
+                assert_aspect_2d([0.1, 0.2, 0.3], [0.1, 100.0, 32],
+                    Constants.AXIS_MIN_EXTENT /
+                        (900 - Constants.FIGURE_CHROME[2]),
+                    fig_widths = Vec{2, Int}(800, 900))
+
+                # Act & Assert: a figure too small to hold the domain at
+                # all bounds it tighter than the cap does
+                assert_aspect_2d(collect(0.0:1.0:60.0), collect(0.0:1.0:1.0),
+                    (400 - Constants.FIGURE_CHROME[1]) /
+                        Constants.AXIS_MIN_EXTENT,
+                    fig_widths = Vec{2, Int}(400, 400))
+
+                # Act & Assert: a degenerate extent has no ratio to honour
+                assert_aspect_2d([1.0, 1.0, 1.0], collect(1:5), 800/600)
+                assert_aspect_2d(collect(1:5), [2.0, 2.0], 800/600)
+                assert_aspect_2d([NaN, 1.0, 2.0], collect(1:5), 800/600)
+                assert_aspect_2d(collect(1:5), [1.0, Inf], 800/600)
+
+                # Act & Assert: a figure with no extent of its own has no
+                # bound to impose and no shape to fall back on -- the data
+                # ratio stands, and a degenerate one comes out square
+                assert_aspect_2d(collect(0.0:10.0:2400.0), collect(-120.0:1.0:0.0),
+                    20.0, fig_widths = Vec{2, Int}(0, 0))
+                assert_aspect_2d([1.0, 1.0], collect(1:5), 1.0,
+                    fig_widths = Vec{2, Int}(0, 0))
 
                 # Act & Assert: User-defined aspect ratio should override everything
                 assert_aspect_2d(collect(1:5), collect(1:5), 2.0,
                     kwargs=OrderedDict{Symbol, Any}(:aspect => 2.0))
+                # ... including for a domain the bound would have clamped
+                assert_aspect_2d([0.1, 100.0, 32], [0.2, 0.3, 0.4], 200.0,
+                    kwargs=OrderedDict{Symbol, Any}(:aspect => 200.0))
             end
 
             @testset "3D Aspect Ratio" begin
                 # Arrange - helper function
                 function assert_aspect_3d(x, y, z, expected;
-                    atol = 0.01, kwargs = OrderedDict{Symbol, Any}(), ndims = 3)
-                    aspect = Plotting.compute_aspect(kwargs, ndims, x, y, z)
+                    atol = 0.01, kwargs = OrderedDict{Symbol, Any}(), ndims = 3,
+                    fig_widths = Vec{2, Int}(800, 600))
+                    aspect = Plotting.compute_aspect(kwargs, ndims, x, y, z,
+                                                     fig_widths)
                     for (a, b) in zip(aspect, expected)
                         @test a ≈ b atol=atol
                     end
                 end
+                # Axis3 scales by aspect ./ maximum(aspect), so the
+                # shortest edge is the one that may not out-run the
+                # longest by more than the flat box's own cap
+                shortest(exts) = maximum(exts) / Constants.AXIS_MAX_RATIO
 
                 # Act & Assert: Reasonable aspect ratios
                 assert_aspect_3d(collect(1:5), collect(1:5), collect(1:5), (1.0, 1.0, 1.0))
@@ -931,20 +1110,184 @@ using CDFViewer.Plotting
                 assert_aspect_3d(rand(1000), rand(1000), rand(1000), (1.0, 1.0, 1.0), atol=0.1)
                 assert_aspect_3d([0.2, -0.4, 0.4], [3.1, 0.1, 0.7], [0.5, 0.6, -0.2], (0.8/3.0, 3.0/3.0, 0.8/3.0))
 
-                # Act & Assert: Extreme aspect ratios should fall back to default
-                assert_aspect_3d([0.1, 100.0, 32], [0.2, 0.3, 0.4], [0.5, 0.6, -0.2], (1.0, 1.0, 0.8/0.2))
-                assert_aspect_3d([0.1, 0.2, 0.3], [0.1, 100.0, 32], [0.5, 0.6, -0.2], (1.0, 1.0, 1.0))
-                assert_aspect_3d([0.1, 0.2, 0.3], [0.1, 0.2, 0.3], [0.5, 100.0, -0.2], (1.0, 1.0, 1.0))
+                # Act & Assert: an elongated domain keeps its true ratio
+                # here too -- substituting 1 claimed a 20:1 domain was cubic
+                assert_aspect_3d(collect(0.0:10.0:2400.0), collect(-120.0:1.0:0.0),
+                    collect(-120.0:1.0:0.0), (20.0, 1.0, 1.0))
+
+                # Act & Assert: past that, only the components that would
+                # come out a sliver are lifted; the rest keep their ratio
+                assert_aspect_3d([0.1, 100.0, 32], [0.2, 0.3, 0.4], [0.5, 0.6, -0.2],
+                    (99.9/0.2, shortest([99.9/0.2, 1.0, 0.8/0.2]),
+                     shortest([99.9/0.2, 1.0, 0.8/0.2])), atol=0.1)
+                assert_aspect_3d([0.1, 0.2, 0.3], [0.1, 100.0, 32], [0.5, 0.6, -0.2],
+                    (shortest([1.0]), 1.0, shortest([1.0])))
+                assert_aspect_3d([0.1, 0.2, 0.3], [0.1, 0.2, 0.3], [0.5, 100.0, -0.2],
+                    (shortest([100.2/0.2]), shortest([100.2/0.2]), 100.2/0.2),
+                    atol=0.1)
+
+                # Act & Assert: a degenerate extent stands in as 1
+                assert_aspect_3d([1.0, 1.0], collect(1:5), collect(1:5),
+                    (1/4, 1.0, 1.0))
+                assert_aspect_3d(collect(1:5), collect(1:5), [NaN, 1.0],
+                    (1.0, 1.0, 1/4))
+
+                # Act & Assert: no figure to measure against yet, so the
+                # ratios stand unbounded instead of dividing by nothing
+                assert_aspect_3d([0.1, 0.2, 0.3], [0.1, 100.0, 32], [0.5, 0.6, -0.2],
+                    (0.2/99.9, 1.0, 0.8/99.9), atol=1e-4,
+                    fig_widths = Vec{2, Int}(0, 0))
+                # ... and two extents far enough apart to overflow their
+                # quotient leave no geometry to keep: back to a cube
+                assert_aspect_3d([0.0, 1e300], [0.0, 1e-300], collect(1:5),
+                    (1.0, 1.0, 1.0))
 
                 # Act & Assert: For 2D data, z aspect should be fixed to 0.4
                 assert_aspect_3d(collect(1:5), collect(1:5), collect(1:5), (1.0, 1.0, 0.4), ndims=2)
                 assert_aspect_3d(collect(1:4), collect(1:5), collect(1:6), (3/4, 1.0, 0.4), ndims=2)
+                # ... but the value axis is lifted with everything else, so
+                # an elongated domain does not flatten it out of sight
+                assert_aspect_3d(collect(0.0:10.0:2400.0), collect(-120.0:1.0:0.0),
+                    collect(1:5), (20.0, 1.0, 20.0 / Constants.AXIS_MAX_RATIO),
+                    ndims=2)
 
                 # Act & Assert: User-defined aspect ratio should override everything
                 assert_aspect_3d(collect(1:5), collect(1:5), collect(1:5), (2.0, 1.0, 0.5),
                     kwargs=OrderedDict{Symbol, Any}(:aspect => (2.0, 1.0, 0.5)))
                 assert_aspect_3d(collect(1:5), collect(1:5), collect(1:5), (1.0, 1.0, 0.2),
                     kwargs=OrderedDict{Symbol, Any}(:aspect => (0.2)), ndims=2)
+            end
+
+            @testset "The window follows the data shape" begin
+                default = Constants.FIGSIZE
+                auto = Plotting.auto_figsize
+                extent = Plotting.axis_extent
+                fitted_at(x, y, size) = Plotting.compute_aspect(
+                    OrderedDict{Symbol, Any}(), x, y, Vec{2, Int}(size...))
+
+                # Act & Assert: every ordinary field keeps the default
+                # window, untouched, and so does one with no ratio to go on
+                for r in (1.0, 2.03, 4.0, 5.0, 1/4, 1/5, 10.0, 1/8)
+                    @test auto(r) == default
+                end
+                @test auto(NaN) == default
+                @test auto(0.0) == default
+                @test auto(Inf) == default
+
+                # Act & Assert: a 20:1 shelf section is given a window
+                # shaped like it, and the box fills that window instead
+                # of lying in it as a thirty-pixel band
+                wide = auto(20.0)
+                @test wide[1] > default[1] && wide[2] < default[2]
+                @test wide == (1600, 192)
+                @test extent(20.0, wide) > 2 * extent(20.0, default)
+                @test extent(20.0, wide) >= Constants.AXIS_READABLE_HEIGHT
+                # ... at the true ratio: the window was sized to carry it
+                @test fitted_at(collect(0.0:10.0:2400.0),
+                    collect(-120.0:1.0:0.0), wide) ≈ 20.0
+
+                # Act & Assert: a tall section grows the window instead,
+                # and it never goes narrower than the default -- the
+                # colorbar's column is a fraction of the figure width
+                tall = auto(1/20)
+                @test tall == (default[1], Constants.FIGSIZE_MAX[2])
+                @test extent(1/20, tall) > extent(1/20, default)
+                @test fitted_at(collect(0.0:1.0:120.0),
+                    collect(-2400.0:10.0:0.0), tall) ≈ 1/20
+
+                # Act & Assert: 6000 km by 4 km. The window stops
+                # shrinking and the ratio starts giving way at the same
+                # point, so the box comes out filling its cell rather
+                # than a hairline adrift in one
+                line = auto(1500.0)
+                @test line == (Constants.FIGSIZE_MAX[1], Constants.FIGSIZE_MIN[2])
+                fitted = fitted_at([0.0, 6.0e6], [0.0, 4.0e3], line)
+                @test fitted ≈ Constants.AXIS_MAX_RATIO
+                # the one place the geometry is not the data's own says so
+                (fd, state, dataset) = arrange_and_create_axis(
+                    "2d_float", ["lon", "lat"], "heatmap")
+                @test_logs (:info, r"drawn at") Plotting.hint_aspect_cap!(
+                    fd, 1500.0, Float64(Constants.AXIS_MAX_RATIO))
+                # ... and only once, and never for an honoured ratio
+                @test_logs Plotting.hint_aspect_cap!(fd, 1500.0, 24.0)
+                fd.aspect_hinted[] = false
+                @test_logs Plotting.hint_aspect_cap!(fd, 20.0, 20.0)
+                @test_logs Plotting.hint_aspect_cap!(fd, NaN, 1.33)
+                cleanup(dataset)
+                @test extent(fitted, line) ≈ Constants.AXIS_READABLE_HEIGHT atol=1
+                # the window it is given is the window it fills
+                @test extent(fitted, line) ≈
+                    (line[2] - Constants.FIGURE_CHROME[2]) atol=1
+            end
+
+            @testset "Tick count follows the pixels on a thin box" begin
+                # a box with room for as many labels as Axis would pick
+                # is left exactly alone -- no ordinary plot is touched
+                @test Plotting.fitted_yticks(2.03, Constants.FIGSIZE) ===
+                    Makie.automatic
+                @test Plotting.fitted_yticks(1.0, Constants.FIGSIZE) ===
+                    Makie.automatic
+                @test Plotting.fitted_yticks(4.0, Constants.FIGSIZE) ===
+                    Makie.automatic
+                # an axis with no aspect at all fills its cell
+                @test Plotting.fitted_yticks(nothing, Constants.FIGSIZE) ===
+                    Makie.automatic
+
+                # a 67-pixel box cannot hold the seven labels the range
+                # would ask for, so the count follows the pixels
+                wide = Plotting.auto_figsize(20.0)
+                ticks = Plotting.fitted_yticks(20.0, wide)
+                @test ticks isa Makie.LinearTicks
+                @test 2 <= ticks.n_ideal < Constants.TICKLABEL_BUDGET
+                # ... and never asks for fewer than the two ends
+                @test Plotting.fitted_yticks(
+                    Constants.AXIS_MAX_RATIO,
+                    Plotting.auto_figsize(1500.0)).n_ideal >= 2
+
+                # the axis is built with the fitted locator, and it
+                # re-fits when the window changes under it
+                (fd, state, dataset) = arrange_and_create_axis(
+                    "2d_float", ["lon", "lat"], "heatmap")
+                aspect = Observable{Any}(20.0)
+                yticks = Plotting.axis_tick_kwargs(fd, aspect).yticks
+                @test yticks[] isa Makie.LinearTicks
+                aspect[] = 1.0
+                @test yticks[] === Makie.automatic
+                cleanup(dataset)
+            end
+
+            @testset "The window is never sized over the user" begin
+                (fd, state, dataset) = arrange_and_create_axis(
+                    "2d_float", ["lon", "lat"], "heatmap")
+                figsize() = Tuple(fd.fig.scene.viewport[].widths)
+
+                # an ordinary field is left in the default window
+                @test figsize() == Constants.FIGSIZE
+
+                # a shape the default cannot hold gets a window of its own
+                set_kwargs!(fd, "aspect=20")
+                Plotting.autosize_figure!(fd)
+                @test figsize() == Plotting.auto_figsize(20.0)
+                @test figsize() != Constants.FIGSIZE
+
+                # ... which is replaced, not stacked on, when it changes
+                set_kwargs!(fd, "aspect=1")
+                Plotting.autosize_figure!(fd)
+                @test figsize() == Constants.FIGSIZE
+
+                # a window sized by hand -- a drag, or a restored session
+                # -- is the user's; only the default and our own last
+                # choice are ever replaced
+                set_kwargs!(fd, "aspect=20")
+                Plotting.resize_figure!(fd, (1000, 700))
+                Plotting.autosize_figure!(fd)
+                @test figsize() == (1000, 700)
+
+                # and an explicit figsize wins outright, as aspect does
+                set_kwargs!(fd, "figsize=(900, 500)")
+                Plotting.autosize_figure!(fd)
+                @test figsize() == (900, 500)
+                cleanup(dataset)
             end
 
             @testset "Aspect Ratio in Axis Creation" begin

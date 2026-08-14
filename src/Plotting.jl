@@ -932,6 +932,14 @@ struct FigureData
     ui::UI.UIElements
     # scene-anchored header: the resolved title text + its drawn plots
     title_text::Observable{String}
+    # 1, or 2 once the title and the label have to be stacked; the band
+    # the figure reserves follows it
+    header_lines::Observable{Int}
+    # the listener reporting that decision, kept so it can be dropped
+    header_watch::Base.RefValue{Any}
+    # the window size the data last asked for, so a window the user has
+    # sized since is recognised as theirs and left alone
+    autosized::Base.RefValue{Tuple{Int, Int}}
     anim_header::Base.RefValue{Vector{Any}}
     anim_slots::Vector{Observable{String}}
     anim_segments::Base.RefValue{Vector{AnimSegment}}
@@ -940,6 +948,8 @@ struct FigureData
     anim_config::Base.RefValue{AnimLabelConfig}
     # the color-range size gate has already explained itself once
     crange_hinted::Base.RefValue{Bool}
+    # so has the ratio cap, the one place the geometry is not the data's
+    aspect_hinted::Base.RefValue{Bool}
     # +1/-1: which way the bouncing camera rotations are heading
     camera_vdir::Base.RefValue{Float64}
     camera_hdir::Base.RefValue{Float64}
@@ -965,9 +975,17 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         override = $(settings.title)
         override === nothing ? $(plot_data.labels.title) : override
     end
-    header_height = @lift(Constants.HEADER_GAP + 4 +
+    # One line of the two texts, or -- once they no longer fit beside each
+    # other -- one line each. Reserved from the *configured* sizes, which
+    # the drawn ones never exceed, so the band is never short of the text
+    # it has to hold.
+    header_lines = Observable(1)
+    header_height = @lift(Constants.HEADER_GAP + 4 + ($header_lines > 1 ?
+        measure_height("Ag", $(settings.titlesize)) +
+            measure_height("Ag", $(settings.animlabelsize)) +
+            Constants.HEADER_LINE_GAP :
         measure_height("Ag", max($(settings.titlesize),
-                                 $(settings.animlabelsize))))
+                                 $(settings.animlabelsize)))))
     Box(fig[1, 1]; visible = false, height = header_height,
         tellheight = true, tellwidth = false)
     ax = Observable{Union{Makie.AbstractAxis, Nothing}}(nothing)
@@ -995,11 +1013,15 @@ function FigureData(plot_data::PlotData, ui::UI.UIElements)::FigureData
         ui_state.range_control,
         ui,
         title_text,
+        header_lines,
+        Ref{Any}(nothing),
+        Ref(Constants.FIGSIZE),
         Ref(Any[]),
         Observable{String}[],
         Ref(AnimSegment[]),
         Ref(Any[]),
         Ref(AnimLabelConfig(Constants.NUMBER_FORMAT, Constants.DATETIME_FORMAT)),
+        Ref(false),
         Ref(false),
         Ref(1.0),
         Ref(1.0),
@@ -1488,35 +1510,109 @@ function clear_header!(fd::FigureData)::Nothing
         end
     end
     fd.anim_header[] = Any[]
+    # the watcher that reports the stacking decision back to the reserved
+    # band belongs to the header we have just deleted; left connected, the
+    # ones of every earlier rebuild would fight over the band on resize
+    if fd.header_watch[] !== nothing
+        Makie.Observables.off(fd.header_watch[])
+        fd.header_watch[] = nothing
+    end
     nothing
 end
 
 """
-    fit_title_size(available, text, size)
+    fit_text_size(available, width, size, minsize)
 
-The size the title is actually drawn at: the configured one, shrunk just
-enough to leave the animated-axis label its share of the header line, and
-never past `TITLESIZE_MIN`. The two share one line, so without this a
-title long enough to reach across the plot box is simply drawn over the
-label -- which a vector plot, naming both its components, easily is. Text
-width is linear in the font size, so one division lands it. Measured in
-the bold face the title is actually drawn in: the regular one is narrow
-enough here to under-shrink by a good 15%.
+The size a header text is actually drawn at: the configured one, shrunk
+just enough to fit `available`, and never past `minsize` (nor past the
+configured size, which a deliberately tiny one is already under). Text
+width is linear in the font size, so one division lands it.
+
+This is what keeps the title off the animated-axis label: the two share
+one line, and without the shrink a title long enough to reach across the
+plot box is simply drawn over the label -- which a vector plot, naming
+both its components, easily is. Feed it a width measured in the bold face
+the title is drawn in; the regular one is narrow enough here to
+under-shrink by a good 15%.
 """
-function fit_title_size(available::Real, text::AbstractString,
-                        size::Real)::Float64
-    width = measure_text(String(text), size, title_font())
+function fit_text_size(available::Real, width::Real, size::Real,
+                       minsize::Real)::Float64
     (width <= available || width <= 0) && return Float64(size)
-    max(Float64(size) * Float64(available) / width,
-        Float64(Constants.TITLESIZE_MIN))
+    max(Float64(size) * Float64(available) / Float64(width),
+        min(Float64(size), Float64(minsize)))
 end
 
-"Width the animated-axis label claims of the header line, gap included."
+"""
+How the title and the animated-axis label share the header band: the
+sizes the two are drawn at, and whether they had to be stacked. The
+segment offsets were measured at the configured label size and scale with
+it, so `labelscale` -- the drawn size over the configured one -- carries
+them.
+"""
+struct HeaderLayout
+    titlesize::Float64
+    labelsize::Float64
+    labelscale::Float64
+    stacked::Bool
+end
+
+"""
+    header_layout(width, titlewidth, titlesize, labelwidth, labelsize)
+
+Fit both header texts into a plot box `width` pixels wide, degrading in
+two stages. They start out sharing one line, the title shrinking to leave
+the label its share. When even at `TITLESIZE_MIN` the two do not both
+fit, they are stacked instead -- title on the upper line, label on the
+lower one, each with the whole width to itself. Both stay complete and
+legible that way, where sharing the line would have drawn one across the
+other, and nothing is elided.
+
+Both texts come in already measured, at their configured sizes. Width is
+linear in the font size, so their widths at any other size are one
+multiplication away -- and the glyph layout behind a measurement costs a
+third of a millisecond, which has no business running on every frame of a
+window drag.
+
+The label never gives way to the title: it is the value the frame is
+showing. It only shrinks in the residual case, where the label is wider
+than the whole line by itself and there is nothing to give way to.
+
+Both floors hold even then. A text still too wide at its floor runs on
+past the plot box rather than being drawn at an unreadable size or cut
+short -- it has a stacked line to itself by that point, so it overruns
+whitespace and not the other text.
+"""
+function header_layout(width::Real, titlewidth::Real, titlesize::Real,
+                       labelwidth::Real, labelsize::Real)::HeaderLayout
+    w = Float64(width)
+    lw = max(0.0, Float64(labelwidth))
+    lsize = fit_text_size(w, lw, labelsize, Constants.ANIMLABELSIZE_MIN)
+    scale = labelsize > 0 ? lsize / Float64(labelsize) : 1.0
+    claimed = lw <= 0 ? 0.0 : lw * scale + Float64(Constants.HEADER_GAP)
+    tw = max(0.0, Float64(titlewidth))
+    tsize = Float64(titlesize)
+    # how narrow the title may get before the line is simply full
+    minsize = min(tsize, Float64(Constants.TITLESIZE_MIN))
+    minwidth = tsize > 0 ? tw * minsize / tsize : 0.0
+    stacked = claimed > 0 && minwidth > 0 && minwidth + claimed > w
+    available = stacked ? w : w - claimed
+    HeaderLayout(fit_text_size(available, tw, tsize, Constants.TITLESIZE_MIN),
+                 lsize, scale, stacked)
+end
+
+"Width of the animated-axis label, or 0 when it is not on the header line."
 function header_label_width(fd::FigureData)::Float64
     fd.settings.animlabelpos[] === :title || return 0.0
     segments = fd.anim_segments[]
     isempty(segments) && return 0.0
-    sum(seg.width for seg in segments) + Float64(Constants.HEADER_GAP)
+    sum(seg.width for seg in segments)
+end
+
+"Report a header fit back to the band the figure layout reserves for it."
+function set_header_lines!(fd::FigureData, fit::HeaderLayout)::Nothing
+    lines = fit.stacked ? 2 : 1
+    fd.header_lines[] == lines || (fd.header_lines[] = lines)
+    nothing
 end
 
 """
@@ -1527,23 +1623,57 @@ right -- anchored to the top edge of the axis' plot box instead of laid
 out at the figure top: an aspect-letterboxed axis floats centred in its
 cell, and a layout header would leave a band of whitespace between the
 title and the plot. Everything is positioned from the axis viewport, so
-the header follows the plot wherever the layout puts it.
+the header follows the plot wherever the layout puts it -- and re-fits
+itself when the window is resized under it.
+
+When the two do not fit on one line even with the title at its floor,
+`header_layout` stacks them; the label then keeps the line above the plot
+and the title moves up onto its own. `header_lines` reports that back to
+the reserved band, which is the only thing about the header the figure
+layout knows.
 """
 function rebuild_header!(fd::FigureData)::Nothing
     clear_header!(fd)
     ax = fd.ax[]
-    ax === nothing && return nothing
+    if ax === nothing
+        # no plot box, no header: the band gives its second line back
+        fd.header_lines[] == 1 || (fd.header_lines[] = 1)
+        return nothing
+    end
     scene = fd.fig.scene
     vp = ax.scene.viewport
     gap = Float64(Constants.HEADER_GAP)
-    titlepos = @lift(Point2f($vp.origin[1],
-                             $vp.origin[2] + $vp.widths[2] + gap))
-    # the drawn size, not the configured one: it gives way to the label
-    # rather than being drawn across it. Only ever shrinks, so the header
-    # band (sized from the configured size) never has to grow for it.
+    linegap = Float64(Constants.HEADER_LINE_GAP)
+    # what the label claims of the line -- 0 when it is off, in the plot
+    # overlay, or has no playback dimension to report
     claimed = header_label_width(fd)
-    titlesize = @lift(fit_title_size($vp.widths[1] - claimed, $(fd.title_text),
-                                     $(fd.settings.titlesize)))
+    # measured once per title rather than once per frame; the fit scales
+    # the number instead of laying the glyphs out again
+    titlewidth = lift(fd.title_text, fd.settings.titlesize) do text, size
+        measure_text(text, size, title_font())
+    end
+    # a resize that leaves the fit alone stops here, so the header texts
+    # only ever move when their size or their line actually changes
+    layout = lift(vp, titlewidth, fd.settings.titlesize,
+                  fd.settings.animlabelsize;
+                  ignore_equal_values = true) do box, tw, tsize, lsize
+        header_layout(box.widths[1], tw, tsize, claimed, lsize)
+    end
+    # only ever written on an actual change: the band feeds the layout
+    # solve that produces the viewport this was computed from, and the
+    # decision is monotone -- a stacked header only narrows the plot box,
+    # which cannot un-stack it -- so the two settle after one pass
+    set_header_lines!(fd, layout[])
+    fd.header_watch[] = on(fit -> set_header_lines!(fd, fit), layout)
+    # the bottom line sits right above the plot box; a stacked title takes
+    # the line above it, over the label's own height
+    baseline = @lift(Float64($vp.origin[2] + $vp.widths[2]) + gap)
+    titlerise = @lift($(layout).stacked ?
+        measure_height("Ag", $(layout).labelsize) + linegap : 0.0)
+    titlepos = @lift(Point2f($vp.origin[1], $(baseline) + $(titlerise)))
+    # the drawn size, not the configured one: it gives way to the label
+    # rather than being drawn across it
+    titlesize = @lift($(layout).titlesize)
     plt = text!(scene, titlepos; text = fd.title_text,
                 align = (:left, :bottom), font = :bold,
                 fontsize = titlesize, space = :pixel,
@@ -1552,14 +1682,18 @@ function rebuild_header!(fd::FigureData)::Nothing
     fd.settings.animlabelpos[] === :title || return nothing
     segments = fd.anim_segments[]
     isempty(segments) && return nothing
-    fontsize = fd.settings.animlabelsize[]
+    fontsize = @lift($(layout).labelsize)
     total = sum(seg.width for seg in segments)
     slot, xoff = 0, 0.0
     for seg in segments
         anchor = seg.dynamic ? xoff + seg.width : xoff
+        # the offsets were measured at the configured size and scale with
+        # the drawn one, so a shrunk label keeps its slots lined up (at
+        # scale 1 every term is exactly the unscaled one)
         pos = @lift(Point2f(
-            $vp.origin[1] + $vp.widths[1] - total + anchor,
-            $vp.origin[2] + $vp.widths[2] + gap))
+            $vp.origin[1] + $vp.widths[1] - $(layout).labelscale * total +
+                $(layout).labelscale * anchor,
+            $(baseline)))
         text_content = if seg.dynamic
             slot += 1
             ensure_slots!(fd, slot)
@@ -1676,6 +1810,9 @@ function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
             layer.plot_obj[] = nothing
         end
     end
+    # the window before the axis: the aspect bound is measured in figure
+    # pixels, so the box has to know what window it is being built into
+    autosize_figure!(fig_data)
     fig_data.ax[] = fig_data.plot_data.plot_type[].make_axis(fig_data)
     if !isnothing(fig_data.ax[])
         apply_kwargs!(fig_data, ui_state.kwargs[])
@@ -3354,26 +3491,252 @@ end
 # ============================================================
 #  Fill up plot functions
 # ============================================================
+"""
+    fit_aspect(ratio, figwidths)
+
+The data ratio itself, unless drawing at it would letterbox the axis into
+a sliver. A constrained axis keeps the longer side of its cell and gives
+the shorter one away -- at aspect `a` inside a `w` by `h` cell it comes
+out `(min(w, h*a), min(h, w/a))` -- so what turns unusable is the
+*rendered* short side, not the ratio. Bounding that leaves the geometry
+untouched until the axis would be thinner than `AXIS_MIN_EXTENT` and
+gives way only from there, which is what an elongated domain needs: a
+2400 m by 120 m shelf section is an ordinary 20:1 slice, and a 1-in-19
+slope has to look like one.
+
+`AXIS_MAX_RATIO` caps the wide direction on top of that, and it does not
+follow the figure: the shape is exact in every window under it, so a
+`figsize=` of the user's own is never quietly redrawn at another ratio.
+Readability comes from the window (`auto_figsize` shapes one), not from
+bending the geometry; the cap is only where no window could carry it.
+
+A degenerate extent (one coordinate value, or non-finite data) has no
+ratio to honour and falls back to the figure's own shape.
+"""
+function fit_aspect(ratio::Real, figwidths::Vec{2, Int})::Float64
+    r = Float64(ratio)
+    usable = isfinite(r) && r > 0
+    # measured on the cell the box actually letterboxes inside, which is
+    # the figure less its furniture
+    w = Float64(figwidths[1] - Constants.FIGURE_CHROME[1])
+    h = Float64(figwidths[2] - Constants.FIGURE_CHROME[2])
+    # a figure with no room for a box at all -- asked before its window is
+    # up -- has no bound to impose and no shape to fall back on either
+    (w > 0 && h > 0) || return usable ? r : 1.0
+    figure_ratio = Float64(figwidths[1]) / Float64(figwidths[2])
+    usable || return figure_ratio
+    m = Float64(Constants.AXIS_MIN_EXTENT)
+    lo = m / h
+    hi = min(Float64(Constants.AXIS_MAX_RATIO), w / m)
+    # a figure too small to hold a usable axis in either direction: no
+    # bound left to give, so keep the figure's own shape
+    lo <= hi || return figure_ratio
+    clamp(r, lo, hi)
+end
+
+"""
+    fit_aspect3(ratio, figwidths)
+
+The `Axis3` counterpart of `fit_aspect`. `Axis3` scales its box by
+`aspect ./ maximum(aspect)`, so the longest edge fills the cell and every
+other one shrinks in proportion; the shortest edge is the one that turns
+into a sliver. Lifting only the components that would fall under
+`AXIS_MIN_EXTENT` keeps the elongation of the rest -- where substituting
+`1` for an out-of-range ratio silently claimed a 20:1 domain was cubic.
+
+The bound is the 2D one: `AXIS_MAX_RATIO`, or the figure's own
+non-degeneracy limit where that is tighter. An `Axis3` is never given a
+window of its own -- it fits its box into whatever cell it has, so there
+is no shape to size a window to -- and the cap that holds for the flat
+box is what holds here.
+"""
+function fit_aspect3(ratio::Vector{Float64}, figwidths::Vec{2, Int})::Vector{Float64}
+    longest = maximum(ratio)
+    # two extents far enough apart overflow their quotient: nothing is
+    # left of the geometry to keep, so the box goes back to a cube
+    (isfinite(longest) && longest > 0) || return fill(1.0, length(ratio))
+    # the cell's short side is what the longest edge is drawn across
+    cell = Float64(min(figwidths[1], figwidths[2]))
+    # no figure to measure against yet: honour the data and let the first
+    # resize impose the bound
+    cell > 0 || return ratio
+    span = min(Float64(Constants.AXIS_MAX_RATIO),
+               cell / Float64(Constants.AXIS_MIN_EXTENT))
+    max.(ratio, longest / span)
+end
+
+"The figure's own pixel size, as the layout currently has it."
+figure_size(fd::FigureData)::Tuple{Int, Int} =
+    Tuple(fd.fig.scene.viewport[].widths)
+
+"""
+    axis_box(ratio, figsize)
+
+The pixel size the plot box comes out at when a figure of `figsize` holds
+an axis of aspect `ratio`. The furniture comes off first; what is left is
+the cell the box letterboxes inside.
+"""
+function axis_box(ratio::Real, figsize::Tuple{Int, Int})::Tuple{Float64, Float64}
+    w = Float64(figsize[1] - Constants.FIGURE_CHROME[1])
+    h = Float64(figsize[2] - Constants.FIGURE_CHROME[2])
+    r = Float64(ratio)
+    (w > 0 && h > 0 && isfinite(r) && r > 0) || return (0.0, 0.0)
+    (min(w, h * r), min(h, w / r))
+end
+
+"The shorter side of that box, which is the one that runs out first."
+axis_extent(ratio::Real, figsize::Tuple{Int, Int})::Float64 =
+    minimum(axis_box(ratio, figsize))
+
+"""
+    fitted_yticks(aspect, figsize)
+
+A locator asking for only as many y ticks as the plot box has room for,
+or `automatic` where it has room for as many as `Axis` would pick on its
+own (see `TICKLABEL_BUDGET`). The box height follows from the window and
+the ratio before the axis is ever built, so this reads nothing back off
+the layout and cannot feed itself.
+"""
+function fitted_yticks(aspect, figsize::Tuple{Int, Int})
+    # an unconstrained axis fills its cell and never runs short
+    aspect isa Number || return Makie.automatic
+    height = axis_box(aspect, figsize)[2]
+    height > 0 || return Makie.automatic
+    n = floor(Int, height / Constants.TICKLABEL_HEIGHT)
+    n >= Constants.TICKLABEL_BUDGET && return Makie.automatic
+    Makie.LinearTicks(max(2, n))
+end
+
+"""
+    axis_tick_kwargs(fd, aspect)
+
+The tick locators a flat 2D axis is built with: a unit conversion owns
+the ticks of any axis it renders (see [`UnitTicks`](@ref)), and the y
+ticks of the rest follow the pixels the box leaves them.
+"""
+function axis_tick_kwargs(fd::FigureData, aspect::Observable)::NamedTuple
+    units = unit_ticks_kwargs(fd)
+    haskey(units, :yticks) && return units
+    # `Any`, and written only on a change: the locator alternates between
+    # a fitted count and `automatic`, which share no narrower type, and a
+    # write of the same locator would re-solve the layout for nothing
+    fitted = Observable{Any}(fitted_yticks(aspect[], figure_size(fd)))
+    for trigger in (aspect, fd.fig.scene.viewport)
+        on(trigger) do _
+            locator = fitted_yticks(aspect[], figure_size(fd))
+            isequal(fitted[], locator) || (fitted[] = locator)
+        end
+    end
+    (; units..., yticks = fitted)
+end
+
+"""
+    auto_figsize(ratio)
+
+The window a plot box of aspect `ratio` deserves. `FIGSIZE` stands
+wherever it still leaves the box room for its tick labels, which is every
+ordinary field; a 2400 m by 120 m section drawn true inside it is a
+30-pixel band adrift in an empty canvas, and that is what this is for.
+
+Past that point the window takes the data's shape instead: a box holding
+as much as the default's, bounded to something that still fits on a
+screen, with the height following the bounded width so the box fills the
+window rather than floating in it. It is sized for the ratio the box will
+actually be drawn at, `AXIS_MAX_RATIO` included, so the two knobs meet:
+the window shrinks to fit the data right down to `FIGSIZE_MIN`, and from
+there the ratio gives way instead.
+"""
+function auto_figsize(ratio::Real)::Tuple{Int, Int}
+    default = Constants.FIGSIZE
+    r = Float64(ratio)
+    (isfinite(r) && r > 0) || return default
+    axis_extent(r, default) >= Constants.AXIS_READABLE_HEIGHT && return default
+    # the shape it will be drawn at, not the one it asked for
+    r = min(r, Float64(Constants.AXIS_MAX_RATIO))
+    cw, ch = Constants.FIGURE_CHROME
+    cell = Float64((default[1] - cw) * (default[2] - ch))
+    w = clamp(sqrt(cell * r) + cw, Float64(Constants.FIGSIZE_MIN[1]),
+              Float64(Constants.FIGSIZE_MAX[1]))
+    h = clamp((w - cw) / r + ch, Float64(Constants.FIGSIZE_MIN[2]),
+              Float64(Constants.FIGSIZE_MAX[2]))
+    (round(Int, w), round(Int, h))
+end
+
+"An `aspect=` keyword naming a single usable ratio, or nothing."
+function explicit_aspect(kwargs::OrderedDict{Symbol, Any})::Union{Float64, Nothing}
+    haskey(kwargs, :aspect) || return nothing
+    val = kwargs[:aspect]
+    (isa(val, Number) && isfinite(val) && val > 0) ? Float64(val) : nothing
+end
+
+"The x:y ratio of the coordinates themselves, before any bound."
+data_ratio(x::AbstractArray, y::AbstractArray)::Float64 =
+    Float64((maximum(x) - minimum(x)) / (maximum(y) - minimum(y)))
+
+"The shape the plot box is asked to take: `aspect=`, or failing that the data."
+requested_aspect(kwargs::OrderedDict{Symbol, Any}, x::AbstractArray,
+                 y::AbstractArray)::Float64 =
+    something(explicit_aspect(kwargs), data_ratio(x, y))
+
+"""
+    target_figsize(fd)
+
+The window the current plot deserves: `FIGSIZE`, unless a flat 2D axis is
+taking its shape from the data and that shape does not fit the default
+window. A map's shape comes from its projection, an `Axis3` fits its box
+into whatever cell it is given, and a line plot has no aspect at all, so
+none of them asks for a window of its own.
+"""
+function target_figsize(fd::FigureData)::Tuple{Int, Int}
+    plot_data = fd.plot_data
+    plot_type = plot_data.plot_type[]
+    (plot_type.axis_kind === :ax2d && plot_type.ndims == 2) ||
+        return Constants.FIGSIZE
+    (fd.settings.geographic[] && support_geographic(fd)) &&
+        return Constants.FIGSIZE
+    auto_figsize(requested_aspect(fd.ui.state.kwargs[],
+                                  plot_data.x[], plot_data.y[]))
+end
+
+"""
+    autosize_figure!(fd)
+
+Give the window the shape `target_figsize` asks for -- but never over
+anyone else's choice. An explicit `figsize=` wins outright, the same
+contract `aspect=` has, and a window that is neither the default nor the
+one we last chose was sized by the user or by a restored session and is
+left exactly where it is.
+"""
+function autosize_figure!(fd::FigureData)::Nothing
+    haskey(fd.ui.state.kwargs[], :figsize) && return nothing
+    current = figure_size(fd)
+    current == Constants.FIGSIZE || current == fd.autosized[] || return nothing
+    target = target_figsize(fd)
+    current == target && return nothing
+    resize_figure!(fd, target)
+    fd.autosized[] = target
+    nothing
+end
+
+"Extent of one coordinate, with a degenerate one standing in as 1."
+function coord_extent(v::AbstractArray)::Float64
+    ext = Float64(maximum(v) - minimum(v))
+    # a single coordinate value, or a gap left as NaN, gives no extent to
+    # take a ratio of; 1 keeps the other two edges in proportion
+    (isfinite(ext) && ext > 0) ? ext : 1.0
+end
+
 function compute_aspect(
     kwargs::OrderedDict{Symbol, Any},
     x::AbstractArray,
     y::AbstractArray,
     figwidths::Vec{2, Int},
 )::Float64
-    # check if aspect is set in kwargs
-    if haskey(kwargs, :aspect)
-        val = kwargs[:aspect]
-        if isa(val, Number) && isfinite(val) && val > 0
-            return val
-        end
-    end
-    # compute aspect from data
-    x_ext = maximum(x) - minimum(x)
-    y_ext = maximum(y) - minimum(y)
-    ratio = x_ext / y_ext
-    ratio > 0.25 && ratio < 5 && return ratio
-    # compute default aspect from figure size
-    figwidths[1] / figwidths[2]
+    # an explicit aspect is taken as given, bound and all
+    explicit = explicit_aspect(kwargs)
+    explicit === nothing || return explicit
+    # the data's own ratio, honoured as far as it still renders
+    fit_aspect(data_ratio(x, y), figwidths)
 end
 
 function compute_aspect2d(fd::FigureData, x::AbstractArray, y::AbstractArray)::Union{Float64, Nothing}
@@ -3381,7 +3744,32 @@ function compute_aspect2d(fd::FigureData, x::AbstractArray, y::AbstractArray)::U
     # check if aspect is set in kwargs
     kwargs = fd.ui.state.kwargs[]
     figwidths = fd.fig.scene.viewport[].widths
-    compute_aspect(kwargs, x, y, figwidths)
+    fitted = compute_aspect(kwargs, x, y, figwidths)
+    hint_aspect_cap!(fd, requested_aspect(kwargs, x, y), fitted)
+    fitted
+end
+
+"""
+    hint_aspect_cap!(fd, requested, fitted)
+
+Say so, once, when the box is not being drawn at the data's own shape.
+Everywhere else the geometry is exactly the data's; this is the one place
+it is not, and a plot that quietly redraws a 1500:1 basin at 24:1 without
+a word is the same silent failure the header used to have.
+"""
+function hint_aspect_cap!(fd::FigureData, requested::Float64,
+                          fitted::Union{Float64, Nothing})::Nothing
+    fd.aspect_hinted[] && return nothing
+    (fitted === nothing || !isfinite(requested) || requested <= 0) &&
+        return nothing
+    # a hair of rounding is not a capped ratio
+    isapprox(requested, fitted; rtol = 0.01) && return nothing
+    fd.aspect_hinted[] = true
+    @info ("Domain is $(round(requested; sigdigits = 3)):1 across; drawn " *
+           "at $(round(fitted; sigdigits = 3)):1. Past about " *
+           "$(round(Int, Constants.AXIS_MAX_RATIO)):1 a section is a line " *
+           "at any window size. Set aspect= to overrule this.")
+    nothing
 end
 
 function compute_aspect(
@@ -3389,7 +3777,8 @@ function compute_aspect(
     ndims::Int,
     x::AbstractArray,
     y::AbstractArray,
-    z::AbstractArray
+    z::AbstractArray,
+    figwidths::Vec{2, Int},
 )::Tuple{Float64, Float64, Float64}
     if haskey(kwargs, :aspect)
         val = kwargs[:aspect]
@@ -3399,18 +3788,20 @@ function compute_aspect(
             return (1, 1, Float64(val))
         end
     end
-    exts = [maximum(xi) - minimum(xi) for xi in (x, y, z)]
-    exts = [ext == 0 ? 1.0 : ext for ext in exts]
+    exts = [coord_extent(xi) for xi in (x, y, z)]
     ratio = [exts[1] / exts[2], exts[2] / exts[2], exts[3] / exts[2]]
-    ratio = [r > 5 || r < 0.25 ? 1 : r for (i, r) in enumerate(ratio)]
+    # on 2D data the third axis carries the values, not a coordinate: its
+    # height is a presentation choice, and it is set before the bound so
+    # that an elongated domain does not flatten it out of sight
     if ndims == 2
         ratio[3] = 0.4
     end
-    Tuple(ratio)
+    Tuple(fit_aspect3(ratio, figwidths))
 end
 
 function compute_aspect3d(fd::FigureData, x::AbstractArray, y::AbstractArray, z::AbstractArray)::Tuple{Float64, Float64, Float64}
-    compute_aspect(fd.ui.state.kwargs[], fd.plot_data.plot_type[].ndims, x, y, z)
+    compute_aspect(fd.ui.state.kwargs[], fd.plot_data.plot_type[].ndims, x, y, z,
+                   fd.fig.scene.viewport[].widths)
 end
 
 const OPT_FLOAT = Union{Float64, Nothing}
@@ -3508,9 +3899,21 @@ end
 
 function create_regular_2d_axis(fd::FigureData)::Axis
     aspect = Observable{Any}(compute_aspect2d(fd, fd.plot_data.x[], fd.plot_data.y[]))
+    # new coordinates can want a different window, and this runs before
+    # the refit below so the bound is measured against the new one. A
+    # regrid (Ctrl-I) leaves the extents alone and so asks for nothing
     for trigger in (fd.plot_data.x, fd.plot_data.y)
+        on(_ -> autosize_figure!(fd), trigger)
+    end
+    # the figure viewport is a trigger too: the bound the data ratio is
+    # held to is measured in figure pixels, so a resized figure carries a
+    # longer domain than the one the axis was built in. It fires on every
+    # frame of a window drag, and an unchanged aspect is not written back
+    # -- the write alone would re-solve the layout
+    for trigger in (fd.plot_data.x, fd.plot_data.y, fd.fig.scene.viewport)
         on(trigger) do _
-            aspect[] = compute_aspect2d(fd, fd.plot_data.x[], fd.plot_data.y[])
+            fitted = compute_aspect2d(fd, fd.plot_data.x[], fd.plot_data.y[])
+            isequal(aspect[], fitted) || (aspect[] = fitted)
         end
     end
 
@@ -3520,7 +3923,7 @@ function create_regular_2d_axis(fd::FigureData)::Axis
         ylabel = fd.plot_data.plot_type[].ndims > 1 ? fd.plot_data.labels.ylabel : "",
         aspect = aspect,
         limits = compute_2d_limits(fd),
-        unit_ticks_kwargs(fd)...,
+        axis_tick_kwargs(fd, aspect)...,
     )
 
     # Enable moveable by default except if explicitly disabled
@@ -3581,9 +3984,15 @@ function create_3d_axis(fd::FigureData)::Axis3
         xlabel = plot_data.labels.xlabel,
         ylabel = plot_data.labels.ylabel,
         zlabel = plot_data.plot_type[].ndims > 2 ? plot_data.labels.zlabel : "",
-        aspect = @lift(compute_aspect3d(
-            fd, $(fd.plot_data.x), $(fd.plot_data.y), $(fd.plot_data.z))
-        ),
+        # the figure viewport joins the data: the bound the ratios are
+        # held to is measured in figure pixels (see create_regular_2d_axis).
+        # An unchanged triple stops here rather than re-solving the layout
+        # on every frame of a window drag
+        aspect = lift(fd.plot_data.x, fd.plot_data.y, fd.plot_data.z,
+                      fd.fig.scene.viewport;
+                      ignore_equal_values = true) do x, y, z, _
+            compute_aspect3d(fd, x, y, z)
+        end,
         unit_ticks_kwargs(fd)...,
     )
 end

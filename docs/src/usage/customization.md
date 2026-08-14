@@ -150,6 +150,37 @@ The label showing the current playback value is configured the same way,
 through its own `animlabel...` keywords (see
 [Animation and Playback](animation.md#Labelling-the-current-frame)).
 
+## The shape of the plot box
+
+A two-dimensional field is drawn in a box shaped like its own coordinates.
+A section 2400 m wide and 120 m deep comes out twenty times as wide as it
+is tall, so a one-in-twenty slope looks like one and a round eddy stays
+round. The box keeps that shape inside the figure instead of stretching to
+fill it, and the colorbar follows its height. A 3D axis does the same with
+its three edge lengths.
+
+The window follows. 800 by 600 is a guess made before the file was ever
+opened, and a 20:1 section drawn true inside it is a thirty-pixel band
+adrift in an empty canvas. So when the data asks for a shape the default
+cannot hold, the window is opened shaped like the data instead: the same
+section comes up around 1600 by 190, with the box filling it and room for
+its ticks. You never have to ask for this, and it holds for `--savefig`
+and `--record` as much as on screen -- which is the point, since a
+recorded plot gets no second chance at a window.
+
+The shape is exact up to about 24:1. Past that a section is a line
+whatever window it is given -- 6000 km across by 4 km deep cannot be
+drawn both true and readable at any size -- so the ratio is held there
+and the box fills its window rather than thinning to a hairline inside
+it. That limit does not move with the figure, so a window of your own is
+never quietly redrawn at some other ratio.
+
+`figsize` and `aspect` each override all of it outright.
+`figsize=(1000, 400)` fixes the window and stops one being chosen for
+you; `aspect=1` gives a square box whatever the data says, and on a 3D
+axis `aspect=(2, 1, 0.5)` sets the three edge lengths. A window you
+resize by hand is yours as well, and is not resized under you afterwards.
+
 ## Geographic plots
 
 For 2D fields on longitude/latitude axes, `geographic=true` switches the
