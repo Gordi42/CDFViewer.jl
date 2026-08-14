@@ -265,9 +265,8 @@ while the viewer runs.
 using Main.DocHelpers # hide
 session = open_viewer(demo_file("demo.nc")) # hide
 run!(session, "v temperature", "x lon", "y lat", "p heatmap", "pdim time", # hide
-     "geographic=true, land=true, cbarlabel=\"auto\"", # hide
-     "animlabelpos=:overlay") # hide
-repl(session, "theme dark") # hide
+     "geographic=true, land=true, cbarlabel=\"auto\"") # hide
+repl(session, "theme black") # hide
 ```
 
 ```@example cstt
@@ -297,14 +296,14 @@ Makie's and reads on either ground.
 
 ```@example cstt
 using GLMakie: save # hide
-run!(session, "theme dark") # hide
-save("menu_dark.png", menu_figure(session)) # hide
-publish_asset("menu_dark.png", "customization") # hide
+run!(session, "theme black") # hide
+save("menu_black.png", menu_figure(session)) # hide
+publish_asset("menu_black.png", "customization") # hide
 nothing # hide
 ```
 
 ```@raw html
-<img src="menu_dark.png" alt="The menu window under the dark theme" width="400"
+<img src="menu_black.png" alt="The menu window under the black theme" width="400"
      style="border: 1px solid rgba(128, 128, 128, 0.6); border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);">
 ```
