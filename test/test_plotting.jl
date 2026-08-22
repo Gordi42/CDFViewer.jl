@@ -3631,6 +3631,84 @@ using CDFViewer.Plotting
             cleanup(dataset)
         end
 
+        @testset "A listed set of levels" begin
+            # Makie types a contour's levels node from its first resolve,
+            # and a count resolves to a range that no vector converts
+            # into: a plot built counting could never be handed a list
+            # afterwards, and stopped rendering when it was. Both ways of
+            # naming one have to draw it (see `Plotting.seed_levels!`).
+            wanted = [2.0, 4.0, 6.0, 8.0]
+            # the colors the plot derives, one per level it really draws:
+            # unresolvable, not merely wrong, while the bug was there
+            drawn(plot) = length(plot.level_colors[])
+            levkw(pairs...) = OrderedDict{Symbol, Any}(pairs...)
+            renders(fd) = @capture_err begin
+                Makie.colorbuffer(fd.fig)
+                sleep(0.2)
+                Makie.colorbuffer(fd.fig)
+            end
+
+            # the prompt: the keyword reaches a plot that is already drawn
+            (fd, state, dataset) = init_overlay_figure()
+            @test fd.layers[2].plot_obj[].levels[] == Constants.CONTOUR_LEVELS
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                Symbol("over.levels") => wanted,
+                Symbol("over.color") => :white))
+            @test fd.layers[2].plot_obj[].levels[] == wanted
+            @test drawn(fd.layers[2].plot_obj[]) == length(wanted)
+            @test isempty(renders(fd))
+
+            # the command line: the keyword is in the store before the
+            # plot is built, which is also what a rebuilt axis replays
+            Plotting.rebuild_layers!(fd)
+            @test fd.layers[2].plot_obj[].levels[] == wanted
+            @test drawn(fd.layers[2].plot_obj[]) == length(wanted)
+            @test isempty(renders(fd))
+
+            # a count still counts, and a list can follow it again
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                Symbol("over.levels") => 7))
+            @test fd.layers[2].plot_obj[].levels[] == 7
+            @test drawn(fd.layers[2].plot_obj[]) == 7
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                Symbol("over.levels") => wanted))
+            @test drawn(fd.layers[2].plot_obj[]) == length(wanted)
+            @test isempty(renders(fd))
+            cleanup(dataset)
+
+            # the base layer draws a list of its own
+            (fd, state, dataset) = arrange_and_create_axis(
+                "5d_float", ["lon", "lat"], "contour")
+            base = [0.2, 0.4, 0.6, 0.8]
+            Plotting.update_kwargs!(fd, levkw(:levels => base))
+            @test Plotting.primary(fd).levels[] == base
+            @test drawn(Plotting.primary(fd)) == length(base)
+            @test isempty(renders(fd))
+            cleanup(dataset)
+
+            # a list written as integers is read as a list all the same,
+            # and does not shut the door on the fractional one after it
+            (fd, state, dataset) = arrange_and_create_axis(
+                "5d_float", ["lon", "lat"], "contour")
+            Plotting.update_kwargs!(fd, levkw(:levels => [0, 1]))
+            @test drawn(Plotting.primary(fd)) == 2
+            Plotting.update_kwargs!(fd, levkw(:levels => [0.25, 0.5, 0.75]))
+            @test drawn(Plotting.primary(fd)) == 3
+            @test isempty(renders(fd))
+            cleanup(dataset)
+
+            # `contourf` bands and the volume contour take a list too
+            for (var, sel, type) in (("5d_float", ["lon", "lat"], "contourf"),
+                                     ("5d_float", ["lon", "lat", "float_dim"],
+                                      "contour3d"))
+                (fd, state, dataset) = arrange_and_create_axis(var, sel, type)
+                Plotting.update_kwargs!(fd, levkw(:levels => [0.25, 0.5, 0.75]))
+                @test Plotting.primary(fd).levels[] == [0.25, 0.5, 0.75]
+                @test isempty(renders(fd))
+                cleanup(dataset)
+            end
+        end
+
         @testset "An overlay contour draws in black" begin
             # the base layer owns the color dimension and the colorbar, so
             # a second colormap only fights the first

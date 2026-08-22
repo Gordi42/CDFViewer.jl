@@ -94,8 +94,8 @@ repl(session, "del cbarlabel") # hide
 ## Contour levels and labels
 
 Plot-specific keywords work the same way. A contour plot, for example,
-takes the `levels` to draw (a number or an explicit range) and can label
-them directly on the lines.
+takes the `levels` to draw -- a number of them, a range, or a list of
+the values themselves -- and can label them directly on the lines.
 
 ```@example cst
 repl(session, "p contour", "levels=-30:5:30, labels=true") # hide
