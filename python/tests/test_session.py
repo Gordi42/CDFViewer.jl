@@ -333,12 +333,18 @@ def test_record_strips_the_progress_bar(session, tmp_path, sent):
     assert sent == [f'record filename="{target}", framerate=12, range=1:2:9']
 
 
-def test_png_returns_bytes_and_leaves_nothing_behind(session, tmp_path):
+def test_png_returns_bytes_and_cleans_up_on_close(session, tmp_path):
     _config.configure(tmpdir=tmp_path)
     before = sorted(path.name for path in tmp_path.iterdir())
     data = session.png()
     assert data.startswith(PNG_MAGIC)
     assert session._repr_png_() == data
+    # the scratch directory stays while the session lives: the app keeps
+    # the file name as its save name, and it must keep pointing somewhere
+    scratch = [p for p in tmp_path.iterdir() if p.name not in before]
+    assert len(scratch) == 1
+    assert (scratch[0] / "figure.png").exists()
+    session.close()
     assert sorted(path.name for path in tmp_path.iterdir()) == before
 
 

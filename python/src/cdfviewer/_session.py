@@ -16,6 +16,7 @@ from __future__ import annotations
 import atexit
 import contextlib
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -222,6 +223,8 @@ class Session:
         self._verbose = verbose
         self._timeout = timeout
         self._temp: _data.TempDataset | None = None
+        # where png() writes; lives as long as the session (see png)
+        self._scratch: str | None = None
         self._object: Any = None
         self._key = _registry_key(path, grid=grid, use_local=use_local)
         binary = _binary.resolve()
@@ -593,17 +596,20 @@ class Session:
         """
         The current figure as PNG bytes.
 
-        Saves to a temporary file under the configured temp directory,
-        reads it and deletes it, so a notebook can show the figure
-        inline (`_repr_png_` calls this).
+        Saves ``figure.png`` into a scratch directory of this session and
+        reads it back, so a notebook can show the figure inline
+        (`_repr_png_` calls this). The directory lives until `close`: the
+        app keeps the last file name as its save name, so a later
+        `savefig` without a filename must still find the directory.
         """
-        with tempfile.TemporaryDirectory(
-            prefix="cdfviewer-", dir=_config.tmpdir()
-        ) as directory:
-            saved = self.savefig(
-                Path(directory) / "figure.png", overwrite=True
+        if self._scratch is None:
+            self._scratch = tempfile.mkdtemp(
+                prefix="cdfviewer-", dir=_config.tmpdir()
             )
-            return saved.read_bytes()
+        saved = self.savefig(
+            Path(self._scratch) / "figure.png", overwrite=True
+        )
+        return saved.read_bytes()
 
     def _repr_png_(self) -> bytes:
         return self.png()
@@ -741,6 +747,9 @@ class Session:
         if self._temp is not None:
             self._temp.cleanup()
             self._temp = None
+        if self._scratch is not None:
+            shutil.rmtree(self._scratch, ignore_errors=True)
+            self._scratch = None
 
     def __enter__(self) -> Self:
         return self
