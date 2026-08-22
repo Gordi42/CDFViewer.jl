@@ -2592,9 +2592,8 @@ function pin_levels!(fd::FigureData, i::Int, lo::Float64, hi::Float64)::Nothing
     count = levels isa Int ? levels : scan.base_levels
     # an Int means band boundaries for contourf, line values for contour
     edges = layer_plot(fd, i).type == "contourf" ? count + 1 : count
-    # a range, not a vector: Makie's compute graph types the levels edge
-    # from its first render, and Base converts between range types where
-    # a vector would not convert into a frozen range-typed edge
+    # a range, which is what a count means; `contour_plot!` has typed the
+    # plot's levels node to take one as readily as a vector
     plot.levels[] = range(lo, hi; length = edges)
     nothing
 end
@@ -4464,13 +4463,81 @@ Makie reads a set `color` in preference to any colormap, so a later
 contour_colormap(i::Int)::Union{Symbol, Vector{RGBAf}} =
     i == 1 ? default_colormap() : fill(Themes.theme_colors().text, 2)
 
+"""
+    contour_levels(fd, i)
+
+The `levels` layer `i`'s contour is drawn with: the values the keywords
+list, the count they name, or the app's default count.
+
+A listed vector comes back as `Vector{Float64}` whatever it was written
+as. Normalising it matters as much as reading it, because the type the
+plot is built with is the type every later `levels` has to convert into
+(see [`seed_levels!`](@ref)): `Vector{Float64}` takes them all, where a
+`Vector{Int}` from `levels=[1, 2, 3]` would refuse a later `0.5`. A list
+of anything but numbers is left to the keyword machinery to complain
+about, which it does with the keyword's name attached.
+"""
+function contour_levels(fd::FigureData, i::Int)::Any
+    levels = user_levels(fd, i)
+    levels isa AbstractVector && all(x -> x isa Real, levels) &&
+        return collect(Float64, levels)
+    levels isa Integer ? Int(levels) : Constants.CONTOUR_LEVELS
+end
+
+"""
+    seed_levels!(plot, levels)
+
+Give a fresh contour its `levels` through a vector, so that every later
+`levels` still fits.
+
+Makie derives the values a contour draws from `levels` through the
+compute graph, and a graph node keeps the type of its first resolve for
+good. A count resolves to a `range`, and no vector converts into a range:
+an explicit `levels=[-0.015, ...]` set on a plot that started life
+counting never reached the renderer, which reported it as "Failed to
+resolve gl_renderobject" and went on drawing the lines from before. A
+node resolved once against a `Vector{Float64}` takes everything instead
+-- a count resolves to a range, and a range converts into a vector -- so
+the plot is built with a vector and told what it is really drawing here.
+
+The flat recipe resolves the node while the plot joins the axis, which is
+before this is reached; the volume one waits for the first render, so the
+resolve is asked for rather than left to chance.
+"""
+function seed_levels!(plot::Makie.AbstractPlot, levels::Any)::Nothing
+    graph = plot.attributes
+    for node in (:zlevels, :value_levels)   # flat contour, volume contour
+        haskey(graph, node) || continue
+        graph[node][]
+        break
+    end
+    plot.levels[] = levels
+    nothing
+end
+
+"""
+    contour_plot!(fd, ax, i, args...; kwargs...)
+
+Draw layer `i` as contour lines, flat or through a volume, with the
+levels its keywords ask for and a node typed to accept any others.
+"""
+function contour_plot!(fd::FigureData, ax::Makie.AbstractAxis, i::Int,
+                       args...; kwargs...)::Makie.AbstractPlot
+    levels = contour_levels(fd, i)
+    # any vector will do to type the node; the real levels follow at once
+    seed = levels isa AbstractVector ? levels : Float64[0.0, 1.0]
+    plot = contour!(ax, args...; levels = seed, kwargs...)
+    seed_levels!(plot, levels)
+    plot
+end
+
 for plot in [
     # 2D plots
     Plot("heatmap", 2, true,
         (fd, ax, i, x, y, z, d) -> custom_heatmap!(ax, x, y, z, d),
         create_2d_axis),
     Plot("contour", 2, false,
-        (fd, ax, i, x, y, z, d) -> contour!(ax, x, y, d,
+        (fd, ax, i, x, y, z, d) -> contour_plot!(fd, ax, i, x, y, d,
             colormap = contour_colormap(i), inspectable=false),
         create_2d_axis),
     Plot("contourf", 2, true,
@@ -4506,8 +4573,8 @@ for plot in [
             d, colormap = default_colormap()),
         create_3d_axis; axis_kind = :ax3d),
     Plot("contour3d", 3, true,
-        (fd, ax, i, x, y, z, d) -> contour!(
-            ax, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
+        (fd, ax, i, x, y, z, d) -> contour_plot!(
+            fd, ax, i, @lift(($x[1], $x[end])), @lift(($y[1], $y[end])), @lift(($z[1], $z[end])),
             d, colormap = default_colormap()),
         create_3d_axis; axis_kind = :ax3d),
 ]

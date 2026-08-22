@@ -173,6 +173,11 @@ const PLOT_DEFAULT_1D = "line"
 const PLOT_DEFAULT_2D = "heatmap"
 const PLOT_DEFAULT_3D = "volume"
 
+# How many contour lines a contour draws when no keyword says. Makie's own
+# default, named here because the app hands `levels` to the plot itself
+# rather than letting the recipe fill it in (see `Plotting.contour_plot!`).
+const CONTOUR_LEVELS = 5
+
 const GEOGRAPHIC_PLOT_TYPES = ["heatmap", "contour", "contourf", "quiver",
                                "streamplot"]
 const GEOGRAPHIC_DATA_SCALES = [10, 50, 110]  # available map scales in meters
