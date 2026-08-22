@@ -59,6 +59,30 @@ never blocked. Constructing a `Session` on a dataset that already has one
 adjusts that viewer instead of opening a second, so re-running a notebook
 cell updates the plot you are looking at.
 
+## Development
+
+The package lives in `python/` of the CDFViewer.jl repository and follows
+the conventions of [fridom](https://github.com/Gordi42/FRIDOM): src layout,
+[uv](https://docs.astral.sh/uv/), ruff with `select = ["ALL"]`, NumPy-style
+docstrings, function-based tests that mirror the source tree, and a
+coverage gate of 95 % measured without a real binary.
+
+```bash
+cd python
+uv sync --extra dev            # environment with xarray, netCDF4, zarr, ruff, pytest
+uv run ruff check src tests    # lint (also the pre-commit hook at the repo root)
+uv run pytest --cov            # unit tests against the fake binary, coverage gate
+CDFVIEWER_BIN=/path/to/cdfviewer uv run pytest -m binary   # against a real app
+```
+
+The unit tests never start the real app: `tests/fake_cdfviewer.py` stands
+in for it, answering `--version`, `--savefig`/`--record` and the REPL the
+way the app does. The tests marked `binary` run only when `CDFVIEWER_BIN`
+names a real `cdfviewer`; the release workflow runs them against the
+bundle it has just built. The package version in
+`src/cdfviewer/_version.py` must equal the `version` in the repository's
+`Project.toml` — one tag releases the app, the bundle and the wheel.
+
 ## Documentation
 
 The full page -- installing, the binary search, every parameter, keyword
