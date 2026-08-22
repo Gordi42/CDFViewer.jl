@@ -89,29 +89,91 @@ jobs:
           exec "$(dirname "$(realpath "$0")")/cdfviewer-bin" "$@"
           EOF
           chmod +x dist/bin/cdfviewer
-      - name: Smoke test the bundle from a clean location
+      # The Python package's version is the app version (one tag releases
+      # both), so a wheel built off a stale `_version.py` would claim a
+      # bundle that does not exist. Catch it before anything is published.
+      - name: Check the Python package version against Project.toml
         run: |
-          julia --project=. -e 'include("docs/demo_data.jl"); create_demo_file("/tmp")'
-          cp -r dist /tmp/relocated
-          /tmp/relocated/bin/cdfviewer /tmp/demo.nc \
-            -v temperature -x lon -y lat -p heatmap \
-            --savefig -s 'filename="/tmp/smoke.png"'
-          test -s /tmp/smoke.png
+          julia_version=$(grep -m1 '^version *= *' Project.toml \
+            | sed -E 's/.*"(.*)".*/\1/')
+          python_version=$(grep -m1 '^__version__ *= *' \
+            python/src/cdfviewer/_version.py | sed -E 's/.*"(.*)".*/\1/')
+          echo "Project.toml: $julia_version"
+          echo "_version.py:  $python_version"
+          if [ "$julia_version" != "$python_version" ]; then
+            echo "::error::version drift between Project.toml and python/src/cdfviewer/_version.py"
+            exit 1
+          fi
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.11'
+      # Replaces the old shell smoke test: the same "does the freshly built
+      # bundle actually render a figure" check, run through the Python
+      # package so its integration tests are exercised against a real app.
+      # $DISPLAY comes from the Xvfb step above.
+      - name: Integration tests against the fresh bundle
+        working-directory: python
+        env:
+          CDFVIEWER_BIN: ${{ github.workspace }}/dist/bin/cdfviewer
+        run: |
+          uv sync --extra dev
+          uv run pytest -m binary -v
+      - name: Build the wheel
+        working-directory: python
+        run: uv build --out-dir dist
+      - name: Upload the wheel as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: python/dist/
       - name: Pack
         run: |
           mv dist cdfviewer
           tar --zstd -cf cdfviewer-linux-x86_64.tar.zst cdfviewer
           ls -lh cdfviewer-linux-x86_64.tar.zst
+      # The Python package verifies the managed download against this file
+      # before it unpacks anything, so it ships next to the tarball.
+      - name: Checksum
+        run: |
+          sha256sum cdfviewer-linux-x86_64.tar.zst \
+            > cdfviewer-linux-x86_64.tar.zst.sha256
+          cat cdfviewer-linux-x86_64.tar.zst.sha256
       - name: Upload to the GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes || true
-          gh release upload "$GITHUB_REF_NAME" cdfviewer-linux-x86_64.tar.zst --clobber
+          gh release upload "$GITHUB_REF_NAME" \
+            cdfviewer-linux-x86_64.tar.zst \
+            cdfviewer-linux-x86_64.tar.zst.sha256 --clobber
       - name: Upload as workflow artifact (manual test runs)
         if: "!startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v4
         with:
           name: cdfviewer-linux-x86_64
-          path: cdfviewer-linux-x86_64.tar.zst
+          path: |
+            cdfviewer-linux-x86_64.tar.zst
+            cdfviewer-linux-x86_64.tar.zst.sha256
+
+  # Publish the wheel built above to PyPI, on tags only. Trusted publishing:
+  # no API token lives here -- PyPI is told once, by hand, that this
+  # repository's `pypi` environment may publish the `cdfviewer` project
+  # (PyPI project settings -> Publishing -> add a GitHub publisher for
+  # Gordi42/CDFViewer.jl, workflow `release.yml`, environment `pypi`). Until
+  # that is configured the step fails, which is why it is its own job and
+  # cannot take the bundle upload down with it.
+  pypi:
+    name: Publish to PyPI
+    needs: linux-app
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

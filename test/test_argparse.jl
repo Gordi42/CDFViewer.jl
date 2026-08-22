@@ -101,6 +101,21 @@ NS = Constants.NOT_SELECTED_LABEL
             @test args["no-summary"] == false
         end
 
+        @testset "Version" begin
+            # `--version` prints one line on stdout and stops the parse right
+            # there -- the required `files` argument is never missed. The
+            # Python package reads this line to tell which build a
+            # `cdfviewer` on PATH is, so the format is a protocol.
+            parser = CDFViewer.get_arg_parser()
+            # ArgParse would exit(0) after printing, taking the test process
+            # with it; without the exit it returns nothing instead.
+            parser.exit_after_help = false
+            slot = Ref{Any}(missing)
+            out = @capture_out slot[] = parse_args(["--version"], parser)
+            @test out == "cdfviewer $(Constants.APP_VERSION)\n"
+            @test slot[] === nothing
+        end
+
         @testset "No summary" begin
             args = get_args("file.nc", "--no-summary")
             @test args["no-summary"] == true
