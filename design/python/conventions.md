@@ -53,9 +53,12 @@ ignore = [
 convention = "numpy"
 ```
 
-Likely additions for this package (decide as they come up, each with a
-comment): `S603`/`S607` where `subprocess` is called with a list we built
-ourselves, `T201` in the `__main__` management CLI.
+Additions made for this package (ruff 0.16 enables more than fridom's
+0.15 did): `CPY001` (no copyright headers) and `D401` (a summary may be a
+noun phrase) are ignored; `S603` is allowed per file where the package
+runs the binary with its own argv list (`_binary.py`, `_run.py`,
+`_session.py`, `tests/**`); `T201` in `__main__.py` and the fake binary;
+complexity exemptions on `_format.py` and `_command.py`.
 
 - No formatter (fridom keeps 79-char lines by hand; ruff-format unused).
 - Pre-commit: the single `ruff-check --fix` hook.

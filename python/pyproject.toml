@@ -1,0 +1,135 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cdfviewer"
+dynamic = ["version"]
+description = "Python interface to CDFViewer, the interactive NetCDF and zarr viewer"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [{name = "Silvano Rosenau"}]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = []
+
+[project.optional-dependencies]
+xarray = ["xarray", "netCDF4"]
+dev = [
+  "pytest",
+  "pytest-cov",
+  "coverage",
+  "ruff",
+  "pre-commit",
+  "numpy",
+  "xarray",
+  "netCDF4",
+  "zarr",
+]
+
+[project.scripts]
+cdfviewer = "cdfviewer._launcher:main"
+
+[project.urls]
+Repository = "https://github.com/Gordi42/CDFViewer.jl"
+Documentation = "https://gordi42.github.io/CDFViewer.jl/"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "cdfviewer._version.__version__"}
+
+# ---------------------------------------------------------------- ruff ----
+[tool.ruff]
+target-version = "py311"
+line-length = 79
+
+[tool.ruff.lint]
+select = ["ALL"]
+extend-select = [
+  "D203",    # house style: blank line before class docstring
+]
+ignore = [
+  # ---- docstring style (house style: NumPy convention + extras) ----
+  "D105",    # no docstrings required for magic methods
+  "D107",    # no docstrings required for __init__ (documented in class)
+  "D211",    # house style: blank line before class docstring (see D203)
+  "D212",    # house style: summary starts on the second line (D213)
+  # ---- rules that fight the scientific-code house style ----
+  "FBT001", "FBT002", "PLR0913", "TRY003", "EM101", "EM102",
+  # ---- annotation pragmatism ----
+  "ANN401",  # `Any` is sometimes the honest type (kwargs values)
+  # ---- task-marker policy: TODO/FIXME with author tag, no issue links ----
+  "TD001", "TD003", "FIX001", "FIX002",
+  # ---- misc ----
+  "COM812",  # conflicts with the ruff formatter / house comma style
+  "CPY001",  # no copyright headers; the license file covers the package
+  "D401",    # a summary may be a noun phrase: "The binary to run."
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+  "D100", "D101", "D102", "D103",  # test modules/classes/functions need no docstring
+  "S101",    # pytest uses plain asserts
+  "ANN",     # no type annotations required in tests
+  "INP001",  # tests are not a package
+  "SLF001",  # tests may access private members
+  "PLR2004", # magic values in test assertions are fine
+  "S603",    # tests run the fake binary through subprocess
+]
+"src/cdfviewer/_format.py" = ["C901", "PLR0911", "PLR0912"]  # one type dispatch
+"src/cdfviewer/_command.py" = ["C901"]  # one option-by-option walk of the CLI
+# the binary is run with an argv list the package built itself
+"src/cdfviewer/_binary.py" = ["S603"]
+"src/cdfviewer/_run.py" = ["S603"]
+"src/cdfviewer/_session.py" = ["S603"]
+"tests/fake_cdfviewer.py" = [
+  "T201",    # the fake binary talks through stdout, like the real one
+  "C901", "PLR0911", "PLR0912", "PLR0915",  # one command dispatcher
+]
+"__init__.py" = ["F401"]
+"src/cdfviewer/__main__.py" = ["T201"]  # the management CLI prints
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+# -------------------------------------------------------------- pytest ----
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib", "--strict-markers"]
+testpaths = ["tests"]
+markers = [
+  "binary: needs a real cdfviewer binary (skipped when none resolves)",
+]
+filterwarnings = ["error"]
+
+# ------------------------------------------------------------ coverage ----
+[tool.coverage.run]
+source_pkgs = ["cdfviewer"]
+branch = true
+relative_files = true
+
+[tool.coverage.paths]
+source = ["src/cdfviewer", "**/site-packages/cdfviewer"]
+
+[tool.coverage.report]
+fail_under = 95
+precision = 1
+show_missing = true
+skip_covered = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "@(abc\\.)?abstractmethod",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+]

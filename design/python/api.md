@@ -300,7 +300,7 @@ Decision (2026-08-22):
   - complex variables are **split** into `name_real` and `name_imag`
     (attributes copied, `long_name` suffixed); a `var` naming a complex
     variable, or a complex `DataArray`, resolves to `name_real` with a
-    `CDFViewerWarning`. A `complex=` parameter on `savefig`, `record`,
+    `CDFViewerWarning`. A `complex_as=` parameter on `savefig`, `record`,
     `command` and `Session` — `"split"` (default), `"abs"`, `"real"`,
     `"imag"`, `"phase"` — writes a single real variable under the
     original name instead.

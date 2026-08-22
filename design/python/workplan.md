@@ -64,15 +64,41 @@ Public names in `__init__.py`: `savefig`, `record`, `command`, `run`,
 `Session`, `sessions`, `close_all`, `sym`, `raw`, `configure`,
 `CDFViewerError`, `CDFViewerWarning`, `__version__`.
 
-## Scaffold (lead, before the agents start)
+## Scaffold (lead, done 2026-08-22)
 
-`pyproject.toml`, `README.md` stub, `__init__.py`, `_version.py`,
-`_errors.py`, `_config.py` (complete — everyone depends on them), a stub
-for every other module holding the signatures below with docstrings and
-`raise NotImplementedError`, `tests/conftest.py`, `tests/fake_cdfviewer.py`,
-`uv.lock`. `uv run pytest` passes on the scaffold (the stubs' tests are
-added by the packages). Agents replace stubs; no two packages touch the
-same file.
+Complete and lint-clean: `pyproject.toml`, `README.md` stub,
+`__init__.py`, `_version.py`, `_errors.py`, `_config.py`, **`_format.py`,
+`_logs.py`, `_command.py`** (implemented in full — the runners and the
+session need them at startup; WP-A and WP-C test them), stubs with the
+signatures below for `_binary.py`, `_launcher.py`, `__main__.py`,
+`_data.py`, `_run.py`, `_session.py`, and `tests/conftest.py`,
+`tests/fake_cdfviewer.py`, `tests/test_{init,config,errors,conftest}.py`,
+`uv.lock`. `uv run ruff check src tests` is clean and `uv run pytest`
+passes (39 tests); coverage is 41 % until the packages land.
+
+Things the scaffold fixed that the interfaces below assume:
+
+- `configure(binary=...)`, not `bin=` (a builtin name, ruff A002).
+- Modules call `_binary.resolve(...)` **through the module** (`from . import
+  _binary`), never `from ._binary import resolve`, so tests can patch it
+  with the `resolve_fake` fixture.
+- `run()` and the session reader must read **bytes** and decode them:
+  text mode would translate the progress bar's `\r` into newlines.
+- Ruff (0.16) ignores `CPY001` and `D401` in addition to fridom's list;
+  `S603` is allowed per file in `_binary.py`, `_run.py`, `_session.py` and
+  in `tests/**`; `_format.py`/`_command.py` carry complexity exemptions.
+  `from __future__ import annotations` everywhere; annotation-only imports
+  under `if TYPE_CHECKING:  # pragma: no cover` (TC001/TC003).
+- The fake binary also answers `warn <text>` (a Warning record), `fail`
+  (Warning + Error), `slow <s>`, `crash` (exit 3 without the farewell),
+  `conf`, and honours `--kwargs=` at startup for `get`/`export`.
+- The environment is `python/.venv` via `uv sync --extra dev` (Python
+  3.12 locally); run everything with `uv run ...` from `python/`.
+
+No two packages touch the same file; a package that needs a change in a
+shared file (scaffold module, `conftest.py`, the fake binary,
+`pyproject.toml`) makes it and says so in its report, and the lead
+resolves overlaps at integration.
 
 ### Fixtures (`tests/conftest.py`)
 
@@ -131,7 +157,7 @@ def cache_dir() -> Path                   # configure() > env > $XDG_CACHE_HOME/
 def reset() -> None                       # tests
 ```
 
-### WP-A — `_format.py`, `_command.py`
+### WP-A — `_format.py`, `_command.py` (implemented; WP-A tests them)
 
 ```python
 class Sym(str): ...            # a Julia symbol
@@ -200,16 +226,16 @@ def raise_for_records(records, *, argv=None) -> None       # Error → CDFViewer
 
 def is_in_memory(obj: object) -> bool          # has to_netcdf / to_dataset / is ndarray
 class TempDataset:                             # .path: Path, .var: str | None, .cleanup()
-def write_temp(obj, *, complex: str = "split", var: str | None = None) -> TempDataset
-def prepare(ds: "xr.Dataset", *, complex: str) -> tuple["xr.Dataset", dict[str, str]]  # dtype pass; maps complex names
+def write_temp(obj, *, complex_as: str = "split", var: str | None = None) -> TempDataset
+def prepare(ds: "xr.Dataset", *, complex_as: str) -> tuple["xr.Dataset", dict[str, str]]  # dtype pass; maps complex names
 
 @dataclass
 class RunResult: returncode: int; output: str; records: list[Record]
 def run(argv: Sequence[str], *, verbose: bool = False, check: bool = True) -> RunResult
 def savefig(path, *, <SELECTION>, filename=None, px_per_unit=None, overwrite=None,
-            complex="split", verbose=False) -> Path
+            complex_as="split", verbose=False) -> Path
 def record(path, *, <SELECTION>, filename=None, framerate=None, px_per_unit=None,
-           frames=None, overwrite=None, complex="split", verbose=False) -> Path
+           frames=None, overwrite=None, complex_as="split", verbose=False) -> Path
 ```
 
 `run` captures stdout+stderr merged; with `verbose` it also streams the
@@ -222,7 +248,7 @@ in-memory input (cleaned up after the process exits), `command(...)`,
 ```python
 class Session:
     def __init__(self, path, *, <SELECTION>, reuse: bool = True, visible: bool = True,
-                 verbose: bool = False, complex: str = "split", timeout: float = 120.0)
+                 verbose: bool = False, complex_as: str = "split", timeout: float = 120.0)
     # reuse: registry hit → return the existing object (via __new__) and apply the declaration
     def send(self, line: str, *, timeout: float | None = None) -> str   # text between prompts; records checked
     def var(self, name: str) -> None;  def plot(self, plot_type: str) -> None
@@ -277,7 +303,7 @@ for vanished keywords. `visible=False` sends `hide` after startup.
 
 | Package | Files | Depends on (interfaces only) |
 |---|---|---|
-| WP-A | `_format.py`, `_command.py` + tests | `_config`, `_binary.resolve` |
+| WP-A | tests for `_format.py`, `_command.py` (fixes where the tests find them) | `_config`, `_binary.resolve` |
 | WP-B | `_binary.py`, `_launcher.py`, `__main__.py` + tests | `_config`, `_errors` |
 | WP-C | `_logs.py`, `_data.py`, `_run.py` + tests | `_command`, `_binary.resolve`, `_errors` |
 | WP-D | `_session.py` + tests | `_command`, `_binary.resolve`, `_logs`, `_data` |
