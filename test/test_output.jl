@@ -16,13 +16,16 @@ all_formats = vcat(vid_formats, fig_formats)
 
         # Act: every field the command line may name
         Output.apply_settings_string!(
-            settings, "filename=\"movie.mp4\", framerate=12, px_per_unit=2, range=2:8")
+            settings,
+            "filename=\"movie.mp4\", framerate=12, px_per_unit=2, range=2:8, " *
+            "overwrite=false")
 
         # Assert
         @test settings.filename == "movie.mp4"
         @test settings.framerate == 12
         @test settings.px_per_unit == 2
         @test settings.range == 2:8
+        @test settings.overwrite == false
 
         # Act & Assert: an empty line changes nothing
         Output.apply_settings_string!(settings, "")
@@ -53,10 +56,11 @@ all_formats = vcat(vid_formats, fig_formats)
         settings.framerate = 12
         settings.px_per_unit = 2
         settings.range = 2:8
+        settings.overwrite = false
 
         # Assert
         @test Output.settings_string(settings; filename = "demo") ==
-            "framerate=12, px_per_unit=2, range=2:8"
+            "framerate=12, px_per_unit=2, range=2:8, overwrite=false"
 
         # Assert: the working directory is the process' own and stays out
         settings.work_dir = tempdir()
@@ -69,6 +73,7 @@ all_formats = vcat(vid_formats, fig_formats)
         @test parsed.framerate == settings.framerate
         @test parsed.px_per_unit == settings.px_per_unit
         @test parsed.range == settings.range
+        @test parsed.overwrite == settings.overwrite
     end
 
     @testset "check_extension" begin
@@ -126,14 +131,22 @@ all_formats = vcat(vid_formats, fig_formats)
 
         # Assert: check_filename should return the same name if file doesn't exist
         @test Output.check_filename(tmp_file) == tmp_file
+        @test Output.check_filename(tmp_file; overwrite=false) == tmp_file
 
         open(tmp_file, "w") do file
             write(file, "")
         end
 
-        # Act & Assert: check_filename should warn and rename
-        @test_warn "already exists" begin
-            @test Output.check_filename(tmp_file) == basename * "(1).png"
+        # Act & Assert: a taken name is kept, and the overwrite is announced
+        @test_warn "being overwritten" begin
+            @test Output.check_filename(tmp_file) == tmp_file
+        end
+        @test !isfile(basename * "(1).png")
+
+        # Act & Assert: overwrite=false steps on to the next free name
+        @test_warn "Rename to avoid overwriting" begin
+            @test Output.check_filename(tmp_file; overwrite=false) ==
+                basename * "(1).png"
         end
 
         # Clean up
@@ -145,10 +158,11 @@ all_formats = vcat(vid_formats, fig_formats)
         # Arrange: Create a temporary source file
         src = tempname() * ".png"
         open(src, "w") do file
-            write(file, "test")
+            write(file, "first")
         end
 
         dest = tempname() * ".png"
+        base, ext = splitext(dest)
 
         # Act: Move the file
         Output.move_file(src, dest)
@@ -157,20 +171,36 @@ all_formats = vcat(vid_formats, fig_formats)
         @test !isfile(src)
         @test isfile(dest)
 
-        # Arrange: Create the source file again to test renaming on move
+        # Arrange: A second file for the same destination, told apart by
+        # its contents
         open(src, "w") do file
-            write(file, "test")
+            write(file, "second")
         end
 
-        # Act: Move the file again to the same destination
-        @test_warn "already exists" begin
+        # Act: Move it onto the destination that is now taken
+        @test_warn "being overwritten" begin
             Output.move_file(src, dest)
         end
 
-        # Assert: Check the original destination exists and a renamed version exists
-        @test isfile(dest)
-        base, ext = splitext(dest)
-        @test isfile("$(base)(1)$(ext)")
+        # Assert: the destination holds the newer file, and no numbered
+        # copy was left beside it
+        @test !isfile(src)
+        @test read(dest, String) == "second"
+        @test !isfile("$(base)(1)$(ext)")
+
+        # Arrange: a third file, for the non-overwriting path
+        open(src, "w") do file
+            write(file, "third")
+        end
+
+        # Act: Move it with the numbering asked for
+        @test_warn "Rename to avoid overwriting" begin
+            Output.move_file(src, dest; overwrite=false)
+        end
+
+        # Assert: the destination is untouched and the new file sits beside it
+        @test read(dest, String) == "second"
+        @test read("$(base)(1)$(ext)", String) == "third"
 
         # Clean up
         rm(dest; force=true)
@@ -179,52 +209,67 @@ all_formats = vcat(vid_formats, fig_formats)
     end
 
     @testset "savefig" begin
-        # Arrange: Create a simple figure
+        # Arrange: Two figures that cannot render to the same bytes, so a
+        # file written over can be told from one that was left alone
         fig = Figure(size = (200, 200))
-        lines!(Axis(fig[1, 1]), rand(10))
+        lines!(Axis(fig[1, 1]), zeros(10))
+        other = Figure(size = (200, 200))
+        lines!(Axis(other[1, 1]), collect(1:10))
         filename = tempname() * ".png"
         base, ext = splitext(filename)
 
         # Assert: File should not exist yet
         @test !isfile(filename)
         @test !isfile("$(base)(1)$(ext)")
-        @test !isfile("$(base)(2)$(ext)")
-        @test !isfile("$(base)(3)$(ext)")
 
         # Act: Save the figure to a non-existing file
         @suppress Output.savefig(fig, Output.OutputSettings(filename))
 
         # Assert: Check the file was created
         @suppress @test isfile(filename)
+        fig_bytes = read(filename)
 
-        # Act: Save the figure again to test renaming
-        @test_warn "already exists" begin
-            Output.savefig(fig, Output.OutputSettings(filename))
+        # Act: Save the other figure under the same name
+        @test_warn "being overwritten" begin
+            Output.savefig(other, Output.OutputSettings(filename))
         end
 
-        # Assert: Check the renamed file was created
-        @test isfile("$(base)(1)$(ext)")
+        # Assert: the name holds the newer figure, and nothing was left
+        # beside it -- re-running a save refreshes the file it named
+        other_bytes = read(filename)
+        @test other_bytes != fig_bytes
+        @test !isfile("$(base)(1)$(ext)")
 
         # Act: Save again, but without the extension
-        @test_warn "already exists" begin
+        @test_warn "being overwritten" begin
             Output.savefig(fig, Output.OutputSettings(base))
         end
 
-        # Assert: Check the new renamed file was created with default extension
-        @test isfile("$(base)(2)$(ext)")
+        # Assert: the derived extension lands on the same file
+        @test read(filename) != other_bytes
+        @test !isfile("$(base)(1)$(ext)")
 
         # Act: Save to a wrong extension
         @test_warn "File extension .jpg not recognized. Using .png instead." begin
-            Output.savefig(fig, Output.OutputSettings(base * ".jpg"))
+            Output.savefig(other, Output.OutputSettings(base * ".jpg"))
         end
 
-        @test isfile("$(base)(3)$(ext)")
+        # Assert: the derived extension lands on the same file too
+        @test read(filename) != fig_bytes
+        @test !isfile("$(base)(1)$(ext)")
+
+        # Act: Save with the numbering asked for instead
+        @test_warn "Rename to avoid overwriting" begin
+            Output.savefig(fig, Output.OutputSettings(filename; overwrite=false))
+        end
+
+        # Assert: the taken name is untouched and the figure sits beside it
+        @test isfile("$(base)(1)$(ext)")
+        @test read("$(base)(1)$(ext)") != read(filename)
 
         # Clean up
         rm(filename; force=true)
         rm("$(base)(1)$(ext)"; force=true)
-        rm("$(base)(2)$(ext)"; force=true)
-        rm("$(base)(3)$(ext)"; force=true)
     end
 
     @testset "Record" begin
@@ -252,6 +297,16 @@ all_formats = vcat(vid_formats, fig_formats)
 
         # Assert: Check the file was created
         @test isfile(file_name)
+
+        # Act: Record over it again, as a re-run of the same command would
+        @test_warn "being overwritten" begin
+            Output.record_scene(fig, Output.OutputSettings(file_name, range=range), slider)
+        end
+
+        # Assert: the name still points at the recording just made, rather
+        # than at the first one with the new take parked beside it
+        @test isfile(file_name)
+        @test !isfile("$(base)(1)$(ext)")
         rm(file_name; force=true)
 
         # Act: Record with all possible formats
