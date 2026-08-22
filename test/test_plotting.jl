@@ -3260,6 +3260,51 @@ using CDFViewer.Plotting
             end
         end
 
+        @testset "A flat color outlives a rebuilt axis" begin
+            # `colormap` reaches the quiver as well, and `color=:black`
+            # then paints its colormap over: the line means them in that
+            # order. A rebuilt axis replays the whole line -- a display
+            # unit rebuilds it, so does a coastline -- and a replay that
+            # judged each keyword against a snapshot taken before any was
+            # applied let the colormap through and skipped the color as
+            # already set. The arrows came back colored.
+            flat = fill(Makie.to_color(:black), 2)
+            for name in VECTOR_TYPES
+                (fd, state, dataset) = init_vector_figure(name)
+                plot() = Plotting.primary(fd)
+                set_kwargs!(fd, "colormap=:plasma, color=:black")
+                @test plot().colormap[] == flat
+
+                # replaying the store onto the figure it already describes
+                # changes nothing
+                output = @capture_err Plotting.apply_kwargs!(
+                    fd, fd.ui.state.kwargs[])
+                @test isempty(output)
+                @test plot().colormap[] == flat
+
+                # neither does a rebuilt axis, by keyword or by hand
+                axis = fd.ax[]
+                output = @capture_err set_kwargs!(
+                    fd, "colormap=:plasma, color=:black, coastlines=false")
+                @test isempty(output)
+                @test fd.ax[] !== axis
+                @test plot().colormap[] == flat
+                Plotting.redraw!(fd)
+                @test plot().colormap[] == flat
+
+                # changing the colormap alone keeps the color on top of
+                # it, and so does deleting it ...
+                set_kwargs!(fd, "colormap=:viridis, color=:black, coastlines=false")
+                @test plot().colormap[] == flat
+                set_kwargs!(fd, "color=:black, coastlines=false")
+                @test plot().colormap[] == flat
+                # ... until the color itself goes
+                set_kwargs!(fd, "colormap=:viridis, coastlines=false")
+                @test plot().colormap[] == :viridis
+                cleanup(dataset)
+            end
+        end
+
         @testset "A line's color is untouched" begin
             # only the vector types color themselves by a number; a line
             # takes a color to begin with and must keep taking one
@@ -3638,6 +3683,57 @@ using CDFViewer.Plotting
             @test (:colormap, :colormap) ∈ keys_
             @test (Symbol("over.colormap"), :colormap) ∈ keys_
             @test length(unique(m.key for m in mappings)) == 2
+            cleanup(dataset)
+        end
+
+        @testset "A prefixed keyword outlives its shared one" begin
+            # `linewidth` reaches the overlay, and `over.linewidth` then
+            # writes the same property of the same plot: the later one
+            # is what the line means, however often it is replayed
+            (fd, state, dataset) = init_overlay_figure()
+            over() = fd.layers[2].plot_obj[]
+            output = @capture_err set_kwargs!(fd, "linewidth=3, over.linewidth=5")
+            @test isempty(output)
+            @test over().linewidth[] == 5
+            # a replay of the store ends where the line does
+            Plotting.apply_kwargs!(fd, fd.ui.state.kwargs[])
+            @test over().linewidth[] == 5
+            # so does a rebuilt axis
+            Plotting.redraw!(fd)
+            @test over().linewidth[] == 5
+            # a change of the shared keyword is replayed with the prefixed
+            # one on top, so the overlay keeps its own ...
+            set_kwargs!(fd, "linewidth=4, over.linewidth=5")
+            @test over().linewidth[] == 5
+            # ... and a deletion of it likewise
+            set_kwargs!(fd, "over.linewidth=5")
+            @test over().linewidth[] == 5
+            # the keyword that is alone on its property is not replayed:
+            # a rebuild is what it would cost
+            set_kwargs!(fd, "over.linewidth=5, coastlines=false")
+            axis = fd.ax[]
+            set_kwargs!(fd, "over.linewidth=2, coastlines=false")
+            @test fd.ax[] === axis
+            @test over().linewidth[] == 2
+            cleanup(dataset)
+        end
+
+        @testset "An overlaid quiver keeps its flat color" begin
+            # the reported case: a heatmap under a quiver, the base's
+            # colormap reaching both, a black meant for the arrows, and a
+            # display unit rebuilding the axis once all are applied
+            flat = fill(Makie.to_color(:black), 2)
+            (fd, state, dataset) = init_overlay_figure(
+                over_type = "quiver", over = "u")
+            quiver() = fd.layers[2].plot_obj[]
+            set_kwargs!(fd, "colormap=:balance, color=:black")
+            @test Plotting.primary(fd).colormap[] == :balance
+            @test quiver().colormap[] == flat
+            output = @capture_err set_kwargs!(
+                fd, "colormap=:balance, color=:black, coastlines=false")
+            @test isempty(output)
+            @test Plotting.primary(fd).colormap[] == :balance
+            @test quiver().colormap[] == flat
             cleanup(dataset)
         end
 

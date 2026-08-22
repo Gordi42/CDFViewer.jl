@@ -1813,12 +1813,11 @@ function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
     # the window before the axis: the aspect bound is measured in figure
     # pixels, so the box has to know what window it is being built into
     autosize_figure!(fig_data)
+    # the listener on `ax` builds the layers onto the new axis and applies
+    # the keywords once they are there -- nothing is left to apply here
     fig_data.ax[] = fig_data.plot_data.plot_type[].make_axis(fig_data)
-    if !isnothing(fig_data.ax[])
-        apply_kwargs!(fig_data, ui_state.kwargs[])
-        if fig_data.data_inspector[] === nothing
-            fig_data.data_inspector[] = DataInspector(fig_data.ax[])
-        end
+    if !isnothing(fig_data.ax[]) && fig_data.data_inspector[] === nothing
+        fig_data.data_inspector[] = DataInspector(fig_data.ax[])
     end
     nothing
 end
@@ -2848,6 +2847,16 @@ struct PropertyMapping
     intended_value::Any
 end
 
+"What `property` of `target_obj` holds right now, out of its observable."
+function live_value(target_obj::Any, property::Symbol)::Any
+    value = getproperty(target_obj, property)
+    try
+        value[]
+    catch
+        value  # not an observable
+    end
+end
+
 # ------------------------------------------------------------
 #  A uniform color on a vector plot
 #
@@ -3091,14 +3100,7 @@ function get_property_mappings(kwargs::OrderedDict{Symbol, Any}, fig_data::Figur
             # everything else keeps the property it resolved to
             prop, wanted = vector_color_target(
                 fig_data, target_obj, property, intended_value)
-            # Get the current value of the property
-            current_value = getproperty(target_obj, prop)
-            # If it's an Observable, get its value
-            current_value = try
-                current_value[]
-            catch
-                current_value  # not an observable
-            end
+            current_value = live_value(target_obj, prop)
 
             # a deletion resolves per target: keep the loop variable
             # intact so the next target still sees the :delete request
@@ -3173,7 +3175,15 @@ end
 function apply_property_mappings!(fd::FigureData, mappings::Vector{PropertyMapping})::Bool
     redraw = false
     for mapping in mappings
-        mapping.current_value == mapping.intended_value && continue
+        # read the property again rather than trusting the snapshot: two
+        # keywords can write the same one -- `colormap` reaches a quiver's
+        # colormap, and so does the `color=:black` meant for it -- and the
+        # earlier one may just have moved it off the value the later one
+        # wants. Skipping on the snapshot left the quiver with the base's
+        # colormap every time the keywords were replayed onto a rebuilt
+        # axis, as a display unit makes them
+        live_value(mapping.target_object, mapping.property) ==
+            mapping.intended_value && continue
         res = set_property_mapping(fd, mapping.target_object, mapping.property, mapping.intended_value)
         redraw = res ? true : redraw
     end
@@ -3229,27 +3239,58 @@ the prompt, the command line, an export, a resample. It takes values,
 not text -- whatever has to be parsed is parsed by its caller, at the
 edge. The store is replaced whole and only what actually differs is
 applied, so a keyword that is merely repeated costs nothing.
+
+Differs, or writes a property that a difference writes. Two keywords can
+set the same property of the same object -- `colormap` reaches a quiver's
+colormap, and so does the `color=:black` meant for it; `levels` reaches
+an overlay's levels, and so does `over.levels` -- and the line means them
+in the order written. So a keyword that is unchanged but shares a
+property with a change is replayed after it, or changing the colormap
+alone would paint the black over. What was deleted goes first of all, so
+the replay lands on top of the default rather than under it.
 """
 function update_kwargs!(fd::FigureData, new_kwargs::OrderedDict{Symbol, Any})::Nothing
     old_kwargs = fd.ui.state.kwargs[]
 
     diff_kwargs = OrderedDict{Symbol, Any}()
-    # Loop over new_kwargs and filter out those that are the same in old_kwargs
-    for (k, v) in new_kwargs
-        if haskey(old_kwargs, k) && haskey(new_kwargs, k) && old_kwargs[k] == new_kwargs[k]
-            continue
-        end
-        diff_kwargs[k] = v
+    # what is gone, with value :delete
+    for k in keys(old_kwargs)
+        haskey(new_kwargs, k) || (diff_kwargs[k] = :delete)
     end
-    # We store kwargs that were removed as well, with value :delete
-    for (k, v) in old_kwargs
-        if !haskey(new_kwargs, k)
-            diff_kwargs[k] = :delete
-        end
+    changed = Set{Symbol}(k for (k, v) in new_kwargs
+                          if !(haskey(old_kwargs, k) && old_kwargs[k] == v))
+    # the properties all of that writes
+    slots = Tuple{Any, Symbol}[]
+    for (k, v) in diff_kwargs
+        append!(slots, kwarg_slots(fd, k, v))
+    end
+    for k in changed
+        append!(slots, kwarg_slots(fd, k, new_kwargs[k]))
+    end
+    shares(a, b) = a[1] === b[1] && a[2] === b[2]
+    # what changed, and what writes where a change does, in store order
+    for (k, v) in new_kwargs
+        k in changed && (diff_kwargs[k] = v; continue)
+        isempty(slots) && continue
+        replay = any(s -> any(t -> shares(s, t), slots), kwarg_slots(fd, k, v))
+        replay && (diff_kwargs[k] = v)
     end
     # Update the stored kwargs
     fd.ui.state.kwargs[] = new_kwargs
     apply_kwargs!(fd, diff_kwargs)
+end
+
+"""
+    kwarg_slots(fd, key, value)
+
+The (target, property) pairs `key` writes when it carries `value`: the
+ones `get_property_mappings` resolves it to, a vector plot's `color`
+counted as its colormap.
+"""
+function kwarg_slots(fd::FigureData, key::Symbol,
+                     value::Any)::Vector{Tuple{Any, Symbol}}
+    property, targets = resolve_kwarg(fd, key)
+    [(t, vector_color_target(fd, t, property, value)[1]) for t in targets]
 end
 
 function apply_kwargs!(fig_data::FigureData, kwargs::OrderedDict{Symbol, Any})::Nothing
