@@ -1,6 +1,68 @@
 # cdfviewer
 
 Python interface to [CDFViewer](https://github.com/Gordi42/CDFViewer.jl),
-the interactive NetCDF and zarr viewer.
+an interactive viewer for NetCDF files and zarr stores.
 
-(Written by work package E; see `design/python/` in the repository.)
+Render a figure or an animation from a script, build a command line
+without running it, or keep a viewer open from a notebook cell and drive
+it while you look at it. Everything runs in the `cdfviewer` application
+itself, and every parameter is named after the command-line option it
+stands for.
+
+```bash
+pip install cdfviewer
+```
+
+The application binary is found through `CDFVIEWER_BIN`, then on `PATH`,
+and otherwise downloaded on first use (Linux x86_64). `pip install
+"cdfviewer[xarray]"` adds what is needed to pass xarray objects instead of
+file paths.
+
+## Save a figure
+
+```python
+import cdfviewer as cv
+
+path = cv.savefig(
+    "demo.nc",
+    var="temperature", x="lon", y="lat", plot_type="heatmap",
+    kwargs={"colormap": "balance", "colorrange": (-2, 30)},
+    filename="temperature.png",
+)
+```
+
+## Record an animation
+
+```python
+path = cv.record(
+    "demo.nc",
+    var="temperature", x="lon", y="lat", plot_type="heatmap",
+    ani_dim="time",
+    filename="temperature.mp4", framerate=25,
+)
+```
+
+## Keep a viewer open
+
+```python
+s = cv.Session("demo.nc", var="temperature", x="lon", y="lat",
+               plot_type="heatmap")
+
+s.set(colormap="viridis")   # the open window updates
+s.isel(time=5)
+s.savefig("frame.png")
+s.close()
+```
+
+The window stays open while the session lives, and your Python process is
+never blocked. Constructing a `Session` on a dataset that already has one
+adjusts that viewer instead of opening a second, so re-running a notebook
+cell updates the plot you are looking at.
+
+## Documentation
+
+The full page -- installing, the binary search, every parameter, keyword
+values, in-memory data, errors -- is in the manual:
+<https://gordi42.github.io/CDFViewer.jl/usage/python/>.
+
+MIT licensed, like CDFViewer.jl itself.

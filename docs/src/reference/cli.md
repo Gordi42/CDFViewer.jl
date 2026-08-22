@@ -46,6 +46,8 @@ cdfviewer demo.nc -v temperature -x lon -y lat -p heatmap --dims="time=5" -a tim
 | `--use-local` | Use a local directory for temporary operations to improve performance (see [Configuration](../usage/configuration.md)) |
 | `--no-grid-search` | Disable the automatic search for a matching grid file |
 | `--no-summary` | Do not print the dataset overview when a file is opened |
+| `--version` | Print `cdfviewer <version>` and exit |
+| `--help` | Print this option summary and exit |
 
 ## Notes
 

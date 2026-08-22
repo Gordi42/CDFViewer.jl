@@ -98,6 +98,9 @@ function savefig(fig::Figure, settings::OutputSettings)::Nothing
     filename, tmp_file = @cd settings get_filenames(settings, Constants.IMAGE_FILE_FORMATS)
     save(tmp_file, fig, px_per_unit=settings.px_per_unit)
     @cd settings mv(tmp_file, filename; force=true)
+    # Protocol: the Python package (`python/`) reads the path back off this
+    # line to return it from `savefig()`. Keep the wording and the trailing
+    # path as they are.
     @info "Saved figure to $filename"
     nothing
 end
@@ -119,6 +122,7 @@ function record_scene(fig::Figure, settings::OutputSettings, slider::Slider)::No
     end
     @info "Finished recording. Saving ..."
     @cd settings mv(tmp_file, filename; force=true)
+    # Protocol: read by the Python package, as for `savefig` above.
     @info "Saved animation to $filename"
     # There is a bug in the record function that causes blocking of tick events
     # These can be cleared by running a garbage collection

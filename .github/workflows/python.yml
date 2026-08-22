@@ -1,0 +1,69 @@
+# Tests, linting and coverage for the Python package under `python/`.
+#
+# Separate from CI.yml because it shares nothing with the Julia jobs: no
+# Julia, no OpenGL, no display. Nothing here touches a real binary -- the
+# package is exercised against the fake `cdfviewer` in `python/tests/`, so
+# the run needs no bundle and takes under a minute. The integration tests
+# marked `binary` run in the release workflow, against the freshly built
+# bundle.
+name: Python
+
+on:
+  push:
+    paths:
+      - 'python/**'
+      - 'Project.toml'
+      - '.github/workflows/python.yml'
+  pull_request:
+    paths:
+      - 'python/**'
+      - 'Project.toml'
+      - '.github/workflows/python.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # The package version is the app version, kept in two files that no
+      # tooling ties together. A wheel built off a stale `_version.py` would
+      # look for a bundle that was never released, so the drift is caught
+      # here rather than at install time.
+      - name: Check the Python package version against Project.toml
+        run: |
+          julia_version=$(grep -m1 '^version *= *' Project.toml | sed -E 's/.*"(.*)".*/\1/')
+          python_version=$(grep -m1 '^__version__ *= *' python/src/cdfviewer/_version.py | sed -E 's/.*"(.*)".*/\1/')
+          echo "Project.toml: $julia_version"
+          echo "_version.py:  $python_version"
+          if [ "$julia_version" != "$python_version" ]; then
+            echo "::error::version drift between Project.toml and python/src/cdfviewer/_version.py"
+            exit 1
+          fi
+      - name: Install the package and its development dependencies
+        working-directory: python
+        run: uv sync --extra dev
+      - name: Lint
+        working-directory: python
+        run: uv run ruff check src tests
+      - name: Test
+        working-directory: python
+        run: uv run pytest --cov --cov-report=
+      # `fail_under = 95` in pyproject.toml is the gate; the threshold is
+      # measured without a real binary, so it never depends on a download.
+      - name: Coverage
+        working-directory: python
+        run: uv run coverage report
