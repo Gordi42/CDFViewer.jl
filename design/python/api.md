@@ -39,7 +39,34 @@ Recommendation: (A). Keyword functions are what Python users reach for,
 `command()` gives the copy-pasteable CLI line for a shell or a paper, and a
 spec object can be added later without breaking (A).
 
-Decision:
+Decision (2026-08-22): `savefig()`, `record()`, `command()` and a `Session`
+class. No `show()`: a terminal hand-over is useless in a notebook (the
+kernel's stdin is not the terminal, the REPL hits EOF at once), and in a
+terminal the CLI does the job. No spec object.
+
+- `savefig()` / `record()`: one process per call (`--savefig` / `--record`,
+  headless). `record()`/`savefig()` are `run(command(...))`.
+- `command(...)`: the same parameters, returns a `Command` — a `list[str]`
+  (argv, binary resolved) with a `.shell` property (`shlex.join`). For job
+  scripts, papers, dry runs, custom runners. Counterpart of `Session.export()`.
+- `Session(path, ...)`: one process kept alive, the app's basic REPL driven
+  over a stdin pipe. A live object, not a context manager (the `with` form
+  exists for scripts but is optional): the window stays open while the
+  object lives; `close()`, `del`, kernel exit or crash end it (EOF). The
+  kernel is never blocked — the viewer has its own process and GL loop, so
+  mouse interaction and Python calls act on the same state. A background
+  reader thread drains the app's output at all times (a full pipe would
+  block the app and freeze its GUI); command output is the return value of
+  the call, unsolicited `Warning:` lines become `CDFViewerWarning`. Methods
+  mirror the REPL vocabulary: `var`, `plot`, `axes(x=, y=, z=)`, `isel`,
+  `sel`, `over`, `set(**kwargs)`, `delete`, `get`, `savefig`, `record`,
+  `theme`, `reset`, `export`, window `show()`/`hide()`, `send(line)`,
+  `close()`, plus `png()` and `_repr_png_` (the current figure inline in a
+  notebook cell). `Session(..., visible=False)` sends `hide` after startup;
+  a Julia-side `--hidden` start flag is a possible later refinement.
+- Spike before the work plan: the prompt arrives unbuffered through the
+  pipe; `savefig`/`record` return the prompt only once the file is written;
+  what a failed command looks like in the output.
 
 ## Q2 — Parameter names
 
@@ -66,7 +93,32 @@ Not recommended: letting unknown `**extra` flow into `--kwargs`. Plot
 keywords can be named after coordinates (`x=(0, 100, 200)` sets a coordinate
 range), which clashes with the `x` axis parameter.
 
-Decision:
+Decision (2026-08-22): as close to the CLI as possible. One parameter per
+option, named after the option's long form (its short form for `-x -y -z`,
+whose long forms `--x-axis` read badly as `x_axis` and match the REPL
+commands `x`, `y`, `z`):
+
+| Parameter | CLI | Type |
+|---|---|---|
+| `path` | `files` | `str | PathLike | Sequence[...]` |
+| `var` | `-v/--var` | `str` |
+| `x`, `y`, `z` | `-x -y -z` | `str` |
+| `plot_type` | `-p/--plot_type` | `str` |
+| `ani_dim` | `-a/--ani-dim` | `str` |
+| `dims` | `--dims` | `dict[str, int]` |
+| `over` | `--over` | `list[str]` |
+| `over_plot` | `--over-plot` | `list[str]`, matched to `over` by position; a missing entry gets the default type, as on the CLI |
+| `kwargs` | `--kwargs` | `dict[str, Any]` (Q3) |
+| `grid` | `-g/--grid` | `str | PathLike` |
+| `theme` | `--theme` | `str` |
+| `no_grid_search` | `--no-grid-search` | `bool = False` |
+| `use_local` | `--use-local` | `bool = False` |
+| `menu` | `--menu` | `bool = False`, `Session` only |
+| `no_summary` | `--no-summary` | `bool = False`, `Session` only; one-shot calls always pass it |
+
+`kwargs=dict(...)` is the only way into `--kwargs`; no `**extra`
+passthrough. Flags keep their CLI names even where Python would prefer the
+positive form (`no_grid_search=True`), so the signature reads like `--help`.
 
 ## Q3 — Value formatting for `kwargs` (and save options)
 
@@ -90,7 +142,11 @@ Ranges: either translate `range` with the half-open correction, or refuse
 `range` and point to `raw("0:10")`. Recommendation: refuse — a silent
 off-by-one in a frame range is worse than a two-line hint.
 
-Decision:
+Decision (2026-08-22): the table as it stands, recursively for nested
+values; `sym()` and `raw()` helpers. `range` and `slice` objects are
+refused with a `TypeError` naming `raw("0:10")` and the inclusive
+convention. Any other unknown type is a `TypeError` too (no `str()`
+fallback: a silently stringified object fails far away, inside the app).
 
 ## Q4 — Save options as parameters
 
@@ -105,7 +161,18 @@ is handed over (the app may `cd` for `--use-local`), and the absolute
 `pathlib.Path` is returned. Recommendation: `filename` required on both —
 a default name would surprise more than it helps.
 
-Decision:
+Decision (2026-08-22): `savefig(..., filename=None, px_per_unit=None)`,
+`record(..., filename=None, framerate=None, px_per_unit=None, frames=None)`,
+and `Session.savefig` / `Session.record` with the same options (REPL
+`savefig filename=..., px_per_unit=...` / `record ...`). `frames` takes
+`(start, stop)` or `(start, step, stop)`, 1-based inclusive, written as
+`range=start:step:stop`. `filename` is **optional, as on the CLI**: the
+app picks its standard name, and the wrapper returns the absolute `Path`
+read from the app's `Saved ... to <path>` line (stderr is captured
+anyway; the Julia side keeps that line stable). A given `filename` is
+`~`-expanded and made absolute against Python's cwd first. Only options
+that were set are passed, so the app's defaults stay the single source of
+truth.
 
 ## Q5 — `show()` semantics
 
@@ -125,7 +192,10 @@ a terminal user expects. Capture stderr into the same pipe so `.send()`
 returns what `@info` printed. (The same `Viewer` is the "session mode"
 discussed earlier; it comes for free here.)
 
-Decision:
+Decision (2026-08-22): resolved by Q1 — there is no `show()`; `Session`
+is option (B) as a long-lived object. Option (A) is pointless in a
+notebook (the kernel's stdin is not the terminal) and redundant in a
+terminal (the CLI).
 
 ## Q6 — Errors and warnings
 
@@ -139,16 +209,52 @@ Decision:
 
 Recommendation: all three.
 
-Decision:
+Decision (2026-08-22): all three, and `Error:` records **raise**
+`CDFViewerError` after the call completes (the output file, if any, is
+left in place); in a `Session` the command's output is checked the same
+way and the session stays alive. Default is quiet (everything captured,
+only the warnings above surface); `verbose=True` streams the app's output
+live to stderr, which is where the recording progress bar shows.
 
-## Q7 — Dataset input beyond paths
+Addendum to Q4 (2026-08-22): the unmerged branch `fix/output-overwrite`
+(commit f52d96f) is merged as part of this work. It makes a save or a
+recording write over an existing file by default, with `overwrite=false`
+keeping the `name(1).ext` numbering, on both REPL commands and in `-s`.
+`overwrite` is therefore the fifth save option of `savefig()`,
+`record()` and the `Session` methods, default the app's (`True`). The
+returned `Path` is still read from the app's `Saved ... to` line.
 
-Accept an `xarray.Dataset` (duck-typed: anything with `.to_netcdf`) by
-writing it to a temporary NetCDF file that lives as long as the call (or
-the `Viewer`). No xarray dependency; purely optional.
+## Q7 — In-memory input: xarray Datasets, DataArrays, numpy arrays
 
-Recommendation: yes — it is ~20 lines and the usual case is an in-memory
-result one wants to look at.
+Asked for explicitly (2026-08-22): `path` may also be an
+`xarray.Dataset`, an `xarray.DataArray` or a numpy array. Under the hood
+the object is written to a temporary file that the app then opens.
+
+Points to settle:
+
+- **Writer.** A `Dataset` goes through `to_netcdf` (needs a NetCDF
+  backend in the user's environment: `netCDF4` or `h5netcdf`; `scipy`
+  only writes NetCDF3) or `to_zarr` (needs `zarr`). Pick the first
+  available, error with a hint naming both if none is. A `DataArray`
+  becomes a one-variable `Dataset` (`to_dataset(name=da.name or "data")`)
+  and `var` defaults to that name. A numpy array is wrapped in a
+  `DataArray` with dims `dim_0, dim_1, ...` (optionally named via a
+  `dims=`-like argument? — `dims` is taken by the index selection; maybe
+  `cv.array(arr, dims=("time", "y", "x"), coords=...)` as a tiny helper
+  returning a DataArray) — which makes xarray a requirement for in-memory
+  input, not for the package. Dask-backed arrays are computed by the write.
+- **Temp location and size.** `tempfile.gettempdir()` honours `TMPDIR`,
+  but `/tmp` is often a small tmpfs and an in-memory dataset can be GBs.
+  Provide `CDFVIEWER_TMPDIR` / `configure(tmpdir=...)`; document it.
+- **Lifetime.** One-shot calls delete the file afterwards; a `Session`
+  deletes it on `close()`. The app keeps the file open, so deletion must
+  follow the process exit.
+- **Fidelity.** Attributes (`units`, `long_name`, `standard_name`) and
+  coordinates survive the round trip, so labels and unit handling work as
+  for a file on disk.
+
+Recommendation: yes to all three inputs via xarray; xarray and a NetCDF
+backend are optional dependencies (`pip install cdfviewer[xarray]`).
 
 Decision:
 
