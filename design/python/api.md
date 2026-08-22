@@ -256,7 +256,35 @@ Points to settle:
 Recommendation: yes to all three inputs via xarray; xarray and a NetCDF
 backend are optional dependencies (`pip install cdfviewer[xarray]`).
 
-Decision:
+Decision (2026-08-22):
+
+- All three inputs, through xarray only (a numpy array is wrapped in a
+  `DataArray` with dims `dim_0, dim_1, ...` and no coordinates — the app
+  handles bare dimensions; a `DataArray` becomes a one-variable `Dataset`,
+  `var` defaulting to its name or `"data"`). xarray plus a backend are the
+  optional extra `cdfviewer[xarray]`; the package itself has no
+  dependencies. No naming helper for numpy dims: wrap in a `DataArray`.
+- Writer: `to_netcdf` if `netCDF4` or `h5netcdf` imports, else `to_zarr`
+  if `zarr` does, else an error naming both. `scipy` is not used.
+- Temp location: `tempfile.gettempdir()`, overridable with
+  `CDFVIEWER_TMPDIR` / `configure(tmpdir=...)`; documented, since `/tmp`
+  is often a small tmpfs. One-shot calls delete the file after the process
+  exits; a `Session` on `close()`.
+- A "make it viewable" pass runs before the write, the same for both
+  backends, because the app has no notion of complex numbers (and
+  NCDatasets/NCZarr read neither compound nor zarr complex types):
+  - complex variables are **split** into `name_real` and `name_imag`
+    (attributes copied, `long_name` suffixed); a `var` naming a complex
+    variable, or a complex `DataArray`, resolves to `name_real` with a
+    `CDFViewerWarning`. A `complex=` parameter on `savefig`, `record`,
+    `command` and `Session` — `"split"` (default), `"abs"`, `"real"`,
+    `"imag"`, `"phase"` — writes a single real variable under the
+    original name instead.
+  - `float16` → `float32`; `bool` is xarray's own `int8` + `dtype`
+    attribute encoding; `datetime64`/`timedelta64` are CF-encoded by
+    xarray and read by the app; `object` dtype is an error naming the
+    variable.
+- Dask-backed data is computed by the write (a line in the docs).
 
 ## Q8 — Version policy
 
