@@ -76,12 +76,15 @@ def build_args(
     ValueError
         For no path at all, for ``savefig`` together with ``record``, and
         for more ``over_plot`` entries than ``over`` entries.
+    TypeError
+        When ``over`` or ``over_plot`` is a bare string instead of a list
+        of names.
     """
     if savefig and record:
         msg = "savefig and record exclude each other"
         raise ValueError(msg)
-    over = list(over or ())
-    over_plot = list(over_plot or ())
+    over = _layers("over", over)
+    over_plot = _layers("over_plot", over_plot)
     if len(over_plot) > len(over):
         msg = "over_plot names more layers than over"
         raise ValueError(msg)
@@ -123,6 +126,15 @@ def build_args(
     return args
 
 
+def _layers(name: str, value: Sequence[str] | None) -> list[str]:
+    """The overlay entries as a list; a bare string is a mistake."""
+    # list("temp") would quietly become four one-letter overlays
+    if isinstance(value, str):
+        msg = f"{name} must be a list of names, not a single string"
+        raise TypeError(msg)
+    return list(value or ())
+
+
 def _absolute(path: str | os.PathLike[str]) -> str:
     return os.path.abspath(os.path.expanduser(os.fspath(path)))  # noqa: PTH100, PTH111
 
@@ -130,13 +142,12 @@ def _absolute(path: str | os.PathLike[str]) -> str:
 def _paths(path: PathArg) -> list[str]:
     """The dataset paths as absolute strings; URLs are left alone."""
     items = [path] if isinstance(path, str | os.PathLike) else list(path)
-    if not items:
+    names = [os.fspath(item) for item in items]
+    # an empty name would silently become the working directory
+    if not names or not all(names):
         msg = "path must name at least one file"
         raise ValueError(msg)
-    return [
-        os.fspath(item) if "://" in os.fspath(item) else _absolute(item)
-        for item in items
-    ]
+    return [name if "://" in name else _absolute(name) for name in names]
 
 
 def command(
