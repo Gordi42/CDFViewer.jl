@@ -109,11 +109,20 @@ the one or reaches across the whole figure along the other. A section
 draws its arrows the length a map draws them, and a resized window lays
 them out again.
 
+`lengthscale=` fixes that length instead, as the number of pixels one unit
+of speed is drawn at. It is what two figures need to be read against each
+other, where the same wind has to be the same arrow in both -- the
+automatic scale is fitted to each frame's own grid and speeds. On a map,
+where the arrows stay in the projection's own coordinates, the unit is
+degrees per unit speed rather than pixels, and `del lengthscale` goes back
+to the automatic scale either way.
+
 | Keyword | Default | Effect |
 |:--------|:--------|:-------|
 | `arrows=(24, 16)` | `(24, 16)` | how many arrows to aim for along x and y |
 | `every=4` | (none) | draw every n-th grid point instead, exactly |
 | `minspeed=9` | (none) | leave everything slower than this undrawn |
+| `lengthscale=40` | (none) | draw one unit of speed this many pixels long |
 
 `streamplot` follows the field instead of sampling it, so `arrows` does not
 apply to it. Its lines are short on purpose: each one runs 10% of the

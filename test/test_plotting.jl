@@ -3260,6 +3260,74 @@ using CDFViewer.Plotting
             cleanup(dataset)
         end
 
+        @testset "Arrow length setting" begin
+            (fd, state, dataset) = init_vector_figure("quiver")
+            arrows = Plotting.primary(fd)
+
+            # automatic by default
+            @test fd.settings.lengthscale[] === nothing
+            @test Plotting.layer_lengthscale(fd, 1) === nothing
+            @test arrows.lengthscale[] > 0
+
+            # a length that is not one is refused, and nothing moves
+            automatic = arrows.lengthscale[]
+            for value in ("lengthscale=-1", "lengthscale=0",
+                          "lengthscale=\"abc\"")
+                output = @capture_err set_kwargs!(fd, value)
+                @test !isempty(output)
+                @test fd.settings.lengthscale[] === nothing
+                @test arrows.lengthscale[] == automatic
+            end
+            @test_logs (:error,) match_mode = :any begin
+                Plotting.set_lengthscale!(fd, NaN)
+            end
+            @test fd.settings.lengthscale[] === nothing
+
+            # ... and a good one is applied without a rebuild, so the
+            # zoom stays put
+            axis = fd.ax[]
+            output = @capture_err set_kwargs!(fd, "lengthscale=40")
+            @test isempty(output)
+            @test fd.settings.lengthscale[] == 40.0
+            @test Plotting.layer_lengthscale(fd, 1) == 40.0
+            @test arrows.lengthscale[] == 40.0
+            @test fd.ax[] === axis
+
+            # deleting it gives the automatic scale back, unchanged
+            output = @capture_err set_kwargs!(fd, "")
+            @test isempty(output)
+            @test fd.settings.lengthscale[] === nothing
+            @test Plotting.layer_lengthscale(fd, 1) === nothing
+            @test arrows.lengthscale[] == automatic
+
+            # the defect this closes: the plot attribute of that name is
+            # written from the field on every notification, so an override
+            # that only reached the attribute lasted exactly until the
+            # next frame -- and a recording is nothing but frames
+            set_kwargs!(fd, "lengthscale=40")
+            output = @capture_err begin
+                state.dim_obs[]["time"] = 2
+                notify(state.dim_obs)
+            end
+            @test isempty(output)
+            @test arrows.lengthscale[] == 40.0
+            # the frame really did move the automatic scale underneath it
+            set_kwargs!(fd, "")
+            @test arrows.lengthscale[] != automatic
+
+            # a rebuilt axis replays the whole line onto the new plots --
+            # a display unit rebuilds it, so does a coastline -- and the
+            # override comes across with it
+            output = @capture_err set_kwargs!(
+                fd, "lengthscale=40, coastlines=false")
+            @test isempty(output)
+            @test fd.ax[] !== axis
+            @test Plotting.primary(fd).lengthscale[] == 40.0
+            Plotting.redraw!(fd)
+            @test Plotting.primary(fd).lengthscale[] == 40.0
+            cleanup(dataset)
+        end
+
         @testset "Speed cutoff without a vector plot" begin
             # a scalar plot stores the value silently: a warning here
             # would trip the kwargs path's revert-on-stderr machinery
@@ -3971,6 +4039,44 @@ using CDFViewer.Plotting
             cleanup(dataset)
         end
 
+        @testset "Arrow length per layer" begin
+            (fd, state, dataset) = init_overlay_figure(over_type = "quiver",
+                                                       over = "u")
+            arrows() = fd.layers[2].plot_obj[]
+            automatic = arrows().lengthscale[]
+            # unset, a layer follows the figure -- and the figure is
+            # automatic
+            @test Plotting.layer_lengthscale(fd, 2) === nothing
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                :lengthscale => 20.0, Symbol("over.lengthscale") => 50.0))
+            @test fd.settings.lengthscale[] == 20.0
+            @test Plotting.layer_lengthscale(fd, 1) == 20.0
+            @test Plotting.layer_lengthscale(fd, 2) == 50.0
+            @test arrows().lengthscale[] == 50.0
+
+            # `over.lengthscale` reaches the layer's own setting, not the
+            # arrows2d attribute of the same name -- which is where it
+            # used to land, and where the next frame overwrote it
+            (property, targets) = Plotting.resolve_kwarg(
+                fd, Symbol("over.lengthscale"))
+            @test property === :lengthscale
+            @test targets == Any[fd.layers[2].settings]
+            (property, targets) = Plotting.resolve_kwarg(fd, :lengthscale)
+            @test property === :lengthscale
+            @test targets == Any[fd.settings]
+
+            # deleting the override falls back to the figure's own
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}(
+                :lengthscale => 20.0))
+            @test Plotting.layer_lengthscale(fd, 2) == 20.0
+            @test arrows().lengthscale[] == 20.0
+            # ... and deleting both restores the automatic scale
+            Plotting.update_kwargs!(fd, OrderedDict{Symbol, Any}())
+            @test Plotting.layer_lengthscale(fd, 2) === nothing
+            @test arrows().lengthscale[] == automatic
+            cleanup(dataset)
+        end
+
         @testset "A flat color on one layer only" begin
             # the case the flat color is for: arrows over another field,
             # where the colors belong to the field and not to the arrows
@@ -4003,7 +4109,10 @@ using CDFViewer.Plotting
                                       (:arrows, (1, 2, 3)), (:arrows, 5),
                                       (:every, 2.5), (:every, 0),
                                       (:minspeed, -1.0), (:minspeed, NaN),
-                                      (:minspeed, "fast")]
+                                      (:minspeed, "fast"),
+                                      (:lengthscale, -1.0), (:lengthscale, 0.0),
+                                      (:lengthscale, Inf),
+                                      (:lengthscale, "long")]
                 # word for word, source location included: one complaint,
                 # made in one place
                 layer = @capture_err Plotting.set_property_mapping(
@@ -4018,6 +4127,7 @@ using CDFViewer.Plotting
             @test fd.settings.arrows[] == Constants.VECTOR_ARROWS
             @test fd.settings.every[] === nothing
             @test fd.settings.minspeed[] === nothing
+            @test fd.settings.lengthscale[] === nothing
 
             # the wording is the figure-level setters' own
             normalize(text) = replace(text, r"\s+" => " ")

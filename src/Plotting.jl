@@ -221,6 +221,9 @@ struct FigureSettings
     # Speed below which a vector plot draws nothing at all, in the data's
     # own units (nothing = draw everything)
     minspeed::Observable{Union{Nothing, Float64}}
+    # Arrow length per unit speed, in place of the automatic scale
+    # (nothing = automatic); pixels on a plain axis, data units on a map
+    lengthscale::Observable{Union{Nothing, Float64}}
 
     FigureSettings() = new(
         Observable(Constants.FIGSIZE),
@@ -258,6 +261,7 @@ struct FigureSettings
         Observable(Constants.VECTOR_ARROWS),              # arrows
         Observable{Union{Nothing, Int}}(nothing),         # every
         Observable{Union{Nothing, Float64}}(nothing),     # minspeed
+        Observable{Union{Nothing, Float64}}(nothing),     # lengthscale
     )
 end
 
@@ -898,9 +902,10 @@ mutable struct LayerSettings
     arrows::Union{Nothing, Tuple{Int, Int}}
     every::Union{Nothing, Int}
     minspeed::Union{Nothing, Float64}
+    lengthscale::Union{Nothing, Float64}
 end
 
-LayerSettings() = LayerSettings(nothing, nothing, nothing)
+LayerSettings() = LayerSettings(nothing, nothing, nothing, nothing)
 
 """
 One drawn layer: the plot object sitting on the axis, the settings it
@@ -2275,11 +2280,12 @@ function set_rotatevlim!(fd::FigureData, value::Tuple)::Bool
 end
 
 # ------------------------------------------------------------
-#  Vector plot density and speed cutoff
+#  Vector plot density, speed cutoff and arrow length
 #
 #  `arrows` targets a number of arrows per axis, `every` picks exact grid
 #  points and overrides the target, `minspeed` blanks everything slower
-#  than it. All three are read while the field is laid out, so
+#  than it, and `lengthscale` fixes the length they are drawn at in place
+#  of the automatic one. All four are read while the field is laid out, so
 #  re-notifying the data observable is enough -- no redraw, which would
 #  throw the user's zoom away. A plot type that consumes none of them
 #  stores the value silently and starts using it once a vector type is
@@ -2323,6 +2329,19 @@ function layer_minspeed(fd::FigureData, i::Int)::Float64
     own = i <= length(fd.layers) ? fd.layers[i].settings.minspeed : nothing
     value = own === nothing ? fd.settings.minspeed[] : own
     value === nothing ? 0.0 : value
+end
+
+"""
+    layer_lengthscale(fd, i)
+
+The length per unit speed layer `i` draws its arrows at: its own setting,
+else the figure's, else `nothing` for the automatic scale. It stays a
+`nothing` rather than collapsing to a number the way the cutoff does --
+there is no length that means "work it out yourself".
+"""
+function layer_lengthscale(fd::FigureData, i::Int)::Union{Nothing, Float64}
+    own = i <= length(fd.layers) ? fd.layers[i].settings.lengthscale : nothing
+    own === nothing ? fd.settings.lengthscale[] : own
 end
 
 """
@@ -2438,6 +2457,46 @@ function set_minspeed!(fd::FigureData, value::Union{Nothing, Real})::Bool
     false
 end
 
+"""
+    checked_lengthscale(value)
+
+`value` as an arrow length per unit speed, or `nothing` after saying what
+is wrong with it. The figure-level setting and the per-layer
+`over.lengthscale` share it, so both refuse the same values in the same
+words.
+"""
+function checked_lengthscale(value::Real)::Union{Nothing, Float64}
+    if !isfinite(value) || value <= 0
+        @error ("lengthscale must be a positive length per unit speed, " *
+                "got $value")
+        return nothing
+    end
+    Float64(value)
+end
+
+"""
+Set the length one unit of speed is drawn at, in place of the automatic
+scale.
+
+The automatic scale fits the arrows to the grid they sit on -- the
+reference speed spans `VECTOR_ARROW_FILL` of the gap to the next arrow --
+which is what you want right up until two figures have to be read against
+each other, where the same speed has to be the same arrow in both. The
+unit is the one that scale comes out in: pixels on a plain axis, and data
+units on a map, which draws its arrows in the projection's coordinates
+(see `pixels_per_unit`).
+"""
+function set_lengthscale!(fd::FigureData, value::Union{Nothing, Real})::Bool
+    lengthscale = value
+    if value !== nothing
+        lengthscale = checked_lengthscale(value)
+        lengthscale === nothing && return false
+    end
+    fd.settings.lengthscale[] = lengthscale
+    refresh_vector_density!(fd)
+    false
+end
+
 set_xunit!(fd::FigureData, value::Union{Nothing, AbstractString})::Bool =
     set_axis_unit!(fd, :xunit, fd.settings.xunit, fd.ui.state.x_name, value)
 set_yunit!(fd::FigureData, value::Union{Nothing, AbstractString})::Bool =
@@ -2501,6 +2560,8 @@ const FIGURE_SETTINGS_HANDLERS = Dict{Symbol, FigureSettingsHandler}(
         :every, Union{Nothing, Integer}, set_every!),
     :minspeed => FigureSettingsHandler(
         :minspeed, Union{Nothing, Real}, set_minspeed!),
+    :lengthscale => FigureSettingsHandler(
+        :lengthscale, Union{Nothing, Real}, set_lengthscale!),
 )
     
 
@@ -3034,6 +3095,7 @@ function get_default_value(fd::FigureData, target_object::Any, property::Symbol)
             :arrows => Constants.VECTOR_ARROWS,
             :every => nothing,
             :minspeed => nothing,
+            :lengthscale => nothing,
         )
         return haskey(defaults, property) ? defaults[property] : :delete
     elseif isa(target_object, Makie.AbstractAxis)
@@ -3104,7 +3166,12 @@ function resolve_kwarg(fig_data::FigureData,
         if t !== nothing && property ∈ propertynames(t) &&
         # the figure title lives in a layout Label; never touch the axis'
         # native (empty) title
-        !(property in (:title, :titlesize) && t isa Makie.AbstractAxis)]
+        !(property in (:title, :titlesize) && t isa Makie.AbstractAxis) &&
+        # `lengthscale` is a setting, not an attribute to write over: the
+        # arrows2d plot has one of that name, but what it holds is the
+        # scale the field derived, rewritten on the next notification --
+        # which every animation frame is
+        !(property === :lengthscale && t isa Makie.AbstractPlot)]
     targets = owners(key, kwarg_targets(fig_data))
     isempty(targets) || return (key, targets)
     split = split_layer_key(key)
@@ -3157,6 +3224,7 @@ const LAYER_SETTING_CHECKS = Dict{Symbol, Function}(
     :arrows => checked_arrows,
     :every => checked_every,
     :minspeed => checked_minspeed,
+    :lengthscale => checked_lengthscale,
 )
 
 """
@@ -4376,7 +4444,8 @@ function vector_field_observable(fd::FigureData, ax::Makie.AbstractAxis,
     update = (xs, ys, us, vs) -> begin
         field[] = decimate_vector_field(
             xs, ys, us, vs, layer_arrows(fd, i), layer_every(fd, i),
-            geographic, layer_minspeed(fd, i), pixels_per_unit(ax))
+            geographic, layer_minspeed(fd, i), pixels_per_unit(ax),
+            layer_lengthscale(fd, i))
     end
     update(x[], y[], u[], v[])
     watch_layer!(fd, i, onany(update, x, y, u, v))
