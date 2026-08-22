@@ -23,6 +23,7 @@ deleted in the same commit.
 | Step | State |
 |---|---|
 | Distribution and install decisions | settled (`decisions.md`) |
-| API questions | open (`api.md`) |
-| Work plan | not started |
+| API questions | settled (`api.md`, summarised in `decisions.md`) |
+| Conventions | settled (`conventions.md`) |
+| Work plan | next: spike, then `workplan.md` |
 | Implementation | not started |

@@ -68,6 +68,30 @@ terminal the CLI does the job. No spec object.
   pipe; `savefig`/`record` return the prompt only once the file is written;
   what a failed command looks like in the output.
 
+Addendum (2026-08-22) — the **reuse contract**, for the notebook case where
+a cell holding `s = cv.Session(...)` is edited and re-run: the constructor
+*declares a state*, it does not necessarily start a process.
+
+- A registry of live sessions in the Python process, keyed by the dataset:
+  the resolved absolute path(s) plus the start-only options `grid` and
+  `use_local`; object identity for in-memory data. A hit returns that
+  session object (re-bound to the name) and applies the declaration; a
+  miss starts a process. `reuse=False` forces a second viewer on the same
+  data.
+- Applying a declaration sends commands in the app's setup order
+  (variable, plot type, axes, dims, animation dim, overlays, keywords,
+  theme), only for what changed since the session's *last declaration*,
+  which it remembers. Keywords that were declared before and are gone now
+  are `del`'d; keywords the declaration never mentioned — set by mouse,
+  menu or `s.set()` — stay. Zoom, window position and playback survive
+  unless the app itself rebuilds the axis (plot type, axes).
+- The registry holds sessions strongly: they end on `close()`,
+  `cv.close_all()` or interpreter exit (atexit), never by rebinding a
+  name. `cv.sessions()` lists them. A dead process (window closed, crash)
+  is dropped from the registry and the next call starts fresh.
+- In-memory data reuses only the same object (`is`); a new object means a
+  new temp file and replaces the session under that key.
+
 ## Q2 — Parameter names
 
 Mirror the CLI, snake_case, one parameter per CLI option:
@@ -292,7 +316,7 @@ Decision (2026-08-22):
 version warns once per process (`CDFViewerWarning`), never errors; the
 managed bundle is always the matching version.
 
-Decision:
+Decision (2026-08-22): as recommended. `python -m cdfviewer install --version X` pins another bundle deliberately.
 
 ## Q9 — Logging and progress
 
@@ -300,7 +324,7 @@ Package messages (download, extraction, resolution) go through
 `logging.getLogger("cdfviewer")`; the first-use download additionally prints
 a progress indicator to stderr when it is a TTY.
 
-Decision:
+Decision (2026-08-22): as recommended; the download notice and progress indicator print to stderr on a TTY regardless of logging configuration.
 
 ## Q10 — Documentation
 
@@ -308,4 +332,4 @@ A `docs/src/usage/python.md` page (install, the three functions, `Viewer`,
 value formatting table, `command()`) and a `python/README.md` for PyPI.
 Type hints throughout, `py.typed` shipped.
 
-Decision:
+Decision (2026-08-22): the Documenter page and `python/README.md`; type hints throughout, enforced by ruff's `ANN` rules; **no `py.typed`** and no type checker, as in fridom (see `conventions.md`). Python >= 3.11.

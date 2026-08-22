@@ -58,3 +58,35 @@ A `PATH` binary of another version is used, with a warning once per process
 - Julia side: a `--version` flag printing `cdfviewer <version>` and exiting;
   the release job uploads `cdfviewer-linux-x86_64.tar.zst.sha256` next to the
   bundle and publishes the wheel to PyPI from the same tag.
+
+## D6 — API (2026-08-22, details in `api.md`)
+
+- Surface: `savefig()`, `record()`, `command()` (argv as a `Command`
+  list with `.shell`), and the `Session` class. No `show()`.
+- Parameters named after the CLI options (`var`, `x`, `y`, `z`,
+  `plot_type`, `ani_dim`, `dims`, `over`, `over_plot`, `kwargs`, `grid`,
+  `theme`, `no_grid_search`, `use_local`, `menu`, `no_summary`); no
+  `**extra` passthrough.
+- Keyword values formatted per the Q3 table with `sym()`/`raw()`; `range`
+  and `slice` refused; unknown types are a `TypeError`.
+- Save options as parameters: `filename` (optional, as on the CLI),
+  `px_per_unit`, `framerate`, `frames=(start[, step], stop)`,
+  `overwrite`; the returned `Path` is read from the app's `Saved ... to`
+  line. `fix/output-overwrite` merged for this (2026-08-22).
+- `CDFViewerError` on non-zero exit and on `Error:` records; `Warning:`
+  records become `CDFViewerWarning`; quiet by default, `verbose=True`
+  streams.
+- In-memory input (`Dataset`, `DataArray`, numpy) via xarray as the
+  optional extra; complex data split into `_real`/`_imag` by default,
+  `complex="abs"|"real"|"imag"|"phase"` otherwise; `CDFVIEWER_TMPDIR`.
+- `Session`: a live object with the reuse contract (registry keyed by
+  dataset, declarations applied as diffs), `png()`/`_repr_png_`, methods
+  named after the REPL commands, `send()` as the escape hatch.
+- Versions warn, never error; `logging.getLogger("cdfviewer")`; docs in
+  the Documenter manual; no `py.typed`; Python >= 3.11.
+
+## D7 — Conventions (2026-08-22, details in `conventions.md`)
+
+fridom's layout, ruff config, test and coverage setup (>= 95 % without the
+real binary, via a fake-binary fixture), uv, pre-commit; ruff also in CI,
+no Codecov, no type checker.

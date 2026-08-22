@@ -2,8 +2,8 @@
 
 Source: `/home/silvano/Projects/fridom` (its `pyproject.toml`, `AGENTS.md`,
 `.pre-commit-config.yaml`, `.github/workflows/tests.yml`), surveyed
-2026-08-22. Items marked **(deviation)** differ from fridom on purpose and
-need a decision.
+2026-08-22. Items marked **(deviation)** differ from fridom on purpose; all four were
+confirmed on 2026-08-22.
 
 ## Layout and build
 
