@@ -21,7 +21,13 @@ include("ViewerREPL.jl")
 export julia_main
 
 function get_arg_parser()::ArgParseSettings
-    s = ArgParseSettings()
+    # `--version` prints exactly "cdfviewer <version>" on stdout and exits 0
+    # before anything is opened. The Python package parses that line to tell
+    # which build a `cdfviewer` on PATH is, so keep the format as it is.
+    s = ArgParseSettings(
+        add_version = true,
+        version = "cdfviewer $(Constants.APP_VERSION)",
+    )
 
     @add_arg_table! s begin
         "files"
@@ -122,6 +128,12 @@ function julia_main(;parsed_args::Union{Nothing,Dict}=nothing)::Cint
     if isnothing(parsed_args)
         parsed_args = parse_args(get_arg_parser())
     end
+
+    # `--version` and `--help` are handled inside ArgParse, which prints and
+    # exits. Where that exit is switched off (an interactive session, or a
+    # test) the parser returns nothing instead and there is nothing to open.
+    isnothing(parsed_args) && return 0
+
     file_paths = parsed_args["files"]
 
     # wether to use local directory for temporary operations

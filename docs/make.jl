@@ -41,6 +41,7 @@ makedocs(
             "Saving and Recording" => "usage/saving.md",
             "Unstructured Grids" => "usage/unstructured.md",
             "Configuration" => "usage/configuration.md",
+            "The Python Package" => "usage/python.md",
         ],
         "Reference" => [
             "Command Line Options" => "reference/cli.md",

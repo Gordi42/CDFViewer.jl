@@ -1,0 +1,14 @@
+# Lints the Python package under `python/` on commit. The Julia side has no
+# hook: it is checked by the test suite, not by a linter.
+#
+#   pip install pre-commit && pre-commit install
+#
+# `uv run ruff check src tests` in python/ is the same check, and runs in
+# the Python workflow.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.4
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        files: ^python/
