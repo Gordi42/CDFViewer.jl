@@ -1,8 +1,8 @@
 """
 A stand-in for the cdfviewer binary, for the tests.
 
-It answers the way the real app was observed to (see
-``design/python/workplan.md``, "Spike results"): ``--version`` prints
+It answers the way the real app was observed to over a pipe (the
+protocol is described in ``docs/src/usage/python.md``): ``--version`` prints
 ``cdfviewer <version>``; ``--savefig``/``--record`` write a file named in
 ``-s`` and print ``[ Info: Saved figure to <path>``; otherwise it runs the
 basic REPL with its ``CDFViewer> `` prompt. Every print is flushed.

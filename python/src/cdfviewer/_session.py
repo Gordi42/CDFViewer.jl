@@ -8,7 +8,9 @@ one line in, everything up to the next ``CDFViewer> `` prompt out --
 while a daemon thread drains the pipe at all times, because an undrained
 pipe would block the app and freeze its window.
 
-See ``design/python/api.md`` (Q1 and its addendum) for the contract.
+The manual's Python page (``docs/src/usage/python.md``) states the
+contract: a session declares a state, the registry reuses a running
+viewer on the same dataset, and the window lives until `Session.close`.
 """
 
 from __future__ import annotations
