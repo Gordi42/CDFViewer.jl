@@ -82,7 +82,10 @@ colorbar at once, while `levels=10` only reaches the layer that has
 levels.
 
 Prefix a keyword to aim it at one layer. `over.` addresses the second
-layer, `over2.` the third, and `base.` the first.
+layer, `over2.` the third, and `base.` the first. Both forms can name one
+property: `levels=10, over.levels=6` draws the overlay with six levels,
+because the line is read in order. It stays that way when a keyword in it
+changes, so setting `levels=12` later still leaves the overlay at six.
 
 ```@example ov
 repl(session, "base.colormap=:thermal, over.linewidth=4") # hide
