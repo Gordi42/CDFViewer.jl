@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -546,3 +547,19 @@ def test_sessions_and_close_all(data_file, other_file):
     assert sessions() == []
     assert not first.alive
     assert not second.alive
+
+
+def test_save_resolves_a_relative_report_against_the_start_directory(
+    data_file, tmp_path, monkeypatch
+):
+    start = tmp_path / "start"
+    start.mkdir()
+    monkeypatch.chdir(start)
+    session = Session(data_file)
+    # moving on after the start changes nothing: the app still sits there
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        _session, "saved_path", lambda _records: Path("demo.png")
+    )
+    assert session.savefig() == start / "demo.png"
+    assert session.record() == start / "demo.png"

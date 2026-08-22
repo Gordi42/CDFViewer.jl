@@ -15,6 +15,7 @@ import codecs
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import _data
@@ -25,7 +26,6 @@ from ._logs import parse_records, raise_for_records, saved_path
 if TYPE_CHECKING:  # pragma: no cover
     import os
     from collections.abc import Mapping, Sequence
-    from pathlib import Path
 
     from ._command import PathArg
     from ._logs import Record
@@ -361,7 +361,9 @@ def _one_shot(
                 argv=argv,
                 output=result.output,
             )
-        return saved
+        # a name the app chose itself is reported relative to the directory
+        # it started in, which is the one this call was made from
+        return saved if saved.is_absolute() else Path.cwd() / saved
     finally:
         if temp is not None:
             temp.cleanup()

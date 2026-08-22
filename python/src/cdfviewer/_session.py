@@ -233,6 +233,8 @@ class Session:
             path = self._temp.path
             if self._temp.var is not None:
                 var = self._temp.var
+        # a save without a filename is reported relative to this
+        self._cwd = Path.cwd()
         self._argv = [
             str(binary),
             *build_args(
@@ -474,7 +476,7 @@ class Session:
         if path is None:
             msg = f"cdfviewer did not report where {command} wrote"
             raise CDFViewerError(msg, argv=self._argv, output=text)
-        return path
+        return path if path.is_absolute() else self._cwd / path
 
     def savefig(
         self,

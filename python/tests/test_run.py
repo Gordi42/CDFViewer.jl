@@ -333,3 +333,14 @@ def test_the_temp_dataset_is_cleaned_up_when_the_run_fails(
     with pytest.raises(CDFViewerError, match="exited with code 1"):
         _run.savefig("whatever", filename=tmp_path / "fig.png")
     assert cleaned == [1]
+
+
+@pytest.mark.usefixtures("resolve_fake")
+def test_savefig_makes_a_relative_report_absolute(
+    data_file, tmp_path, monkeypatch
+):
+    # the app names the file itself and reports it relative to where it
+    # started -- which is the directory this call was made from
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(_run, "saved_path", lambda _records: Path("demo.png"))
+    assert _run.savefig(data_file, var="t") == tmp_path / "demo.png"
