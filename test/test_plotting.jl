@@ -2650,10 +2650,119 @@ using CDFViewer.Plotting
             y = collect(0.0:1.0:9.0)
             u = ones(100, 10)
             u[50, 5] = 1000.0
+            # the scale is a length per unit speed, measured against the
+            # gap between neighbouring arrows in *pixels*; one pixel per
+            # data unit -- the default -- is the data-space rule it grew
+            # out of, and the number it gives is the one it always gave
             field = Plotting.decimate_vector_field(
                 x, y, u, zeros(100, 10), (100, 10), nothing, false)
             @test field.lengthscale ≈ 0.9 * 1.0 / 1.0
             @test maximum(field.magnitude) == 1000.0
+            # ... and spelling those factors out changes nothing at all
+            neutral = Plotting.decimate_vector_field(
+                x, y, u, zeros(100, 10), (100, 10), nothing, false, 0.0,
+                (1.0, 1.0))
+            @test neutral.lengthscale == field.lengthscale
+            @test neutral.u == field.u
+            @test neutral.v == field.v
+        end
+
+        @testset "Arrows are sized in pixels" begin
+            # the reported section: 45 km across, 150 m deep, a steady
+            # 0.1 m/s along x and nothing at all along y
+            x = collect(range(234.375, 44765.625, 96))
+            y = -150.0 .+ ((0:47) .+ 0.5) .* 150.0 ./ 48
+            u = fill(0.1, 96, 48)
+            v = zeros(96, 48)
+            # the plot box the standalone reproduction is drawn into
+            sx, sy = 1100 / 4.5e4, 380 / 150
+
+            field = Plotting.decimate_vector_field(
+                x, y, u, v, (60, 20), nothing, false, 0.0, (sx, sy))
+            # what arrows2d! puts on screen: the data-space vector it is
+            # handed, each component through its own axis' pixel scale
+            drawn(f, i, j) = hypot(f.lengthscale * f.u[i, j] * sx,
+                                   f.lengthscale * f.v[i, j] * sy)
+            gapx = abs(field.x[2] - field.x[1]) * sx
+            gapy = abs(field.y[2] - field.y[1]) * sy
+            @test drawn(field, 1, 1) >= 0.5 * gapx
+            # the reference speed spans 0.9 of the gap to its neighbour,
+            # whatever the two axes happen to measure
+            @test drawn(field, 1, 1) ≈
+                Constants.VECTOR_ARROW_FILL * min(gapx, gapy)
+            # ... and the arrow points where the field points: a flow
+            # along x alone is horizontal on screen
+            @test all(field.v .== 0.0)
+
+            # in data units the same arrow was a fifth of a pixel long --
+            # it took the spacing of the axis it does not point along
+            flat = Plotting.decimate_vector_field(
+                x, y, u, v, (60, 20), nothing, false)
+            @test flat.lengthscale * flat.u[1, 1] * sx < 0.5
+        end
+
+        @testset "Arrows scale with the picture" begin
+            x = collect(0.0:1.0:99.0)
+            y = collect(0.0:1.0:9.0)
+            u = ones(100, 10)
+            v = fill(0.5, 100, 10)
+            at(factors...) = Plotting.decimate_vector_field(
+                x, y, u, v, (100, 10), nothing, false, 0.0, factors...)
+
+            # no factors at all is the neutral pair, exactly
+            plain = at()
+            @test at((1.0, 1.0)).lengthscale == plain.lengthscale
+            @test at((1.0, 1.0)).u == plain.u
+
+            # twice the pixels per data unit: half the components handed
+            # to arrows2d!, and twice the scale
+            zoomed = at((2.0, 2.0))
+            @test zoomed.u ≈ plain.u ./ 2
+            @test zoomed.v ≈ plain.v ./ 2
+            @test zoomed.lengthscale ≈ 2 * plain.lengthscale
+
+            # the picture is twice the size, so the gap between arrows is
+            # too and each one is drawn twice as long -- what holds still
+            # is how much of that gap it fills
+            drawn(f, s) = f.lengthscale * hypot(f.u[1, 1] * s, f.v[1, 1] * s)
+            gap(f, s) = min(abs(f.x[2] - f.x[1]), abs(f.y[2] - f.y[1])) * s
+            @test drawn(zoomed, 2.0) ≈ 2 * drawn(plain, 1.0)
+            @test drawn(zoomed, 2.0) / gap(zoomed, 2.0) ≈
+                drawn(plain, 1.0) / gap(plain, 1.0)
+        end
+
+        @testset "Data-to-pixel factors" begin
+            (fd, state, dataset) = init_vector_figure("quiver")
+            ax = fd.ax[]
+            sx, sy = Plotting.pixels_per_unit(ax)
+            @test sx ≈ ax.scene.viewport[].widths[1] / ax.finallimits[].widths[1]
+            @test sy ≈ ax.scene.viewport[].widths[2] / ax.finallimits[].widths[2]
+            @test sx > 0 && sy > 0
+            cleanup(dataset)
+
+            # a map keeps the data-space scheme: through a projection no
+            # single factor per axis exists, and the cos(latitude)
+            # correction next to it is written in data units
+            (fd, state, dataset) = init_vector_figure("quiver",
+                                                      geographic = true)
+            @test fd.ax[] isa GeoAxis
+            @test Plotting.pixels_per_unit(fd.ax[]) == (1.0, 1.0)
+            cleanup(dataset)
+
+            # a 3D axis has no flat plot box to measure at all
+            fig = Figure()
+            @test Plotting.pixels_per_unit(Axis3(fig[1, 1])) == (1.0, 1.0)
+            GLMakie.closeall()
+
+            # ... and neither has an axis with no box or no range yet:
+            # the layout is solved after the plots are built, and the
+            # arrows are laid out again when it is
+            @test Plotting.pixels_per_unit((100, 50), (10.0, 5.0)) ==
+                (10.0, 10.0)
+            @test Plotting.pixels_per_unit((0, 0), (10.0, 5.0)) == (1.0, 1.0)
+            @test Plotting.pixels_per_unit((100, 50), (0.0, 5.0)) == (1.0, 1.0)
+            @test Plotting.pixels_per_unit((100, 50), (-10.0, 5.0)) ==
+                (1.0, 1.0)
         end
 
         @testset "Decimated field" begin
@@ -3734,6 +3843,82 @@ using CDFViewer.Plotting
             @test isempty(output)
             @test Plotting.primary(fd).colormap[] == :balance
             @test quiver().colormap[] == flat
+            cleanup(dataset)
+        end
+
+        @testset "Arrows on a section are sized on screen" begin
+            # the reported case: 45 km along the section against 150 m
+            # down it. A single length in data units is either invisible
+            # along the one axis or reaches across the figure along the
+            # other -- these are laid out in pixels instead.
+            dataset = make_section_temp_dataset()
+            ui = UI.UIElements(dataset)
+            plot_data = Plotting.PlotData(ui.state, dataset)
+            fd = Plotting.FigureData(plot_data, ui)
+            state = ui.state
+            state.variable[] = "b"
+            state.x_name[] = "y"
+            state.y_name[] = "z"
+            state.z_name[] = Constants.NOT_SELECTED_LABEL
+            state.plot_type_name[] = "heatmap"
+            Plotting.create_axis!(fd, state)
+            Plotting.set_layer_variables!(fd, 2, ["v", "w"])
+            Plotting.set_layer_plot_type!(fd, 2, "quiver")
+            section(extra = "") = "color=:black, arrows=(60, 20), " *
+                "aspect=3.0, figsize=(1200, 430)" * extra
+
+            "The longest arrow and the gaps between neighbours, in pixels."
+            function drawn(fd)
+                arrows = fd.layers[2].plot_obj[]
+                sx, sy = Plotting.pixels_per_unit(fd.ax[])
+                scale = arrows.lengthscale[]
+                points = arrows.points[]
+                xs = sort(unique(Float64(p[1]) for p in points))
+                ys = sort(unique(Float64(p[2]) for p in points))
+                (longest = maximum(
+                     scale * hypot(Float64(d[1]) * sx, Float64(d[2]) * sy)
+                     for d in arrows.directions[]),
+                 gapx = (xs[2] - xs[1]) * sx,
+                 gapy = (ys[2] - ys[1]) * sy)
+            end
+
+            output = @capture_err set_kwargs!(fd, section())
+            @test isempty(output)
+            wide = drawn(fd)
+            # a whole pixel gap to fill, and an arrow filling 0.9 of it
+            @test wide.gapx > 1.0
+            @test wide.longest >= 0.5 * wide.gapx
+            @test wide.longest ≈
+                Constants.VECTOR_ARROW_FILL * min(wide.gapx, wide.gapy)
+            # the field is horizontal, and so is every arrow on screen
+            @test all(d[2] == 0 for d in fd.layers[2].plot_obj[].directions[])
+
+            # a narrower window is a smaller gap, and the arrows follow it
+            output = @capture_err set_kwargs!(
+                fd, "color=:black, arrows=(60, 20), aspect=3.0, " *
+                    "figsize=(600, 430)")
+            @test isempty(output)
+            narrow = drawn(fd)
+            @test narrow.gapx < wide.gapx
+            @test narrow.longest ≈
+                Constants.VECTOR_ARROW_FILL * min(narrow.gapx, narrow.gapy)
+
+            # a display unit rebuilds the axis and replays the keywords:
+            # the size has to survive that, and so does the flat color
+            flat = fill(Makie.to_color(:black), 2)
+            @test fd.layers[2].plot_obj[].colormap[] == flat
+            watchers = length(fd.layers[2].watchers)
+            @test watchers > 0
+            output = @capture_err set_kwargs!(fd, section(", xunit=\"km\""))
+            @test isempty(output)
+            @test fd.layers[2].plot_obj[].colormap[] == flat
+            rebuilt = drawn(fd)
+            @test rebuilt.longest >= 0.5 * rebuilt.gapx
+            @test rebuilt.longest ≈
+                Constants.VECTOR_ARROW_FILL * min(rebuilt.gapx, rebuilt.gapy)
+            # the listeners it lays itself out from went with the old
+            # plot rather than piling up behind the new one
+            @test length(fd.layers[2].watchers) == watchers
             cleanup(dataset)
         end
 

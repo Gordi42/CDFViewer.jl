@@ -100,6 +100,15 @@ run!(session, "arrows=(40, 24)") # hide
 plot_figure(session) # hide
 ```
 
+How long they are drawn is decided on screen: the fastest arrows of a
+frame span nine tenths of the gap to their neighbours, and every one of
+them points where its own vector points. That is what a section needs,
+whose two axes carry different quantities -- 45 km along it against 150 m
+down it -- where a single length in data units is either invisible along
+the one or reaches across the whole figure along the other. A section
+draws its arrows the length a map draws them, and a resized window lays
+them out again.
+
 | Keyword | Default | Effect |
 |:--------|:--------|:-------|
 | `arrows=(24, 16)` | `(24, 16)` | how many arrows to aim for along x and y |

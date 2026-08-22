@@ -171,6 +171,45 @@ function vector_magnitude_range(dataset::Data.CDFDataset)
 end
 
 # ========================================
+#  Vertical section
+# ========================================
+# The anisotropic case: 45 km along `y`, 150 m down `z`, so the two axes
+# are drawn at pixel scales two orders of magnitude apart. `v` is a
+# surface jet flowing toward +y and `w` is zero, which makes the arrows
+# horizontal and their drawn length easy to read off.
+
+SECTION_Y = collect(range(234.375, 44765.625, 96))
+SECTION_Z = -150.0 .+ ((0:47) .+ 0.5) .* 150.0 ./ 48
+SECTION_TIME = collect(0.0:2.0)
+
+function init_section_temp_dataset()::String
+    file = tempname() * ".nc"
+    y, z, time = SECTION_Y, SECTION_Z, SECTION_TIME
+    b = [1e-4 * zz for _ in time, _ in y, zz in z]
+    v = [0.1 * exp(zz / 10.0) for _ in time, _ in y, zz in z]
+    w = zeros(length(time), length(y), length(z))
+
+    NCDataset(file, "c") do ds
+        defVar(ds, "time", time, ("time",), attrib = OrderedDict(
+            "units" => "days since 2000-01-01 00:00:00"))
+        defVar(ds, "y", y, ("y",), attrib = OrderedDict("units" => "m"))
+        defVar(ds, "z", z, ("z",), attrib = OrderedDict("units" => "m"))
+
+        dims = ("time", "y", "z")
+        defVar(ds, "b", b, dims, attrib = OrderedDict(
+            "units" => "m/s^2", "long_name" => "Total buoyancy"))
+        defVar(ds, "v", v, dims, attrib = OrderedDict(
+            "units" => "m/s", "long_name" => "Offshore velocity"))
+        defVar(ds, "w", w, dims, attrib = OrderedDict(
+            "units" => "m/s", "long_name" => "Vertical velocity"))
+    end
+
+    file
+end
+
+make_section_temp_dataset() = Data.CDFDataset([init_section_temp_dataset()])
+
+# ========================================
 #  Unstructured Data
 # ========================================
 

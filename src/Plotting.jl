@@ -911,10 +911,13 @@ struct Layer
     plot_obj::Observable{Union{Makie.AbstractPlot, Nothing}}
     settings::LayerSettings
     crange_scan::ColorRangeScan
+    # the listeners the drawn plot needs while it is on the axis, kept so
+    # that they go when it does (see `watch_layer!`)
+    watchers::Vector{Any}
 end
 
 Layer() = Layer(Observable{Union{Makie.AbstractPlot, Nothing}}(nothing),
-                LayerSettings(), ColorRangeScan())
+                LayerSettings(), ColorRangeScan(), Any[])
 
 struct FigureData
     fig::Figure
@@ -1127,6 +1130,36 @@ function wait_for_scans(fd::FigureData)::Nothing
 end
 
 """
+    watch_layer!(fd, i, handles...)
+
+Hand layer `i` the listeners its plot has just registered, so that taking
+the plot off the axis takes them with it. A vector plot lays its field out
+from such a listener, and a layer is rebuilt often enough -- a display
+unit is enough to force one -- that leaving the old one behind would have
+every rebuild add another copy of the same work, done for a plot nobody
+draws any more. `onany` hands back a vector of handles, `on` a single one;
+both go in.
+"""
+function watch_layer!(fd::FigureData, i::Int, handles...)::Nothing
+    i <= length(fd.layers) || return nothing
+    for handle in handles
+        handle isa AbstractVector ?
+            append!(fd.layers[i].watchers, handle) :
+            push!(fd.layers[i].watchers, handle)
+    end
+    nothing
+end
+
+"Drop every listener a layer registered while it was drawn."
+function drop_layer_watchers!(layer::Layer)::Nothing
+    for handle in layer.watchers
+        Makie.Observables.off(handle)
+    end
+    empty!(layer.watchers)
+    nothing
+end
+
+"""
     clear_layer_plots!(fd)
 
 Take every layer's plot off the axis. Rebuilding in place (a `notify` on
@@ -1136,6 +1169,7 @@ previous plots drawn underneath the new ones.
 function clear_layer_plots!(fd::FigureData)::Nothing
     ax = fd.ax[]
     for layer in fd.layers
+        drop_layer_watchers!(layer)
         plot = layer.plot_obj[]
         plot === nothing && continue
         # a plot of an axis that has already been deleted is gone with it;
@@ -1231,6 +1265,7 @@ function drop_layers!(fd::FigureData, indices::Vector{Int})::Nothing
     isempty(indices) && return nothing
     ax = fd.ax[]
     for i in sort(indices; rev = true)
+        drop_layer_watchers!(fd.layers[i])
         plot = fd.layers[i].plot_obj[]
         if plot !== nothing && ax !== nothing
             try
@@ -1807,6 +1842,7 @@ function create_axis!(fig_data::FigureData, ui_state::UI.State)::Nothing
         delete!(fig_data.ax[])
         # the layers went with it, so nothing is left to take off the axis
         for layer in fig_data.layers
+            drop_layer_watchers!(layer)
             layer.plot_obj[] = nothing
         end
     end
@@ -1919,6 +1955,7 @@ function clear_axis!(fd::FigureData)::Nothing
     end
     # the plots went with the axis; only the bookkeeping is left
     for layer in fd.layers
+        drop_layer_watchers!(layer)
         layer.plot_obj[] = nothing
     end
     fd.earth[] = nothing
@@ -4059,6 +4096,15 @@ end
 # follow the field rather than sampling it, so neither applies to them --
 # their line count is Makie's own `density`.
 #
+# How long an arrow is drawn is decided in pixels, not in data units. The
+# two axes of a section carry different quantities -- 45 km against 150 m
+# in the case that prompted this -- and one length in data units is then
+# either invisible along the one or across the whole figure along the
+# other, while the drawn direction is the data direction sheared by the
+# ratio of the two. Pixels have no such ratio: an arrow of the reference
+# speed spans `VECTOR_ARROW_FILL` of the gap to its neighbour and points
+# where the field points, on a square domain and on a section alike.
+#
 # On a map the arrows are drawn in lon/lat and projected afterwards, which
 # needs two fixes a plain axis does not: an arrow whose tip crosses the
 # ±180 seam has that tip projected onto the opposite map edge and draws a
@@ -4200,17 +4246,55 @@ function mask_outside_domain!(x::Vector{Float64}, y::Vector{Float64},
 end
 
 """
-    decimate_vector_field(x, y, u, v, target, every, geographic, minspeed)
+    pixels_per_unit(ax)
+    pixels_per_unit(box, span)
+
+How many pixels one data unit covers along each axis: the drawn plot box
+against the data range it shows. This is what lets a quiver size and orient
+its arrows on screen (see `decimate_vector_field`).
+
+Only a plain `Axis` has such a pair to give. A `GeoAxis` draws through a
+projection, where no single factor per axis exists, and keeps the
+data-space scheme -- its own `1/cos(latitude)` correction included -- while
+an `Axis3` has no flat plot box at all; both get `(1.0, 1.0)`, which *is*
+that scheme. So does an axis with no box or no range to measure: the
+viewport is empty until the layout is solved, and the arrows are laid out
+again once it is (see `vector_field_observable`).
+"""
+pixels_per_unit(ax::Makie.AbstractAxis)::Tuple{Float64, Float64} =
+    ax isa Axis ?
+        pixels_per_unit(ax.scene.viewport[].widths, ax.finallimits[].widths) :
+        (1.0, 1.0)
+
+function pixels_per_unit(box, span)::Tuple{Float64, Float64}
+    sx = Float64(box[1]) / Float64(span[1])
+    sy = Float64(box[2]) / Float64(span[2])
+    (isfinite(sx) && isfinite(sy) && sx > 0 && sy > 0) || return (1.0, 1.0)
+    (sx, sy)
+end
+
+"""
+    decimate_vector_field(x, y, u, v, target, every, geographic, minspeed,
+                          pixelscale, lengthscale)
 
 Thin a vector field down to the arrows that get drawn and derive their
 length scale. Returns the empty field whenever the inputs do not line up:
 `x`, `y` and the data arrive in separate observable notifications, so a
 lift over them transiently sees a grid and a field of different shapes.
+
+`pixelscale` is the axis' data-to-pixel factors (`pixels_per_unit`), and
+the arrows are sized and oriented against them; `lengthscale` overrides
+the automatic scale with a length per unit speed -- pixels wherever the
+factors are real ones, data units on the `(1.0, 1.0)` of a map. The
+defaults are the neutral pair and no override, which is the data-space
+scheme this grew out of.
 """
 function decimate_vector_field(
     x, y, u, v,
     target::Tuple{Int, Int}, every::Union{Nothing, Int}, geographic::Bool,
     minspeed::Float64 = 0.0,
+    pixelscale::Tuple{Float64, Float64} = (1.0, 1.0),
+    lengthscale::Union{Nothing, Float64} = nothing,
 )::VectorField
     any(isnothing, (x, y, u, v)) && return EMPTY_VECTOR_FIELD
     nx, ny = length(x), length(y)
@@ -4241,7 +4325,12 @@ function decimate_vector_field(
     reference > 0 || (reference = 1.0)
     cellx = length(dx) > 1 ? abs(dx[2] - dx[1]) : 1.0
     celly = length(dy) > 1 ? abs(dy[2] - dy[1]) : 1.0
-    lengthscale = Constants.VECTOR_ARROW_FILL * min(cellx, celly) / reference
+    sx, sy = pixelscale
+    # the gap between neighbouring arrows *in pixels*, the shorter of the
+    # two: an arrow that fills more than that reaches into its neighbour
+    gap = min(cellx * sx, celly * sy)
+    scale = lengthscale === nothing ?
+        Constants.VECTOR_ARROW_FILL * gap / reference : Float64(lengthscale)
     if geographic
         # a degree of longitude covers cos(latitude) of the distance a
         # degree of latitude does, so an eastward wind has to be spread
@@ -4253,19 +4342,30 @@ function decimate_vector_field(
         # a regional cut-out has no seam to cross, and masking it would
         # only punch holes along its own borders
         wraps_globally(x) && mask_outside_domain!(
-            dx, dy, du, dv, lengthscale,
+            dx, dy, du, dv, scale,
             extrema(Float64, x), extrema(Float64, y))
     end
-    VectorField(dx, dy, du, dv, magnitude, lengthscale)
+    # `arrows2d!` puts the tip at `point + scale * (u, v)` in *data* space
+    # and projects both ends, so each component is drawn stretched by its
+    # own axis' pixel factor. Handing it the components divided by those
+    # factors undoes exactly that: what reaches the screen is
+    # `scale * (u, v)` in pixels, pointing where the field points. On the
+    # neutral `(1.0, 1.0)` the division is the identity, down to the bit.
+    du ./= sx
+    dv ./= sy
+    VectorField(dx, dy, du, dv, magnitude, scale)
 end
 
 """
     vector_field_observable(fd, ax, i, x, y, u, v)
 
-The drawn field of layer `i`, kept in step with the grid and both data
-components. Reads the density settings without subscribing to them, so
-changing one costs a `notify` on the data (see `refresh_vector_density!`)
-instead of a listener that outlives the plot.
+The drawn field of layer `i`, kept in step with the grid, both data
+components, and -- the arrows being measured in pixels -- the plot box
+they are drawn into. The density settings are read without subscribing to
+them, so changing one costs a `notify` on the data (see
+`refresh_vector_density!`) rather than a listener apiece; the listeners
+this does register belong to the layer and go when its plot does (see
+`watch_layer!`).
 """
 function vector_field_observable(fd::FigureData, ax::Makie.AbstractAxis,
                                  i::Int, x::Observable, y::Observable,
@@ -4276,10 +4376,23 @@ function vector_field_observable(fd::FigureData, ax::Makie.AbstractAxis,
     update = (xs, ys, us, vs) -> begin
         field[] = decimate_vector_field(
             xs, ys, us, vs, layer_arrows(fd, i), layer_every(fd, i),
-            geographic, layer_minspeed(fd, i))
+            geographic, layer_minspeed(fd, i), pixels_per_unit(ax))
     end
     update(x[], y[], u[], v[])
-    onany(update, x, y, u, v)
+    watch_layer!(fd, i, onany(update, x, y, u, v))
+    # the arrows are measured in pixels, so the mapping from data to
+    # pixels is an input like the data itself: lay them out again whenever
+    # the plot box or the range it shows moves. The first pass runs before
+    # the layout is solved -- the viewport is still empty there -- so this
+    # is also what puts the first drawn frame at the right size, headless
+    # runs included. Neither observable is written from here, so there is
+    # no loop to break: the limits are the data's own and an arrow never
+    # reaches them.
+    if ax isa Axis
+        relay = _ -> update(x[], y[], u[], v[])
+        watch_layer!(fd, i, on(relay, ax.scene.viewport),
+                     on(relay, ax.finallimits))
+    end
     field
 end
 
@@ -4426,7 +4539,7 @@ function streamplot_plot!(fd::FigureData, ax::Makie.AbstractAxis, i::Int,
         live[] = true
     end
     update(x[], y[], u[], v[])
-    onany(update, x, y, u, v)
+    watch_layer!(fd, i, onany(update, x, y, u, v))
     streamplot!(ax, sampler, limits;
         stepsize = stepsize, gridsize = Constants.STREAMPLOT_GRIDSIZE,
         maxsteps = Constants.STREAMPLOT_MAXSTEPS,
