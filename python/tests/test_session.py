@@ -10,6 +10,7 @@ import pytest
 from cdfviewer import _config, _data, _session
 from cdfviewer._errors import CDFViewerError, CDFViewerWarning
 from cdfviewer._format import sym
+from cdfviewer._output import Animation, Figure
 from cdfviewer._session import PROMPT, Session, close_all, sessions
 
 PNG_MAGIC = b"\x89PNG"
@@ -297,7 +298,9 @@ def test_export_without_an_answer_raises(session):
 
 def test_savefig_writes_and_returns_the_path(session, tmp_path, sent):
     target = tmp_path / "figure.png"
-    assert session.savefig(target, px_per_unit=2, overwrite=True) == target
+    saved = session.savefig(target, px_per_unit=2, overwrite=True)
+    assert isinstance(saved, Figure)
+    assert saved.path == target
     assert target.read_bytes().startswith(PNG_MAGIC)
     assert sent == [
         f'savefig filename="{target}", px_per_unit=2, overwrite=true'
@@ -309,7 +312,7 @@ def test_savefig_without_a_filename_uses_the_apps_name(
 ):
     monkeypatch.chdir(tmp_path)  # the app writes into its own directory
     session = Session(data_file)
-    assert session.savefig() == tmp_path / "cdfviewer.png"
+    assert session.savefig().path == tmp_path / "cdfviewer.png"
     assert sent == ["savefig"]
 
 
@@ -328,7 +331,9 @@ def test_a_save_without_a_saved_line_raises(session):
 
 def test_record_strips_the_progress_bar(session, tmp_path, sent):
     target = tmp_path / "movie.mp4"
-    assert session.record(target, framerate=12, frames=(1, 2, 9)) == target
+    saved = session.record(target, framerate=12, frames=(1, 2, 9))
+    assert isinstance(saved, Animation)
+    assert saved.path == target
     assert target.read_bytes() == b"fake-mp4"
     assert sent == [f'record filename="{target}", framerate=12, range=1:2:9']
 
@@ -567,5 +572,5 @@ def test_save_resolves_a_relative_report_against_the_start_directory(
     monkeypatch.setattr(
         _session, "saved_path", lambda _records: Path("demo.png")
     )
-    assert session.savefig() == start / "demo.png"
-    assert session.record() == start / "demo.png"
+    assert session.savefig().path == start / "demo.png"
+    assert session.record().path == start / "demo.png"

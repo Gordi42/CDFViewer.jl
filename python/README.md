@@ -23,7 +23,7 @@ file paths.
 ```python
 import cdfviewer as cv
 
-path = cv.savefig(
+fig = cv.savefig(
     "demo.nc",
     var="temperature", x="lon", y="lat", plot_type="heatmap",
     kwargs={"colormap": "balance", "colorrange": (-2, 30)},
@@ -31,16 +31,23 @@ path = cv.savefig(
 )
 ```
 
+`fig` is the path of the file that was written -- path-like, with the
+`pathlib.Path` in `fig.path` -- and it draws the figure when it is the
+value of a notebook cell.
+
 ## Record an animation
 
 ```python
-path = cv.record(
+video = cv.record(
     "demo.nc",
     var="temperature", x="lon", y="lat", plot_type="heatmap",
     ani_dim="time",
     filename="temperature.mp4", framerate=25,
 )
 ```
+
+In a notebook the recording plays inline, embedded in the notebook up to
+`cv.configure(embed_limit=...)` megabytes (20 by default).
 
 ## Keep a viewer open
 

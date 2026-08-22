@@ -5,8 +5,9 @@ Each call starts the binary once, headlessly, waits for it to exit and
 reads back what it logged: ``Warning:`` records become
 `CDFViewerWarning`, an ``Error:`` record or a non-zero exit raise
 `CDFViewerError`, and the ``Saved ... to`` line is where the returned
-path comes from. In-memory input is written to a temporary file first
-(`_data`) and the file is deleted once the process has exited.
+`Figure` or `Animation` comes from. In-memory input is written to a
+temporary file first (`_data`) and the file is deleted once the process
+has exited.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from . import _data
 from ._command import command
 from ._errors import CDFViewerError
 from ._logs import parse_records, raise_for_records, saved_path
+from ._output import Animation, Figure
 
 if TYPE_CHECKING:  # pragma: no cover
     import os
@@ -130,7 +132,7 @@ def savefig(
     overwrite: bool | None = None,
     complex_as: str = "split",
     verbose: bool = False,
-) -> Path:
+) -> Figure:
     """
     Render one figure headlessly and return the file it was saved to.
 
@@ -181,8 +183,11 @@ def savefig(
 
     Returns
     -------
-    Path
-        The absolute path the app reported saving to.
+    Figure
+        The absolute path the app reported saving to. A `Figure` is
+        path-like -- ``open()``, ``Path()`` and ``print()`` treat it as
+        the path it carries, which is also its ``.path`` attribute --
+        and shows the image when it is the value of a notebook cell.
 
     Raises
     ------
@@ -233,7 +238,7 @@ def record(
     overwrite: bool | None = None,
     complex_as: str = "split",
     verbose: bool = False,
-) -> Path:
+) -> Animation:
     """
     Record an animation headlessly and return the video file.
 
@@ -288,8 +293,9 @@ def record(
 
     Returns
     -------
-    Path
-        The absolute path the app reported saving to.
+    Animation
+        The absolute path the app reported saving to, path-like as for
+        `savefig`; in a notebook it shows a player for the video.
 
     Raises
     ------
@@ -326,14 +332,15 @@ def _one_shot(
     save: dict[str, Any],
     complex_as: str,
     verbose: bool,
-) -> Path:
+) -> Figure | Animation:
     """
     One headless run of the app that ends in a saved file.
 
     In-memory input is written to a temporary dataset first, whose
     variable name becomes the default ``var``; the temporary files are
     removed once the process has exited, which is why the cleanup can
-    sit in a ``finally``.
+    sit in a ``finally``. The saved file comes back as an `Animation`
+    for a recording and a `Figure` otherwise.
     """
     temp = None
     if _data.is_in_memory(path):
@@ -363,7 +370,9 @@ def _one_shot(
             )
         # a name the app chose itself is reported relative to the directory
         # it started in, which is the one this call was made from
-        return saved if saved.is_absolute() else Path.cwd() / saved
+        if not saved.is_absolute():
+            saved = Path.cwd() / saved
+        return Animation(saved) if record else Figure(saved)
     finally:
         if temp is not None:
             temp.cleanup()

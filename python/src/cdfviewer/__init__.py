@@ -1,10 +1,11 @@
 """
 Python interface to CDFViewer, the interactive NetCDF and zarr viewer.
 
-`savefig` and `record` render one figure or animation per call,
-`command` builds the command line without running it, and `Session`
-keeps a viewer open and drives it from a script or a notebook. See the
-manual's "Python" page.
+`savefig` and `record` render one figure or animation per call and hand
+back a path-like `Figure` or `Animation` that displays itself in a
+notebook, `command` builds the command line without running it, and
+`Session` keeps a viewer open and drives it from a script or a notebook.
+See the manual's "Python" page.
 """
 
 from __future__ import annotations
@@ -13,14 +14,17 @@ from ._command import Command, command
 from ._config import configure
 from ._errors import CDFViewerError, CDFViewerWarning
 from ._format import Raw, Sym, raw, sym
+from ._output import Animation, Figure
 from ._run import record, run, savefig
 from ._session import Session, close_all, sessions
 from ._version import __version__
 
 __all__ = [
+    "Animation",
     "CDFViewerError",
     "CDFViewerWarning",
     "Command",
+    "Figure",
     "Raw",
     "Session",
     "Sym",

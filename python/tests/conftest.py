@@ -32,7 +32,12 @@ BINARY_FOR_TESTS = os.environ.get(_config.ENV_BIN)
 @pytest.fixture(autouse=True)
 def _clean_config(monkeypatch):
     """No configure() state and no CDFVIEWER_* variables leak in or out."""
-    for name in (_config.ENV_BIN, _config.ENV_TMPDIR, _config.ENV_CACHE):
+    for name in (
+        _config.ENV_BIN,
+        _config.ENV_TMPDIR,
+        _config.ENV_CACHE,
+        _config.ENV_EMBED_LIMIT,
+    ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("CDFVIEWER_FAKE_CONFIG", raising=False)
     _config.reset()

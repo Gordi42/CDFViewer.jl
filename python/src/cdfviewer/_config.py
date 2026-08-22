@@ -1,5 +1,5 @@
 """
-Process-wide settings: the binary to use, the temp and the cache directory.
+Process-wide settings: the binary, the directories, the embed limit.
 
 Each setting is taken from, in this order: what `configure()` was given,
 the environment variable, the default.
@@ -18,11 +18,18 @@ if TYPE_CHECKING:  # pragma: no cover
 ENV_BIN: Final = "CDFVIEWER_BIN"
 ENV_TMPDIR: Final = "CDFVIEWER_TMPDIR"
 ENV_CACHE: Final = "CDFVIEWER_CACHE"
+ENV_EMBED_LIMIT: Final = "CDFVIEWER_EMBED_LIMIT"
+
+DEFAULT_EMBED_LIMIT: Final = 20.0
 
 _settings: dict[str, Path | None] = {
     "binary": None,
     "tmpdir": None,
     "cache_dir": None,
+}
+#: the settings that are numbers, kept apart so the paths stay paths
+_numbers: dict[str, float | None] = {
+    "embed_limit": None,
 }
 
 
@@ -35,6 +42,7 @@ def configure(
     binary: str | os.PathLike[str] | EllipsisType | None = ...,
     tmpdir: str | os.PathLike[str] | EllipsisType | None = ...,
     cache_dir: str | os.PathLike[str] | EllipsisType | None = ...,
+    embed_limit: float | EllipsisType | None = ...,
 ) -> None:
     """
     Set package-wide options for this process.
@@ -53,6 +61,10 @@ def configure(
     cache_dir : str | PathLike | None, optional
         Where managed bundles are stored, beating ``CDFVIEWER_CACHE`` and
         ``~/.cache/cdfviewer``.
+    embed_limit : float | None, optional
+        How many megabytes a figure or a recording may have to be shown
+        inline in a notebook, beating ``CDFVIEWER_EMBED_LIMIT`` and the
+        default of 20.
     """
     if binary is not ...:
         _settings["binary"] = _as_path(binary)
@@ -60,12 +72,18 @@ def configure(
         _settings["tmpdir"] = _as_path(tmpdir)
     if cache_dir is not ...:
         _settings["cache_dir"] = _as_path(cache_dir)
+    if embed_limit is not ...:
+        _numbers["embed_limit"] = (
+            None if embed_limit is None else float(embed_limit)
+        )
 
 
 def reset() -> None:
     """Forget everything `configure()` was given."""
     for key in _settings:
         _settings[key] = None
+    for key in _numbers:
+        _numbers[key] = None
 
 
 def _configured_or_env(key: str, env: str) -> Path | None:
@@ -95,3 +113,12 @@ def cache_dir() -> Path:
     xdg = os.environ.get("XDG_CACHE_HOME")
     base = Path(xdg).expanduser() if xdg else Path.home() / ".cache"
     return base / "cdfviewer"
+
+
+def embed_limit() -> float:
+    """How large a file may be to be embedded in a notebook, in megabytes."""
+    configured = _numbers["embed_limit"]
+    if configured is not None:
+        return configured
+    from_env = os.environ.get(ENV_EMBED_LIMIT) or None
+    return DEFAULT_EMBED_LIMIT if from_env is None else float(from_env)

@@ -64,8 +64,9 @@ def test_savefig_writes_the_png_it_returns(dataset, tmp_path):
     )
     # The path comes from the app's "Saved figure to" line, not from the
     # argument -- so this also checks that the two still agree.
-    assert result == out
-    assert result.is_absolute()
+    assert isinstance(result, cv.Figure)
+    assert result.path == out
+    assert result.path.is_absolute()
     assert result.read_bytes()[:8] == PNG_MAGIC
 
 
@@ -77,7 +78,7 @@ def test_savefig_without_a_filename_reports_where_it_saved(
     result = cv.savefig(
         dataset, var="temperature", x="lon", y="lat", plot_type="heatmap"
     )
-    assert result.is_absolute()
+    assert result.path.is_absolute()
     assert result.read_bytes()[:8] == PNG_MAGIC
 
 
@@ -95,8 +96,9 @@ def test_record_writes_the_video_it_returns(dataset, tmp_path):
         framerate=5,
         frames=(1, 3),  # 1-based and inclusive: three of the four steps
     )
-    assert result == out
-    assert result.stat().st_size > 0
+    assert isinstance(result, cv.Animation)
+    assert result.path == out
+    assert result.path.stat().st_size > 0
 
 
 def test_command_is_the_line_that_would_run(dataset):
@@ -140,6 +142,7 @@ def test_session_takes_a_keyword_and_saves(dataset, tmp_path):
 
         session.isel(time=2)
         out = session.savefig(tmp_path / "session.png")
+        assert out.path == tmp_path / "session.png"
         assert out.read_bytes()[:8] == PNG_MAGIC
 
         assert session.png()[:8] == PNG_MAGIC

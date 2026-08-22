@@ -37,6 +37,7 @@ from ._logs import (
     saved_path,
     strip_progress,
 )
+from ._output import Animation, Figure
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping, Sequence
@@ -475,13 +476,15 @@ class Session:
         msg = f"cdfviewer did not report a value for {name!r}"
         raise CDFViewerError(msg, argv=self._argv, output=text)
 
-    def _save(self, command: str, options: str) -> Path:
+    def _save(self, command: str, options: str) -> Figure | Animation:
         text = self.send(f"{command} {options}".strip())
         path = saved_path(parse_records(text))
         if path is None:
             msg = f"cdfviewer did not report where {command} wrote"
             raise CDFViewerError(msg, argv=self._argv, output=text)
-        return path if path.is_absolute() else self._cwd / path
+        if not path.is_absolute():
+            path = self._cwd / path
+        return Animation(path) if command == "record" else Figure(path)
 
     def savefig(
         self,
@@ -489,7 +492,7 @@ class Session:
         *,
         px_per_unit: int | None = None,
         overwrite: bool | None = None,
-    ) -> Path:
+    ) -> Figure:
         """
         Save the current figure and return the file.
 
@@ -507,8 +510,11 @@ class Session:
 
         Returns
         -------
-        Path
-            The file the app reported writing.
+        Figure
+            The file the app reported writing. A `Figure` is path-like
+            -- ``open()``, ``Path()`` and ``print()`` treat it as the
+            path it carries, which is also its ``.path`` attribute --
+            and shows the image when it is the value of a notebook cell.
         """
         return self._save(
             "savefig",
@@ -527,7 +533,7 @@ class Session:
         px_per_unit: int | None = None,
         frames: Sequence[int] | None = None,
         overwrite: bool | None = None,
-    ) -> Path:
+    ) -> Animation:
         """
         Record the animation and return the video file.
 
@@ -547,8 +553,9 @@ class Session:
 
         Returns
         -------
-        Path
-            The file the app reported writing.
+        Animation
+            The file the app reported writing, path-like as for
+            `savefig`; in a notebook it shows a player for the video.
         """
         return self._save(
             "record",
