@@ -20,6 +20,7 @@ _RANGE_HINT = (
     "is not translated; write it as raw('1:10'), or for a recording use "
     "frames=(start, stop)"
 )
+_FRAMES_HINT = "frames must be (start, stop) or (start, step, stop)"
 
 
 class Sym(str):
@@ -154,13 +155,16 @@ def format_dims(dims: Mapping[str, Any]) -> str:
 
 
 def _frames_range(frames: object) -> str:
+    frames = _unwrap_numpy(frames)
+    # a range is a Sequence, and silently reading it as (start, stop)
+    # would hand the app a frame off the end: refuse it like anywhere else
+    if isinstance(frames, range | slice):
+        raise TypeError(_RANGE_HINT)
     if not isinstance(frames, Sequence) or isinstance(frames, str):
-        msg = "frames must be (start, stop) or (start, step, stop)"
-        raise TypeError(msg)
+        raise TypeError(_FRAMES_HINT)
     values = [_as_int("frames", v) for v in frames]
     if len(values) not in (2, 3):
-        msg = "frames must be (start, stop) or (start, step, stop)"
-        raise TypeError(msg)
+        raise TypeError(_FRAMES_HINT)
     return ":".join(str(v) for v in values)
 
 
@@ -178,6 +182,12 @@ def format_save_options(
     ``frames`` is ``(start, stop)`` or ``(start, step, stop)`` in the
     app's own convention, 1-based and inclusive, and becomes
     ``range=start:step:stop``.
+
+    Raises
+    ------
+    TypeError
+        For a ``frames`` that is not two or three integers, and for a
+        non-integer ``framerate`` or ``px_per_unit``.
     """
     parts: list[str] = []
     if filename is not None:
