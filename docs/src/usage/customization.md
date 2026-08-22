@@ -145,6 +145,7 @@ A few special keywords control the figure itself rather than the plot.
 | `arrows=(24, 16)` | `(24, 16)` | arrows per axis in a `quiver` plot |
 | `every=4` | (none) | draw every n-th grid point instead (`quiver`) |
 | `minspeed=9` | (none) | draw nothing slower than this (`quiver`, `streamplot`) |
+| `lengthscale=40` | (none) | fixed arrow length, in pixels per unit speed (`quiver`) |
 
 The label showing the current playback value is configured the same way,
 through its own `animlabel...` keywords (see
