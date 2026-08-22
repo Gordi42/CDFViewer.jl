@@ -11,19 +11,6 @@ from cdfviewer._errors import CDFViewerError, CDFViewerWarning
 xr = pytest.importorskip("xarray")
 np = pytest.importorskip("numpy")
 
-# Warnings of the writers themselves, not of anything this package does:
-# the locked netCDF4 wheel is built against an older numpy, and zarr says
-# that the consolidated metadata xarray writes is not in the v3 spec.
-pytestmark = [
-    pytest.mark.filterwarnings(
-        "ignore:numpy.ndarray size changed:RuntimeWarning"
-    ),
-    pytest.mark.filterwarnings(
-        "ignore:Setting the shape on a NumPy array:DeprecationWarning"
-    ),
-    pytest.mark.filterwarnings("ignore:Consolidated metadata is currently"),
-]
-
 
 @pytest.fixture(autouse=True)
 def _tmpdir(tmp_path, monkeypatch):

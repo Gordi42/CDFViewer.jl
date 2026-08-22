@@ -24,6 +24,9 @@ from cdfviewer import _binary, _config
 from cdfviewer._errors import CDFViewerError
 
 FAKE_SOURCE = Path(__file__).parent / "fake_cdfviewer.py"
+# the binary tests are an explicit opt-in: whatever `cdfviewer` happens to
+# be on PATH is not what they should silently run against
+BINARY_FOR_TESTS = os.environ.get(_config.ENV_BIN)
 
 
 @pytest.fixture(autouse=True)
@@ -113,10 +116,12 @@ def http_server(tmp_path):
 
 
 def pytest_runtest_setup(item):
-    """Skip ``binary`` tests unless a real binary resolves."""
+    """Skip ``binary`` tests unless ``CDFVIEWER_BIN`` names a real binary."""
     if item.get_closest_marker("binary") is None:
         return
+    if not BINARY_FOR_TESTS:
+        pytest.skip("set CDFVIEWER_BIN to run the binary tests")
     try:
         _binary.resolve(download=False)
-    except (CDFViewerError, NotImplementedError):
-        pytest.skip("no cdfviewer binary available")
+    except CDFViewerError as exc:
+        pytest.skip(f"CDFVIEWER_BIN does not resolve: {exc}")

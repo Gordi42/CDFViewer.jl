@@ -111,7 +111,15 @@ testpaths = ["tests"]
 markers = [
   "binary: needs a real cdfviewer binary (skipped when none resolves)",
 ]
-filterwarnings = ["error"]
+filterwarnings = [
+  "error",
+  # the locked netCDF4 wheel is built against an older numpy; both fire
+  # at import time on numpy 2.5
+  "ignore:numpy.ndarray size changed:RuntimeWarning",
+  "ignore:Setting the shape on a NumPy array:DeprecationWarning",
+  # zarr: the consolidated metadata xarray writes is not in the v3 spec
+  "ignore:Consolidated metadata is currently",
+]
 
 # ------------------------------------------------------------ coverage ----
 [tool.coverage.run]

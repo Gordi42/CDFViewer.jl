@@ -11,17 +11,6 @@ from cdfviewer._logs import Record, parse_records
 xr = pytest.importorskip("xarray")
 np = pytest.importorskip("numpy")
 
-# Warnings of the netCDF writer itself: the locked netCDF4 wheel is built
-# against an older numpy than the one that comes with it.
-pytestmark = [
-    pytest.mark.filterwarnings(
-        "ignore:numpy.ndarray size changed:RuntimeWarning"
-    ),
-    pytest.mark.filterwarnings(
-        "ignore:Setting the shape on a NumPy array:DeprecationWarning"
-    ),
-]
-
 WARNING_RECORD = ["┌ Warning: careful now", "└ @ CDFViewer.M /x/f.jl:1"]
 ERROR_RECORD = ["┌ Error: bad news", "└ @ CDFViewer.M /x/f.jl:1"]
 
