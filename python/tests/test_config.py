@@ -9,6 +9,7 @@ def test_defaults_without_anything_set(monkeypatch):
     assert _config.binary_override() is None
     assert _config.tmpdir() == Path(tempfile.gettempdir())
     assert _config.cache_dir() == Path.home() / ".cache" / "cdfviewer"
+    assert _config.embed_limit() == _config.DEFAULT_EMBED_LIMIT
 
 
 def test_xdg_cache_home_is_honoured(monkeypatch, tmp_path):
@@ -61,8 +62,24 @@ def test_configure_expands_the_home_directory():
     assert _config.cache_dir() == Path.home() / "somewhere"
 
 
+def test_the_embed_limit_from_the_environment(monkeypatch):
+    monkeypatch.setenv(_config.ENV_EMBED_LIMIT, "42.5")
+    assert _config.embed_limit() == 42.5
+
+
+def test_configure_sets_the_embed_limit(monkeypatch):
+    monkeypatch.setenv(_config.ENV_EMBED_LIMIT, "42.5")
+    _config.configure(embed_limit=5)
+    assert _config.embed_limit() == 5.0
+    _config.configure(embed_limit=None)
+    assert _config.embed_limit() == 42.5
+
+
 def test_reset_forgets_everything(tmp_path):
-    _config.configure(binary=tmp_path, tmpdir=tmp_path, cache_dir=tmp_path)
+    _config.configure(
+        binary=tmp_path, tmpdir=tmp_path, cache_dir=tmp_path, embed_limit=1
+    )
     _config.reset()
     assert _config.binary_override() is None
     assert _config.tmpdir() != tmp_path
+    assert _config.embed_limit() == _config.DEFAULT_EMBED_LIMIT

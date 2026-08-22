@@ -7,6 +7,7 @@ import pytest
 from cdfviewer import _config, _data, _run
 from cdfviewer._errors import CDFViewerError, CDFViewerWarning
 from cdfviewer._logs import Record, parse_records
+from cdfviewer._output import Animation, Figure
 
 xr = pytest.importorskip("xarray")
 np = pytest.importorskip("numpy")
@@ -141,8 +142,9 @@ def test_savefig_returns_the_file_it_saved(data_file, tmp_path):
     target = tmp_path / "out" / "fig.png"
     target.parent.mkdir()
     saved = _run.savefig(data_file, var="temp", filename=target)
-    assert saved == target
-    assert saved.is_absolute()
+    assert isinstance(saved, Figure)
+    assert saved.path == target
+    assert saved.path.is_absolute()
     assert saved.read_bytes().startswith(b"\x89PNG")
 
 
@@ -150,14 +152,15 @@ def test_savefig_returns_the_file_it_saved(data_file, tmp_path):
 def test_savefig_without_a_filename(data_file, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     saved = _run.savefig(data_file)
-    assert saved == tmp_path / "cdfviewer.png"
-    assert saved.exists()
+    assert saved.path == tmp_path / "cdfviewer.png"
+    assert saved.path.exists()
 
 
 @pytest.mark.usefixtures("resolve_fake")
 def test_record_returns_the_video(data_file, tmp_path):
     saved = _run.record(data_file, ani_dim="time", filename=tmp_path / "a.mp4")
-    assert saved == tmp_path / "a.mp4"
+    assert isinstance(saved, Animation)
+    assert saved.path == tmp_path / "a.mp4"
     assert saved.read_bytes() == b"fake-mp4"
 
 
@@ -225,7 +228,7 @@ def test_savefig_warns_about_warning_records(
     target = tmp_path / "fig.png"
     with pytest.warns(CDFViewerWarning, match="careful now"):
         saved = _run.savefig(data_file, filename=target)
-    assert saved == target
+    assert saved.path == target
 
 
 def test_savefig_raises_on_error_records(
@@ -265,7 +268,7 @@ def test_savefig_writes_a_data_array_first(scratch, tmp_path, monkeypatch):
     calls = spy_on_run(monkeypatch)
     array = xr.DataArray(np.zeros((2, 3)), name="temp")
     saved = _run.savefig(array, filename=tmp_path / "fig.png")
-    assert saved.exists()
+    assert saved.path.exists()
     argv = calls[0]
     written = Path(argv[1])
     assert written.parent.parent == scratch
@@ -343,4 +346,4 @@ def test_savefig_makes_a_relative_report_absolute(
     # started -- which is the directory this call was made from
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(_run, "saved_path", lambda _records: Path("demo.png"))
-    assert _run.savefig(data_file, var="t") == tmp_path / "demo.png"
+    assert _run.savefig(data_file, var="t").path == tmp_path / "demo.png"

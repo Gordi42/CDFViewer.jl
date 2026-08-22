@@ -72,13 +72,20 @@ gate.
 ```python
 import cdfviewer as cv
 
-path = cv.savefig(
+fig = cv.savefig(
     "demo.nc",
     var="temperature", x="lon", y="lat", plot_type="heatmap",
     filename="temperature.png",
 )
-print(path)     # /home/you/work/temperature.png
+print(fig)      # /home/you/work/temperature.png
 ```
+
+What comes back is a `Figure`: the absolute path of the file, wrapped so
+that it can also show itself. It is path-like, so `open(fig)`,
+`Path(fig)` and `shutil.copy(fig, ...)` all take it as the path it
+carries, and `fig.path` is that `pathlib.Path` when you want the object
+itself. In a notebook it draws the figure, which is the subject of "In a
+notebook" below.
 
 Every selection parameter is named after its command-line option, so a
 working command line translates a word at a time:
@@ -112,13 +119,16 @@ does not move your files somewhere unexpected.
 `record` is `savefig` with an animated dimension and a video file.
 
 ```python
-path = cv.record(
+video = cv.record(
     "demo.nc",
     var="temperature", x="lon", y="lat", plot_type="heatmap",
     ani_dim="time",
     filename="temperature.mp4", framerate=25,
 )
 ```
+
+The return value is an `Animation`, path-like in the same way as a
+`Figure` and with the same `.path`; in a notebook it plays.
 
 ## The save options
 
@@ -130,7 +140,8 @@ so the application's own defaults stay the single source of truth.
 
 - `filename` -- the output path. Optional, as on the command line: without
   it the application picks its standard name. Either way the absolute path
-  of the file that was written comes back as a `pathlib.Path`.
+  of the file that was written comes back, as a `Figure` or an `Animation`
+  whose `.path` is a `pathlib.Path`.
 - `px_per_unit` -- the resolution multiplier. `2` doubles the pixel
   resolution at the same layout.
 - `framerate` -- frames per second (`record` only, default 30).
@@ -244,6 +255,36 @@ s     # the figure, inline in the notebook
 
 `visible=False` keeps the window closed and gives you a viewer that only
 ever draws into the notebook.
+
+`savefig` and `record` display the same way, because what they return is
+made for it. A call that is the last expression of a cell shows its
+result -- the figure as an image, the recording as a player with the
+video in it -- while the file is written either way:
+
+```python
+cv.savefig("demo.nc", var="temperature", x="lon", y="lat",
+           plot_type="heatmap")            # the figure, inline
+
+cv.record("demo.nc", var="temperature", x="lon", y="lat",
+          plot_type="heatmap", ani_dim="time")   # a player, inline
+```
+
+As with matplotlib, assigning the result to a variable displays nothing:
+`fig = cv.savefig(...)` renders the file and says no more. `s.savefig()`
+and `s.record()` behave like their module-level counterparts.
+
+A displayed video is embedded in the notebook, base64-encoded, so the
+notebook file grows by the size of the recording. Anything larger than
+the embed limit -- 20 MB by default -- is shown as its path instead, with
+a `CDFViewerWarning` saying so. The limit is a package setting, and
+counts for images too:
+
+```python
+cv.configure(embed_limit=100)      # megabytes; None restores the default
+```
+
+`CDFVIEWER_EMBED_LIMIT` sets it for a whole session of the notebook
+server.
 
 ## Keyword values
 
